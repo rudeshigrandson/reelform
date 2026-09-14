@@ -42,7 +42,7 @@ const rootStyle: CSSProperties = {
   flexDirection: "column",
   gap: "var(--space-2)",
   padding: "var(--space-3)",
-  color: "var(--color-neutral-100)",
+  color: "var(--text-1)",
   fontFamily: "var(--font-body)",
   fontSize: "13px",
 };
@@ -58,21 +58,21 @@ const rowStyle: CSSProperties = {
   alignItems: "center",
   gap: "var(--space-2)",
   minHeight: "28px",
-  color: "var(--color-neutral-200)",
+  color: "var(--text-1)",
 };
 
-const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--color-neutral-400)" };
+const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--text-2)" };
 
-const mutedStyle: CSSProperties = { color: "var(--color-neutral-400)", fontSize: "12px" };
+const mutedStyle: CSSProperties = { color: "var(--text-2)", fontSize: "12px" };
 
 function toolButtonStyle(active: boolean): CSSProperties {
   return {
     appearance: "none",
     height: "36px",
     borderRadius: "var(--radius-sm)",
-    border: `1px solid ${active ? "var(--color-accent)" : "var(--color-neutral-800)"}`,
-    background: active ? "var(--color-neutral-800)" : "transparent",
-    color: active ? "var(--color-neutral-100)" : "var(--color-neutral-300)",
+    border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+    background: active ? "var(--bg-active)" : "transparent",
+    color: active ? "var(--text-1)" : "var(--text-2)",
     fontSize: "15px",
     cursor: "pointer",
   };
@@ -227,8 +227,8 @@ function KeystrokeList({
                     fontSize: "12px",
                     padding: "1px var(--space-1)",
                     borderRadius: "var(--radius-sm)",
-                    border: "1px solid var(--color-neutral-700)",
-                    background: "var(--color-neutral-800)",
+                    border: "1px solid var(--border-strong)",
+                    background: "var(--bg-sunken)",
                   }}
                 >
                   {s.label}
@@ -259,7 +259,7 @@ function SelectedPanels(props: AnnotationsInspectorProps & { selected: Annotatio
           <Button variant="ghost" onClick={() => onDuplicate(a)}>
             Duplicate
           </Button>
-          <Button variant="ghost" onClick={() => onDelete(a)}>
+          <Button variant="danger" onClick={() => onDelete(a)}>
             Delete
           </Button>
         </span>

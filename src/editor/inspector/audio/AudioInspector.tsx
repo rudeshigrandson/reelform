@@ -55,15 +55,15 @@ const rowStyle: CSSProperties = {
   gap: "var(--space-2)",
   minHeight: "28px",
   fontSize: "13px",
-  color: "var(--color-neutral-200)",
+  color: "var(--text-1)",
 };
 
-const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--color-neutral-400)" };
+const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--text-2)" };
 
 const monoStyle: CSSProperties = {
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
   fontSize: "12px",
-  color: "var(--color-neutral-300)",
+  color: "var(--text-2)",
   minWidth: "64px",
   textAlign: "right",
 };
@@ -74,11 +74,11 @@ const cardStyle: CSSProperties = {
   gap: "var(--space-1)",
   padding: "var(--space-2)",
   borderRadius: "var(--radius-md)",
-  border: "1px solid var(--color-neutral-800)",
-  background: "var(--color-neutral-900)",
+  border: "1px solid var(--border)",
+  background: "var(--bg-sunken)",
 };
 
-const hintStyle: CSSProperties = { fontSize: "11px", color: "var(--color-neutral-500)" };
+const hintStyle: CSSProperties = { fontSize: "11px", color: "var(--text-3)" };
 
 interface VolumeSliderProps {
   label: string;
@@ -106,7 +106,7 @@ function VolumeSlider({ label, db, disabled, onChange }: VolumeSliderProps): Rea
         aria-valuetext={text}
         disabled={disabled}
         onChange={(e) => onChange(sliderPositionToDb(Number(e.target.value)))}
-        style={{ flex: "1 1 auto", accentColor: "var(--color-accent)" }}
+        style={{ flex: "1 1 auto", accentColor: "var(--accent)" }}
       />
       <span style={monoStyle}>{text}</span>
     </div>
@@ -134,13 +134,13 @@ function ToggleChip({ label, short, pressed, onToggle }: ToggleChipProps): React
         width: "22px",
         height: "22px",
         borderRadius: "var(--radius-sm)",
-        border: "1px solid var(--color-neutral-700)",
+        border: "1px solid var(--border-strong)",
         cursor: "pointer",
         fontSize: "11px",
         fontWeight: 600,
         fontFamily: "var(--font-body)",
-        background: pressed ? "var(--color-accent)" : "var(--color-neutral-800)",
-        color: pressed ? "var(--color-neutral-100)" : "var(--color-neutral-300)",
+        background: pressed ? "var(--accent)" : "var(--bg-sunken)",
+        color: pressed ? "var(--on-accent)" : "var(--text-2)",
       }}
     >
       {short}
@@ -157,7 +157,7 @@ interface MiniWaveformProps {
 function MiniWaveform({ kind, peaks, silent }: MiniWaveformProps): ReactElement {
   const bars = downsamplePeaks(peaks ?? [], WAVEFORM_BARS);
   const height = 24;
-  const fill = silent ? "var(--color-neutral-700)" : "var(--color-accent)";
+  const fill = silent ? "var(--text-3)" : "var(--accent)";
   if (bars.length === 0) {
     return (
       <div
@@ -166,7 +166,7 @@ function MiniWaveform({ kind, peaks, silent }: MiniWaveformProps): ReactElement 
         aria-hidden="true"
         style={{ height: `${height}px`, display: "flex", alignItems: "center" }}
       >
-        <div style={{ width: "100%", height: "1px", background: "var(--color-neutral-700)" }} />
+        <div style={{ width: "100%", height: "1px", background: "var(--border-strong)" }} />
       </div>
     );
   }
@@ -358,7 +358,7 @@ export function AudioInspector({
         display: "flex",
         flexDirection: "column",
         fontFamily: "var(--font-body)",
-        color: "var(--color-neutral-100)",
+        color: "var(--text-1)",
       }}
     >
       <Section title="Tracks">

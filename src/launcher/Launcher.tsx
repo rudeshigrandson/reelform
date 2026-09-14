@@ -1,13 +1,6 @@
-import { useState } from "react";
-import {
-  Button,
-  Card,
-  CardMeta,
-  CardTitle,
-  Segmented,
-  Tag,
-} from "@design/components";
+import { Button, Card, CardMeta, CardTitle, Segmented, Tag } from "@design/components";
 import type { SegmentedOption } from "@design/components";
+import { useState } from "react";
 import type {
   Countdown,
   DeviceInfo,
@@ -56,7 +49,7 @@ function Toggle({
         gap: "var(--space-2)",
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.5 : 1,
-        color: "var(--color-text)",
+        color: "var(--text-1)",
         fontFamily: "var(--font-body)",
       }}
     >
@@ -131,7 +124,7 @@ function SourceCard({
       style={{
         cursor: "pointer",
         padding: "var(--space-2)",
-        outline: selected ? "2px solid var(--color-accent)" : "2px solid transparent",
+        outline: selected ? "2px solid var(--accent)" : "2px solid transparent",
         borderRadius: "var(--radius-md)",
         transition: "outline-color 120ms ease",
       }}
@@ -144,7 +137,7 @@ function SourceCard({
           borderRadius: "var(--radius-sm)",
           background: source.thumbnailUrl
             ? `center / cover no-repeat url(${source.thumbnailUrl})`
-            : "var(--color-neutral-200)",
+            : "var(--bg-sunken)",
           marginBottom: "var(--space-1)",
         }}
       />
@@ -212,7 +205,7 @@ export function Launcher({
   const labelStyle = {
     fontFamily: "var(--font-heading)",
     fontSize: 13,
-    color: "var(--color-neutral-700)",
+    color: "var(--text-2)",
   } as const;
 
   const rowStyle = {
@@ -231,8 +224,8 @@ export function Launcher({
         minHeight: 520,
         margin: "0 auto",
         boxSizing: "border-box",
-        background: "var(--color-surface)",
-        color: "var(--color-text)",
+        background: "var(--bg-app)",
+        color: "var(--text-1)",
         fontFamily: "var(--font-body)",
         padding: "var(--space-5)",
         display: "flex",
@@ -246,7 +239,7 @@ export function Launcher({
           style={{
             fontFamily: "var(--font-heading)",
             fontSize: 24,
-            color: "var(--color-accent)",
+            color: "var(--accent)",
           }}
         >
           Reelform
@@ -311,9 +304,7 @@ export function Launcher({
             disabled={!systemAudioSupported}
           />
           {!systemAudioSupported && (
-            <span style={{ fontSize: 12, color: "var(--color-neutral-500)" }}>
-              Unavailable on macOS
-            </span>
+            <span style={{ fontSize: 12, color: "var(--text-3)" }}>Unavailable on macOS</span>
           )}
         </div>
       </section>

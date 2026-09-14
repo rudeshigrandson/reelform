@@ -21,13 +21,13 @@ export function Done({ onFinish }: DoneProps) {
         style={{
           width: "64px",
           height: "64px",
-          borderRadius: "var(--radius-full, 999px)",
-          background: "var(--color-accent-2)",
+          borderRadius: "var(--radius-full)",
+          background: "var(--success)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           fontSize: "2rem",
-          color: "var(--color-surface)",
+          color: "var(--on-accent)",
         }}
       >
         ✓
@@ -36,14 +36,14 @@ export function Done({ onFinish }: DoneProps) {
         id="onboarding-done-title"
         style={{
           fontFamily: "var(--font-heading)",
-          color: "var(--color-text)",
+          color: "var(--text-1)",
           fontSize: "1.75rem",
           margin: 0,
         }}
       >
         You're all set
       </h2>
-      <p style={{ fontFamily: "var(--font-body)", color: "var(--color-text)", margin: 0 }}>
+      <p style={{ fontFamily: "var(--font-body)", color: "var(--text-1)", margin: 0 }}>
         Reelform is ready. Let's capture your first recording.
       </p>
       <Button variant="primary" onClick={onFinish}>

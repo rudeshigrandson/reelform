@@ -27,8 +27,8 @@ export function Countdown({ count, onCancel }: CountdownProps) {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: "var(--space-4, 16px)",
-        background: "rgba(10, 10, 12, 0.55)",
+        gap: "var(--space-4)",
+        background: "var(--scrim)",
         fontFamily: "var(--font-body)",
       }}
     >
@@ -42,8 +42,11 @@ export function Countdown({ count, onCancel }: CountdownProps) {
           alignItems: "center",
           justifyContent: "center",
           borderRadius: "50%",
-          border: "4px solid var(--color-accent)",
-          boxShadow: "0 0 0 8px rgba(198, 113, 57, 0.18), var(--shadow-lg, 0 8px 24px rgba(0,0,0,0.5))",
+          border: "4px solid var(--accent)",
+          // Glass disc (guide §2.4) so the numeral reads in both themes.
+          background: "color-mix(in srgb, var(--bg-panel) 70%, transparent)",
+          backdropFilter: "blur(24px)",
+          boxShadow: "0 0 0 8px var(--accent-soft), var(--shadow-lg)",
           animation: "reelform-countdown-pulse 1s ease-out infinite",
         }}
       >
@@ -55,7 +58,7 @@ export function Countdown({ count, onCancel }: CountdownProps) {
             fontSize: 96,
             fontWeight: 700,
             lineHeight: 1,
-            color: "var(--color-text, #fff)",
+            color: "var(--text-1)",
             fontVariantNumeric: "tabular-nums",
           }}
         >
@@ -67,7 +70,11 @@ export function Countdown({ count, onCancel }: CountdownProps) {
         data-testid="countdown-hint"
         style={{
           margin: 0,
-          color: "var(--color-neutral-300, #cbcbcb)",
+          padding: "var(--space-1) var(--space-3)",
+          borderRadius: "var(--radius-full)",
+          background: "color-mix(in srgb, var(--bg-panel) 70%, transparent)",
+          backdropFilter: "blur(24px)",
+          color: "var(--text-2)",
           fontSize: 14,
         }}
       >

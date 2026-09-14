@@ -1,13 +1,11 @@
-import { render, screen, fireEvent, within } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { Settings, sampleSettings } from "./Settings";
 import type { SettingsPatch } from "./types";
 
 function setup(overrides?: Partial<Parameters<typeof Settings>[0]>) {
   const onChange = vi.fn<(patch: SettingsPatch) => void>();
-  render(
-    <Settings settings={sampleSettings} onChange={onChange} {...overrides} />,
-  );
+  render(<Settings settings={sampleSettings} onChange={onChange} {...overrides} />);
   return { onChange };
 }
 
@@ -24,9 +22,7 @@ describe("Settings", () => {
       "Advanced",
       "About",
     ]) {
-      expect(
-        within(nav).getByRole("button", { name: label }),
-      ).toBeInTheDocument();
+      expect(within(nav).getByRole("button", { name: label })).toBeInTheDocument();
     }
   });
 
@@ -39,9 +35,7 @@ describe("Settings", () => {
     fireEvent.click(within(nav).getByRole("button", { name: "Recording" }));
 
     expect(screen.getByText(/capture backend/i)).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "Recording" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Recording" })).toBeInTheDocument();
   });
 
   it("changing the theme Segmented calls onChange with { theme }", () => {
@@ -52,9 +46,7 @@ describe("Settings", () => {
 
   it("toggling auto-prune calls onChange", () => {
     const { onChange } = setup();
-    fireEvent.click(
-      screen.getByLabelText(/auto-prune old recordings/i),
-    );
+    fireEvent.click(screen.getByLabelText(/auto-prune old recordings/i));
     expect(onChange).toHaveBeenCalledWith({ autoPrune: true });
   });
 });

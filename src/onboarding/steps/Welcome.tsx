@@ -20,7 +20,7 @@ export function Welcome({ onNext }: WelcomeProps) {
         id="onboarding-welcome-title"
         style={{
           fontFamily: "var(--font-heading)",
-          color: "var(--color-accent)",
+          color: "var(--accent)",
           fontSize: "2.5rem",
           margin: 0,
         }}
@@ -30,7 +30,7 @@ export function Welcome({ onNext }: WelcomeProps) {
       <p
         style={{
           fontFamily: "var(--font-body)",
-          color: "var(--color-text)",
+          color: "var(--text-1)",
           fontSize: "1.125rem",
           margin: 0,
         }}

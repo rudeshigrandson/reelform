@@ -29,6 +29,26 @@ describe("Button", () => {
   });
 });
 
+describe("theme-aware variants", () => {
+  it("renders the destructive button variant", () => {
+    render(<Button variant="danger">Delete</Button>);
+    expect(screen.getByRole("button", { name: "Delete" })).toHaveClass("btn", "btn-danger");
+  });
+
+  it("Segmented size=sm adds the dense class; default does not", () => {
+    const opts = [
+      { value: "a", label: "A" },
+      { value: "b", label: "B" },
+    ] as const;
+    const { rerender } = render(
+      <Segmented name="s" value="a" options={opts} onChange={() => {}} size="sm" />,
+    );
+    expect(screen.getByRole("radiogroup")).toHaveClass("seg", "seg-sm");
+    rerender(<Segmented name="s" value="a" options={opts} onChange={() => {}} />);
+    expect(screen.getByRole("radiogroup")).not.toHaveClass("seg-sm");
+  });
+});
+
 describe("Segmented", () => {
   it("selects the checked option and reports changes", () => {
     function Harness() {

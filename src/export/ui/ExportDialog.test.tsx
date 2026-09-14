@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { ExportDialog, sampleExportProps } from "./ExportDialog";
 import type { ExportUiConfig } from "./types";
 
@@ -67,9 +67,7 @@ describe("ExportDialog", () => {
   });
 
   it("shows the progress view with phase label and percent when rendering", () => {
-    render(
-      <ExportDialog {...sampleExportProps} phase="rendering" progress={0.42} />,
-    );
+    render(<ExportDialog {...sampleExportProps} phase="rendering" progress={0.42} />);
     expect(screen.getByTestId("progress-phase")).toHaveTextContent("Rendering");
     const bar = screen.getByRole("progressbar");
     expect(bar).toHaveAttribute("aria-valuenow", "42");

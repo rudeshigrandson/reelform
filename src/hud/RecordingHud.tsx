@@ -1,6 +1,6 @@
+import { Button, Dialog, Tag } from "@design/components";
 import { useState } from "react";
 import type { CSSProperties } from "react";
-import { Button, Dialog, Tag } from "@design/components";
 import type { RecordingHudProps } from "./types";
 
 const METER_BARS = 12;
@@ -23,10 +23,13 @@ const pillStyle: CSSProperties = {
   height: 64,
   boxSizing: "border-box",
   padding: "0 var(--space-4)",
-  background: "var(--color-neutral-900)",
-  color: "var(--color-neutral-100)",
-  borderRadius: "var(--radius-lg, 9999px)",
-  boxShadow: "var(--shadow-lg, 0 8px 32px rgba(0,0,0,0.45))",
+  // Glass pill (guide §2.4): 88% panel + blur, 1px strong hairline.
+  background: "color-mix(in srgb, var(--bg-panel) 88%, transparent)",
+  backdropFilter: "blur(24px)",
+  border: "1px solid var(--border-strong)",
+  color: "var(--text-1)",
+  borderRadius: "var(--radius-full)",
+  boxShadow: "var(--shadow-lg)",
   fontFamily: "var(--font-body)",
   userSelect: "none",
 };
@@ -37,7 +40,7 @@ const gripStyle: CSSProperties = {
   gap: 3,
   padding: "0 var(--space-1)",
   cursor: "grab",
-  color: "var(--color-neutral-500, #888)",
+  color: "var(--text-3)",
 };
 
 const gripDotRow: CSSProperties = { display: "flex", gap: 3 };
@@ -72,13 +75,13 @@ const stopDotStyle: CSSProperties = {
   width: 14,
   height: 14,
   borderRadius: 3,
-  background: "#fff",
+  background: "var(--on-accent)",
 };
 
 const stopButtonStyle: CSSProperties = {
-  background: "var(--color-accent)",
-  borderColor: "var(--color-accent)",
-  color: "#fff",
+  background: "var(--record)",
+  borderColor: "var(--record)",
+  color: "var(--on-accent)",
 };
 
 function MicMeter({ micLevel }: { micLevel: number | undefined }) {
@@ -113,7 +116,7 @@ function MicMeter({ micLevel }: { micLevel: number | undefined }) {
             width: 3,
             height: 6 + i,
             borderRadius: 1,
-            background: lit ? "var(--color-accent)" : "var(--color-neutral-700, #333)",
+            background: lit ? "var(--accent)" : "var(--border-strong)",
           }}
         />
       ))}
@@ -157,14 +160,14 @@ export function RecordingHud(props: RecordingHudProps) {
               fontSize: 40,
               fontWeight: 700,
               lineHeight: 1,
-              color: "var(--color-accent)",
+              color: "var(--accent)",
               minWidth: 40,
               textAlign: "center",
             }}
           >
             {countdownValue ?? ""}
           </span>
-          <span style={{ fontSize: 13, color: "var(--color-neutral-400, #aaa)" }}>
+          <span style={{ fontSize: 13, color: "var(--text-2)" }}>
             Get ready — recording starts soon
           </span>
         </div>
@@ -246,7 +249,7 @@ export function RecordingHud(props: RecordingHudProps) {
             data-testid="hud-source"
             style={{
               fontSize: 12,
-              color: "var(--color-neutral-400, #aaa)",
+              color: "var(--text-2)",
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -268,7 +271,7 @@ export function RecordingHud(props: RecordingHudProps) {
               Keep recording
             </Button>
             <Button
-              variant="primary"
+              variant="danger"
               onClick={() => {
                 setConfirmOpen(false);
                 onDiscard();

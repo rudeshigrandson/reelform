@@ -113,8 +113,8 @@ const rootStyle: CSSProperties = {
   height: "100%",
   minHeight: 0,
   overflow: "hidden",
-  background: "var(--color-neutral-900)",
-  color: "var(--color-neutral-100)",
+  background: "var(--bg-panel)",
+  color: "var(--text-1)",
   fontFamily: "var(--font-body)",
   userSelect: "none",
 };
@@ -123,21 +123,21 @@ const topRowStyle: CSSProperties = {
   display: "flex",
   flex: "0 0 auto",
   height: `${RULER_HEIGHT_PX}px`,
-  borderBottom: "1px solid var(--color-neutral-800)",
+  borderBottom: "1px solid var(--border)",
 };
 
 const cornerStyle: CSSProperties = {
   width: `${HEADER_WIDTH_PX}px`,
   flex: "0 0 auto",
-  borderRight: "1px solid var(--color-neutral-800)",
-  background: "var(--color-neutral-800)",
+  borderRight: "1px solid var(--border)",
+  background: "var(--bg-panel)",
 };
 
 const rulerStyle: CSSProperties = {
   position: "relative",
   flex: "1 1 auto",
   overflow: "hidden",
-  background: "var(--color-neutral-800)",
+  background: "var(--bg-panel)",
   cursor: "col-resize",
 };
 
@@ -152,7 +152,7 @@ const bodyStyle: CSSProperties = {
 const headerColStyle: CSSProperties = {
   width: `${HEADER_WIDTH_PX}px`,
   flex: "0 0 auto",
-  borderRight: "1px solid var(--color-neutral-800)",
+  borderRight: "1px solid var(--border)",
 };
 
 const headerRowStyle: CSSProperties = {
@@ -162,9 +162,9 @@ const headerRowStyle: CSSProperties = {
   height: `${LANE_HEIGHT_PX}px`,
   padding: "0 var(--space-2) 0 var(--space-3)",
   boxSizing: "border-box",
-  borderBottom: "1px solid var(--color-neutral-800)",
+  borderBottom: "1px solid var(--border)",
   fontSize: "12px",
-  color: "var(--color-neutral-300)",
+  color: "var(--text-2)",
 };
 
 const addButtonStyle: CSSProperties = {
@@ -176,7 +176,7 @@ const addButtonStyle: CSSProperties = {
   borderRadius: "var(--radius-sm)",
   border: "1px solid transparent",
   background: "transparent",
-  color: "var(--color-neutral-300)",
+  color: "var(--text-2)",
   fontFamily: "var(--font-body)",
   fontSize: "16px",
   lineHeight: 1,
@@ -194,8 +194,8 @@ const laneStyle: CSSProperties = {
   height: `${LANE_HEIGHT_PX}px`,
   boxSizing: "border-box",
   overflow: "hidden",
-  borderBottom: "1px solid var(--color-neutral-800)",
-  background: "color-mix(in srgb, var(--color-neutral-800) 40%, transparent)",
+  borderBottom: "1px solid var(--border)",
+  background: "var(--bg-sunken)",
 };
 
 const itemLabelStyle: CSSProperties = {
@@ -206,7 +206,7 @@ const itemLabelStyle: CSSProperties = {
   textOverflow: "ellipsis",
   padding: "0 var(--space-1)",
   fontSize: "12px",
-  color: "var(--color-neutral-100)",
+  color: "var(--text-1)",
   pointerEvents: "none",
 };
 
@@ -230,7 +230,7 @@ function itemStyle(
   invalid: boolean,
 ): CSSProperties {
   const hue = TRACK_COLORS[kind];
-  const edge = invalid ? INVALID_COLOR : selected ? "var(--color-accent)" : hue;
+  const edge = invalid ? INVALID_COLOR : selected ? "var(--accent)" : hue;
   const edgeWidth = invalid || selected ? "2px" : "1px";
   const lineStyle = ghost ? "dashed" : "solid";
   return {
@@ -248,9 +248,7 @@ function itemStyle(
     borderRight: `${edgeWidth} ${lineStyle} ${edge}`,
     borderBottom: `${edgeWidth} ${lineStyle} ${edge}`,
     borderLeft: `3px ${lineStyle} ${hue}`,
-    boxShadow: selected
-      ? "0 0 0 2px color-mix(in srgb, var(--color-accent) 25%, transparent)"
-      : "none",
+    boxShadow: selected ? "0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent)" : "none",
     opacity: ghost ? 0.5 : 1,
     cursor: "grab",
     overflow: "hidden",
@@ -589,7 +587,7 @@ export function Timeline(props: TimelineProps): ReactElement {
                 bottom: 0,
                 width: "1px",
                 height: t.major ? "10px" : "4px",
-                background: t.major ? "var(--color-neutral-500)" : "var(--color-neutral-600)",
+                background: t.major ? "var(--text-3)" : "var(--border-strong)",
                 pointerEvents: "none",
               }}
             >
@@ -602,7 +600,7 @@ export function Timeline(props: TimelineProps): ReactElement {
                     fontSize: "11px",
                     whiteSpace: "nowrap",
                     fontVariantNumeric: "tabular-nums",
-                    color: "var(--color-neutral-400)",
+                    color: "var(--text-2)",
                   }}
                 >
                   {t.label}
@@ -706,7 +704,7 @@ export function Timeline(props: TimelineProps): ReactElement {
                 bottom: 0,
                 left: `${msToPx(preview.snappedTo, scale)}px`,
                 width: "1px",
-                background: "var(--color-accent)",
+                background: "var(--accent)",
                 opacity: 0.6,
                 pointerEvents: "none",
               }}
@@ -724,8 +722,8 @@ export function Timeline(props: TimelineProps): ReactElement {
                 top: `${Math.min(marquee.startLane, marquee.curLane) * LANE_HEIGHT_PX}px`,
                 height: `${(Math.abs(marquee.curLane - marquee.startLane) + 1) * LANE_HEIGHT_PX}px`,
                 boxSizing: "border-box",
-                border: "1px solid var(--color-accent)",
-                background: "color-mix(in srgb, var(--color-accent) 12%, transparent)",
+                border: "1px solid var(--accent)",
+                background: "color-mix(in srgb, var(--accent) 12%, transparent)",
                 pointerEvents: "none",
               }}
             />
@@ -742,7 +740,7 @@ export function Timeline(props: TimelineProps): ReactElement {
           bottom: 0,
           left: `${HEADER_WIDTH_PX + playheadPx}px`,
           width: "1px",
-          background: "var(--color-accent)",
+          background: "var(--accent)",
           pointerEvents: "none",
           visibility: playheadVisible ? "visible" : "hidden",
           zIndex: 2,
@@ -755,7 +753,7 @@ export function Timeline(props: TimelineProps): ReactElement {
             left: "-5px",
             width: "10px",
             height: "10px",
-            background: "var(--color-accent)",
+            background: "var(--accent)",
             clipPath: "polygon(0 0, 100% 0, 50% 100%)",
           }}
         />

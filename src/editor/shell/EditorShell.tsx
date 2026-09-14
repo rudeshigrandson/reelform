@@ -37,8 +37,8 @@ const shellStyle: CSSProperties = {
   height: "100%",
   minWidth: "1024px",
   minHeight: "700px",
-  background: "var(--color-neutral-900)",
-  color: "var(--color-neutral-100)",
+  background: "var(--bg-app)",
+  color: "var(--text-1)",
   fontFamily: "var(--font-body)",
   overflow: "hidden",
 };
@@ -49,8 +49,8 @@ const topBarStyle: CSSProperties = {
   alignItems: "center",
   gap: "var(--space-3)",
   padding: "0 var(--space-4)",
-  background: "var(--color-neutral-900)",
-  borderBottom: "1px solid var(--color-neutral-800)",
+  background: "var(--bg-panel)",
+  borderBottom: "1px solid var(--border)",
 };
 
 const stageStyle: CSSProperties = {
@@ -59,7 +59,7 @@ const stageStyle: CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   padding: "var(--space-6)",
-  background: "var(--color-surface)",
+  background: "var(--bg-sunken)",
   minHeight: 0,
 };
 
@@ -70,8 +70,9 @@ const previewBoxStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  background: "var(--color-neutral-900)",
-  color: "var(--color-neutral-400)",
+  background: "var(--bg-panel)",
+  color: "var(--text-3)",
+  border: "1px solid var(--border)",
   borderRadius: "var(--radius-lg)",
   boxShadow: "var(--shadow-lg)",
 };
@@ -80,8 +81,8 @@ const timelineStyle: CSSProperties = {
   gridArea: "timeline",
   display: "flex",
   flexDirection: "column",
-  background: "var(--color-neutral-900)",
-  borderTop: "1px solid var(--color-neutral-800)",
+  background: "var(--bg-panel)",
+  borderTop: "1px solid var(--border)",
   position: "relative",
   minHeight: 0,
 };
@@ -92,16 +93,16 @@ const rulerStyle: CSSProperties = {
   alignItems: "center",
   padding: "0 var(--space-3)",
   fontSize: "11px",
-  color: "var(--color-neutral-400)",
-  background: "var(--color-neutral-800)",
-  borderBottom: "1px solid var(--color-neutral-800)",
+  color: "var(--text-2)",
+  background: "var(--bg-panel)",
+  borderBottom: "1px solid var(--border)",
 };
 
 const laneStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   height: "32px",
-  borderBottom: "1px solid var(--color-neutral-800)",
+  borderBottom: "1px solid var(--border)",
 };
 
 const laneLabelStyle: CSSProperties = {
@@ -109,22 +110,21 @@ const laneLabelStyle: CSSProperties = {
   flex: "0 0 auto",
   padding: "0 var(--space-3)",
   fontSize: "12px",
-  color: "var(--color-neutral-300)",
-  borderRight: "1px solid var(--color-neutral-800)",
+  color: "var(--text-2)",
+  borderRight: "1px solid var(--border)",
 };
 
 const laneTrackStyle: CSSProperties = {
   flex: "1 1 auto",
   height: "100%",
-  background: "var(--color-neutral-800)",
-  opacity: 0.4,
+  background: "var(--bg-sunken)",
 };
 
 const inspectorStyle: CSSProperties = {
   gridArea: "inspector",
   display: "flex",
-  background: "var(--color-neutral-900)",
-  borderLeft: "1px solid var(--color-neutral-800)",
+  background: "var(--bg-panel)",
+  borderLeft: "1px solid var(--border)",
   minHeight: 0,
 };
 
@@ -134,8 +134,8 @@ const tabRailStyle: CSSProperties = {
   flex: "0 0 auto",
   padding: "var(--space-2)",
   gap: "var(--space-1)",
-  borderRight: "1px solid var(--color-neutral-800)",
-  background: "var(--color-neutral-800)",
+  borderRight: "1px solid var(--border)",
+  background: "var(--bg-app)",
 };
 
 const inspectorBodyStyle: CSSProperties = {
@@ -156,8 +156,8 @@ function tabButtonStyle(active: boolean): CSSProperties {
     cursor: "pointer",
     fontSize: "13px",
     fontFamily: "var(--font-body)",
-    background: active ? "var(--color-accent)" : "transparent",
-    color: active ? "var(--color-neutral-100)" : "var(--color-neutral-300)",
+    background: active ? "var(--accent)" : "transparent",
+    color: active ? "var(--on-accent)" : "var(--text-2)",
     fontWeight: active ? 600 : 400,
   };
 }
@@ -237,7 +237,7 @@ export function EditorShell(props: EditorShellProps): ReactElement {
             >
               {isPlaying ? "❚❚" : "▶"}
             </Button>
-            <span style={{ fontSize: "13px", color: "var(--color-neutral-300)" }}>
+            <span style={{ fontSize: "13px", color: "var(--text-2)" }}>
               {formatTime(currentMs)} / {formatTime(durationMs)}
             </span>
           </div>
@@ -288,7 +288,7 @@ export function EditorShell(props: EditorShellProps): ReactElement {
                   bottom: 0,
                   left: `calc(84px + (100% - 84px) * ${playheadPct / 100})`,
                   width: "2px",
-                  background: "var(--color-accent)",
+                  background: "var(--accent)",
                   pointerEvents: "none",
                 }}
               />
@@ -322,12 +322,12 @@ export function EditorShell(props: EditorShellProps): ReactElement {
               margin: 0,
               fontFamily: "var(--font-heading)",
               fontSize: "18px",
-              color: "var(--color-neutral-100)",
+              color: "var(--text-1)",
             }}
           >
             {activeTab}
           </h2>
-          <div style={{ marginTop: "var(--space-3)", color: "var(--color-neutral-400)" }}>
+          <div style={{ marginTop: "var(--space-3)", color: "var(--text-2)" }}>
             {renderInspector ? renderInspector(activeTab) : `${activeTab} inspector`}
           </div>
         </div>

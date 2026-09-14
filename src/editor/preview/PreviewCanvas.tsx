@@ -49,7 +49,7 @@ const rootStyle: CSSProperties = {
   minWidth: 0,
   minHeight: 0,
   overflow: "hidden",
-  background: "var(--color-surface)",
+  background: "var(--bg-sunken)",
   fontFamily: "var(--font-body)",
 };
 
@@ -76,17 +76,17 @@ const overlayStyle: CSSProperties = {
   pointerEvents: "none",
 };
 
-const labelStyle: CSSProperties = { fontSize: "13px", color: "var(--color-neutral-400)" };
+const labelStyle: CSSProperties = { fontSize: "13px", color: "var(--text-2)" };
 
 const titleStyle: CSSProperties = {
   fontSize: "14px",
   fontWeight: 600,
-  color: "var(--color-neutral-100)",
+  color: "var(--text-1)",
 };
 
 const detailStyle: CSSProperties = {
   fontSize: "12px",
-  color: "var(--color-neutral-400)",
+  color: "var(--text-2)",
   maxWidth: 420,
 };
 
@@ -97,8 +97,9 @@ const offlineCardStyle: CSSProperties = {
   gap: "var(--space-3)",
   padding: "var(--space-4) var(--space-6)",
   borderRadius: "var(--radius-lg)",
-  background: "var(--color-neutral-900)",
-  border: "1px solid var(--color-neutral-800)",
+  background: "var(--bg-panel-raised)",
+  border: "1px solid var(--border)",
+  boxShadow: "var(--shadow-md)",
   pointerEvents: "auto",
 };
 

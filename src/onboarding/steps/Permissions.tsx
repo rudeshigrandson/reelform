@@ -31,7 +31,7 @@ export function Permissions({ permissions, onRequestPermission, onContinue }: Pe
         id="onboarding-permissions-title"
         style={{
           fontFamily: "var(--font-heading)",
-          color: "var(--color-text)",
+          color: "var(--text-1)",
           fontSize: "1.75rem",
           margin: 0,
         }}
@@ -60,13 +60,13 @@ export function Permissions({ permissions, onRequestPermission, onContinue }: Pe
                 justifyContent: "space-between",
                 gap: "var(--space-3)",
                 padding: "var(--space-3)",
-                background: "var(--color-surface)",
+                background: "var(--bg-panel-raised)",
                 borderRadius: "var(--radius-md)",
                 boxShadow: "var(--shadow-sm)",
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-                <span style={{ fontFamily: "var(--font-body)", color: "var(--color-text)" }}>
+                <span style={{ fontFamily: "var(--font-body)", color: "var(--text-1)" }}>
                   {row.label}
                 </span>
                 {row.required ? <Tag variant="accent">Required</Tag> : null}

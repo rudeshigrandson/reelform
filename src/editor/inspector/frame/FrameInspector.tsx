@@ -70,7 +70,7 @@ export interface FrameInspectorProps {
 }
 
 const stack: CSSProperties = { display: "flex", flexDirection: "column", gap: "var(--space-2)" };
-const hint: CSSProperties = { fontSize: "11px", color: "var(--color-neutral-500)" };
+const hint: CSSProperties = { fontSize: "11px", color: "var(--text-3)" };
 const mono: CSSProperties = {
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
   fontSize: "12px",
@@ -83,9 +83,9 @@ function chip(active: boolean): CSSProperties {
     fontSize: "12px",
     padding: "2px var(--space-2)",
     borderRadius: "999px",
-    border: `1px solid ${active ? "var(--color-accent)" : "var(--color-neutral-700)"}`,
-    background: active ? "var(--color-accent-800)" : "transparent",
-    color: active ? "var(--color-neutral-100)" : "var(--color-neutral-300)",
+    border: `1px solid ${active ? "var(--accent)" : "var(--border-strong)"}`,
+    background: active ? "var(--accent-soft)" : "transparent",
+    color: active ? "var(--text-1)" : "var(--text-2)",
   };
 }
 
@@ -140,7 +140,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
         ...stack,
         gap: 0,
         padding: "var(--space-2) var(--space-3)",
-        color: "var(--color-neutral-200)",
+        color: "var(--text-1)",
         fontSize: "13px",
       }}
     >
@@ -359,7 +359,7 @@ function PresetsRow({
       style={{
         ...stack,
         paddingBlock: "var(--space-2)",
-        borderBottom: "1px solid var(--color-neutral-800)",
+        borderBottom: "1px solid var(--border)",
       }}
     >
       <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-1)" }}>
@@ -469,7 +469,7 @@ function WallpaperGrid({
                 aspectRatio: "16 / 10",
                 borderRadius: "6px",
                 background: w.preview,
-                border: `2px solid ${isSel ? "var(--color-accent)" : "transparent"}`,
+                border: `2px solid ${isSel ? "var(--accent)" : "transparent"}`,
                 padding: 0,
               }}
             />
@@ -484,9 +484,9 @@ function WallpaperGrid({
               cursor: "pointer",
               aspectRatio: "16 / 10",
               borderRadius: "6px",
-              border: "1px dashed var(--color-neutral-600)",
+              border: "1px dashed var(--border-strong)",
               background: "transparent",
-              color: "var(--color-neutral-400)",
+              color: "var(--text-2)",
               fontSize: "11px",
             }}
           >
@@ -515,7 +515,7 @@ function GradientEditor({ value, onChange }: FrameInspectorProps): ReactElement 
           height: "28px",
           borderRadius: "6px",
           background: gradientToCss(g),
-          border: "1px solid var(--color-neutral-700)",
+          border: "1px solid var(--border-strong)",
         }}
       />
       <Segmented
@@ -612,14 +612,14 @@ function ImagePanel({ value, onChange, onImageSelect }: FrameInspectorProps): Re
           minHeight: "96px",
           padding: "var(--space-3)",
           borderRadius: "8px",
-          border: `1px dashed ${hover ? "var(--color-accent)" : "var(--color-neutral-700)"}`,
-          background: hover ? "var(--color-accent-900)" : "var(--color-neutral-900)",
+          border: `1px dashed ${hover ? "var(--accent)" : "var(--border-strong)"}`,
+          background: hover ? "var(--accent-soft)" : "var(--bg-sunken)",
           textAlign: "center",
         }}
       >
         {fileName ? (
           <>
-            <span style={{ ...mono, color: "var(--color-neutral-200)" }}>{fileName}</span>
+            <span style={{ ...mono, color: "var(--text-1)" }}>{fileName}</span>
             <div style={{ display: "flex", gap: "var(--space-1)" }}>
               <label htmlFor={inputId} className="btn btn-ghost" style={{ cursor: "pointer" }}>
                 Replace…
@@ -708,9 +708,9 @@ function AspectEditor({ value, onChange, sourceSize }: FrameInspectorProps): Rea
       style={{
         ...mono,
         width: "72px",
-        background: "var(--color-neutral-800)",
-        color: "var(--color-neutral-100)",
-        border: `1px solid ${error ? "var(--color-accent-500)" : "var(--color-neutral-700)"}`,
+        background: "var(--bg-sunken)",
+        color: "var(--text-1)",
+        border: `1px solid ${error ? "var(--danger)" : "var(--border-strong)"}`,
         borderRadius: "var(--radius-sm)",
         padding: "2px var(--space-1)",
       }}
@@ -729,12 +729,12 @@ function AspectEditor({ value, onChange, sourceSize }: FrameInspectorProps): Rea
         <div style={stack} role="group" aria-label="Custom size">
           <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1)" }}>
             {sizeInput("Custom width", draftW, setDraftW, draftH, true)}
-            <span style={{ color: "var(--color-neutral-500)" }}>×</span>
+            <span style={{ color: "var(--text-3)" }}>×</span>
             {sizeInput("Custom height", draftH, setDraftH, draftW, false)}
             <span style={hint}>px</span>
           </div>
           {error && (
-            <span role="alert" style={{ ...hint, color: "var(--color-accent-400)" }}>
+            <span role="alert" style={{ ...hint, color: "var(--danger)" }}>
               {error}
             </span>
           )}

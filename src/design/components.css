@@ -1,7 +1,8 @@
 /**
  * Organic component classes — ported from the Claude Design system (styles.css
- * is the visual source of truth). Plain CSS on tokens from tokens.css; the React
- * wrappers in components/ apply these classes. Retune look here.
+ * is the visual source of truth). Plain CSS on the SEMANTIC tokens from
+ * tokens.css (--bg-*, --text-*, --border*, --accent*), so every class follows
+ * the light/dark theme. The React wrappers in components/ apply these classes.
  */
 
 *,
@@ -16,12 +17,12 @@ body,
 }
 body {
   margin: 0;
-  accent-color: var(--color-accent);
+  accent-color: var(--accent);
   font-size: 15px;
   line-height: 1.55;
   font-weight: 400;
-  background: var(--color-bg);
-  color: var(--color-text);
+  background: var(--bg-app);
+  color: var(--text-1);
   font-family: var(--font-body);
 }
 h1,
@@ -60,28 +61,28 @@ p {
   margin: 0 0 var(--space-3);
 }
 a {
-  color: var(--color-accent);
+  color: var(--accent);
   text-underline-offset: 3px;
 }
 .text-muted {
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  color: var(--text-2);
 }
 :focus {
   outline: none;
 }
 :focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 ::selection {
-  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .hr {
   height: 1px;
   border: 0;
   margin: var(--space-4) 0;
-  background: var(--color-divider);
+  background: var(--border);
 }
 
 /* — buttons — */
@@ -96,7 +97,8 @@ a {
   font-weight: var(--font-heading-weight);
   font-size: 14px;
   line-height: 1.2;
-  color: var(--color-text);
+  white-space: nowrap;
+  color: var(--text-1);
   background: transparent;
   border: 1px solid transparent;
   padding: var(--space-2) calc(var(--space-3) * 1.2);
@@ -110,30 +112,43 @@ a {
   cursor: not-allowed;
 }
 .btn-primary {
-  background: var(--color-accent);
-  color: var(--color-bg);
+  background: var(--accent);
+  color: var(--on-accent);
 }
-.btn-primary:hover {
-  background: var(--color-accent-600);
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
 }
-.btn-primary:active {
-  background: var(--color-accent-700);
+.btn-primary:active:not(:disabled) {
+  background: var(--accent-pressed);
 }
+/* Secondary carries a soft fill + strong hairline so it reads on any panel. */
 .btn-secondary {
-  border-color: var(--color-divider);
+  background: color-mix(in srgb, var(--text-1) 6%, transparent);
+  border-color: var(--border-strong);
 }
-.btn-secondary:hover {
-  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+.btn-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text-1) 11%, transparent);
 }
-.btn-secondary:active {
-  background: color-mix(in srgb, var(--color-text) 14%, transparent);
+.btn-secondary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--text-1) 16%, transparent);
 }
 .btn-ghost {
-  color: var(--color-accent);
+  color: var(--accent);
   padding-inline: var(--space-1);
 }
-.btn-ghost:hover {
-  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+.btn-ghost:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+/* Destructive (guide §2.2 --record/--danger). */
+.btn-danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+.btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.btn-danger:active:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
 }
 .btn-icon {
   width: 36px;
@@ -150,7 +165,7 @@ a {
   display: block;
   font-size: 12px;
   margin-bottom: 5px;
-  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+  color: var(--text-2);
 }
 .input {
   width: 100%;
@@ -158,17 +173,20 @@ a {
   padding: 6px 14px;
   font: inherit;
   font-size: 14px;
-  color: var(--color-text);
-  caret-color: var(--color-accent);
-  background: var(--color-surface);
-  border: 1px solid var(--color-divider);
+  color: var(--text-1);
+  caret-color: var(--accent);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
 }
+.input::placeholder {
+  color: var(--text-3);
+}
 .input:hover {
-  border-color: color-mix(in srgb, var(--color-text) 45%, transparent);
+  border-color: color-mix(in srgb, var(--text-1) 35%, transparent);
 }
 .input:focus-visible {
-  border-color: var(--color-accent);
+  border-color: var(--accent);
   outline-offset: 0;
 }
 textarea.input {
@@ -195,20 +213,24 @@ textarea.input {
   height: 16px;
   flex: none;
   border-radius: 50%;
-  border: 1.5px solid var(--color-divider);
+  border: 1.5px solid var(--border-strong);
 }
 .radio:hover .dot {
-  border-color: var(--color-accent);
+  border-color: var(--accent);
 }
 .radio input:checked + .dot {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  box-shadow: inset 0 0 0 4px var(--color-bg);
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 4px var(--on-accent);
 }
+/* Never stretch: in a flex row the control keeps its intrinsic height. */
 .seg {
   display: inline-flex;
+  flex: 0 1 auto;
+  align-self: center;
+  min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--color-divider);
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
 }
 .seg-opt {
@@ -217,14 +239,21 @@ textarea.input {
   gap: 6px;
   padding: 7px 12px;
   font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: var(--text-1);
   cursor: pointer;
 }
+.seg-sm .seg-opt {
+  padding: 4px 9px;
+  font-size: 12px;
+}
 .seg-opt + .seg-opt {
-  border-left: 1px solid var(--color-divider);
+  border-left: 1px solid var(--border-strong);
 }
 .seg-opt:has(input:checked) {
-  background: var(--color-accent);
-  color: var(--color-bg);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 .seg-opt input {
   position: absolute;
@@ -234,7 +263,7 @@ textarea.input {
   pointer-events: none;
 }
 .seg-opt:not(:has(input:checked)):hover {
-  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+  background: var(--bg-hover);
 }
 
 /* — cards — */
@@ -244,13 +273,13 @@ textarea.input {
   gap: var(--space-2);
   padding: var(--space-3);
   border-radius: calc(var(--radius-lg) * 1.15);
-  background: var(--color-surface);
+  background: var(--bg-panel-raised);
 }
 .card-kicker {
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--color-accent);
+  color: var(--accent);
 }
 .card-title {
   font-family: var(--font-heading);
@@ -269,7 +298,7 @@ textarea.input {
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  color: color-mix(in srgb, var(--color-text) 50%, transparent);
+  color: var(--text-3);
 }
 .elev-sm {
   box-shadow: var(--shadow-sm);
@@ -291,20 +320,20 @@ textarea.input {
   border-radius: 999px;
 }
 .tag-accent {
-  background: var(--color-accent-100);
-  color: var(--color-accent-800);
+  background: var(--accent-soft);
+  color: color-mix(in srgb, var(--accent) 75%, var(--text-1));
 }
 .tag-accent-2 {
-  background: var(--color-accent-2-100);
-  color: var(--color-accent-2-800);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: color-mix(in srgb, var(--success) 75%, var(--text-1));
 }
 .tag-neutral {
-  background: var(--color-neutral-100);
-  color: var(--color-neutral-800);
+  background: var(--bg-active);
+  color: var(--text-2);
 }
 .tag-outline {
-  border: 1px solid var(--color-accent);
-  color: var(--color-accent);
+  border: 1px solid var(--accent);
+  color: var(--accent);
 }
 
 /* — tables — */
@@ -318,16 +347,16 @@ textarea.input {
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+  color: var(--text-2);
   padding: var(--space-2);
-  border-bottom: 1px solid var(--color-divider);
+  border-bottom: 1px solid var(--border-strong);
 }
 .table td {
   padding: var(--space-2);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+  border-bottom: 1px solid var(--border);
 }
 .table tbody tr:hover {
-  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+  background: var(--bg-hover);
 }
 
 /* — dialog — */
@@ -337,7 +366,7 @@ textarea.input {
   display: grid;
   place-items: center;
   padding: var(--space-4);
-  background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent);
+  background: var(--scrim);
 }
 .dialog {
   width: min(440px, 100%);
@@ -346,7 +375,9 @@ textarea.input {
   gap: var(--space-3);
   padding: var(--space-4);
   border-radius: calc(var(--radius-lg) * 1.15);
-  background: var(--color-surface);
+  background: var(--bg-panel-raised);
+  color: var(--text-1);
+  border: 1px solid var(--border);
   box-shadow: var(--shadow-lg);
 }
 .dialog-title {

@@ -56,19 +56,19 @@ const rootStyle: CSSProperties = {
   flexDirection: "column",
   gap: "var(--space-2)",
   fontFamily: "var(--font-body)",
-  color: "var(--color-neutral-200)",
+  color: "var(--text-1)",
 };
 
 const fieldsetStyle: CSSProperties = { border: 0, margin: 0, padding: 0, minWidth: 0 };
 
-const hintStyle: CSSProperties = { fontSize: "11px", color: "var(--color-neutral-500)" };
+const hintStyle: CSSProperties = { fontSize: "11px", color: "var(--text-3)" };
 
 const errorStyle: CSSProperties = {
   fontSize: "12px",
-  color: "var(--warning, var(--color-accent-2))",
+  color: "var(--warning)",
 };
 
-const groupLabelStyle: CSSProperties = { fontSize: "13px", color: "var(--color-neutral-400)" };
+const groupLabelStyle: CSSProperties = { fontSize: "13px", color: "var(--text-2)" };
 
 function Group({ label, children }: { label: string; children: ReactNode }): ReactElement {
   return (
@@ -127,8 +127,8 @@ function CursorPreview({ style }: { style: CursorStyle }): ReactElement {
             justifyContent: "center",
             height: "44px",
             borderRadius: "var(--radius-sm)",
-            background: "var(--color-neutral-800)",
-            border: "1px solid var(--color-neutral-700)",
+            background: "var(--bg-sunken)",
+            border: "1px solid var(--border-strong)",
           }}
         >
           <svg width="24" height="24" viewBox="0 0 24 24" role="img" aria-label={v.label}>

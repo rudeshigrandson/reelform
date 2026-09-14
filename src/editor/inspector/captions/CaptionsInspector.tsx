@@ -66,7 +66,7 @@ const rootStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: "var(--space-1)",
-  color: "var(--color-neutral-100)",
+  color: "var(--text-1)",
   fontFamily: "var(--font-body)",
   fontSize: "13px",
 };
@@ -77,15 +77,15 @@ const rowStyle: CSSProperties = {
   gap: "var(--space-2)",
   minHeight: "28px",
 };
-const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--color-neutral-400)" };
-const hintStyle: CSSProperties = { fontSize: "11px", color: "var(--color-neutral-500)" };
+const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--text-2)" };
+const hintStyle: CSSProperties = { fontSize: "11px", color: "var(--text-3)" };
 
 const selectStyle: CSSProperties = {
   flex: "1 1 auto",
   minWidth: 0,
-  background: "var(--color-neutral-800)",
-  color: "var(--color-neutral-100)",
-  border: "1px solid var(--color-neutral-700)",
+  background: "var(--bg-sunken)",
+  color: "var(--text-1)",
+  border: "1px solid var(--border-strong)",
   borderRadius: "var(--radius-sm)",
   padding: "2px var(--space-1)",
   fontFamily: "var(--font-body)",
@@ -110,11 +110,11 @@ function ProgressBar({ value, label }: { value: number; label: string }): ReactE
       style={{
         height: "4px",
         borderRadius: "999px",
-        background: "var(--color-neutral-800)",
+        background: "var(--bg-active)",
         overflow: "hidden",
       }}
     >
-      <div style={{ width: `${pct}%`, height: "100%", background: "var(--color-accent)" }} />
+      <div style={{ width: `${pct}%`, height: "100%", background: "var(--accent)" }} />
     </div>
   );
 }
@@ -288,8 +288,7 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
               alignItems: "center",
               justifyContent: "space-between",
               gap: "var(--space-2)",
-              // No danger token in the design system yet; accent-400 is the warm alert tone.
-              color: "var(--color-accent-400)",
+              color: "var(--danger)",
             }}
           >
             <span>{status.message}</span>
@@ -352,15 +351,15 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
                         padding: "var(--space-1) var(--space-2)",
                         borderRadius: "var(--radius-sm)",
                         cursor: "pointer",
-                        border: `1px solid ${isEditing ? "var(--color-accent)" : "transparent"}`,
-                        background: isActive ? "var(--color-neutral-800)" : "transparent",
+                        border: `1px solid ${isEditing ? "var(--accent)" : "transparent"}`,
+                        background: isActive ? "var(--bg-active)" : "transparent",
                       }}
                     >
                       <span
                         style={{
                           fontFamily: MONO,
                           fontSize: "11px",
-                          color: "var(--color-neutral-400)",
+                          color: "var(--text-2)",
                         }}
                       >
                         {formatCueTime(c.startMs)} – {formatCueTime(c.endMs)}
@@ -383,7 +382,7 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
                         style={{
                           resize: "none",
                           background: "transparent",
-                          color: "var(--color-neutral-100)",
+                          color: "var(--text-1)",
                           border: 0,
                           outline: "none",
                           padding: 0,
@@ -432,9 +431,9 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
                   borderRadius: "999px",
                   fontSize: "12px",
                   fontFamily: "var(--font-body)",
-                  border: `1px solid ${selected ? "var(--color-accent)" : "var(--color-neutral-700)"}`,
-                  background: selected ? "var(--color-accent)" : "var(--color-neutral-800)",
-                  color: "var(--color-neutral-100)",
+                  border: `1px solid ${selected ? "var(--accent)" : "var(--border-strong)"}`,
+                  background: selected ? "var(--accent)" : "var(--bg-sunken)",
+                  color: selected ? "var(--on-accent)" : "var(--text-1)",
                 }}
               >
                 {p.label}
@@ -485,6 +484,7 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
           <span style={labelStyle}>Position</span>
           <Segmented
             name="captions-position"
+            size="sm"
             value={style.position}
             options={POSITION_OPTIONS}
             onChange={(v) => set("position", v)}

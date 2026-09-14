@@ -36,7 +36,7 @@ export function Defaults({
         id="onboarding-defaults-title"
         style={{
           fontFamily: "var(--font-heading)",
-          color: "var(--color-text)",
+          color: "var(--text-1)",
           fontSize: "1.75rem",
           margin: 0,
         }}

@@ -42,8 +42,8 @@ export function OnboardingFlow({
         maxWidth: "560px",
         margin: "0 auto",
         padding: "var(--space-6)",
-        background: "var(--color-bg)",
-        color: "var(--color-text)",
+        background: "var(--bg-app)",
+        color: "var(--text-1)",
         fontFamily: "var(--font-body)",
       }}
     >
@@ -99,7 +99,7 @@ export function OnboardingFlow({
                 width: "10px",
                 height: "10px",
                 borderRadius: "999px",
-                background: i === index ? "var(--color-accent)" : "var(--color-neutral-300)",
+                background: i === index ? "var(--accent)" : "var(--border-strong)",
               }}
             />
           ))}

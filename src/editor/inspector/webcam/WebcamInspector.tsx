@@ -54,7 +54,7 @@ const panelStyle: CSSProperties = {
   flexDirection: "column",
   padding: "var(--space-3)",
   fontFamily: "var(--font-body)",
-  color: "var(--color-neutral-200)",
+  color: "var(--text-1)",
 };
 
 const rowStyle: CSSProperties = {
@@ -129,7 +129,7 @@ export function WebcamInspector(props: WebcamInspectorProps): ReactElement {
           <Button variant="secondary" onClick={onReplace}>
             Replace
           </Button>
-          <Button variant="ghost" onClick={onRemove}>
+          <Button variant="danger" onClick={onRemove}>
             Remove
           </Button>
         </div>

@@ -1,4 +1,5 @@
 import { Button } from "@design/components";
+import { useThemePreference } from "@design/theme";
 import { useEffect, useState } from "react";
 import { getAppVersion } from "./app/ipc";
 import { useAppStore } from "./app/store";
@@ -17,6 +18,8 @@ import { Settings } from "./settings/Settings";
  */
 export function App() {
   const s = useAppStore();
+  // Light/dark follows the OS unless overridden in Settings → General → Theme.
+  useThemePreference(s.settings.theme);
   const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {

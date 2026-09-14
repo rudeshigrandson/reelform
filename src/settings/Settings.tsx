@@ -1,14 +1,8 @@
-import { useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
 import { Button, Input, Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
-import type {
-  CaptureBackend,
-  Countdown,
-  Fps,
-  SettingsProps,
-  Theme,
-} from "./types";
+import { useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import type { CaptureBackend, Countdown, Fps, SettingsProps, Theme } from "./types";
 
 export { sampleSettings } from "./types";
 export type { SettingsProps, SettingsState, SettingsPatch } from "./types";
@@ -66,8 +60,8 @@ const shellStyle: CSSProperties = {
   gridTemplateColumns: "220px 1fr",
   width: "100%",
   height: "100%",
-  background: "var(--color-bg)",
-  color: "var(--color-text)",
+  background: "var(--bg-app)",
+  color: "var(--text-1)",
   fontFamily: "var(--font-body)",
   overflow: "hidden",
 };
@@ -77,8 +71,8 @@ const navStyle: CSSProperties = {
   flexDirection: "column",
   gap: "var(--space-1)",
   padding: "var(--space-4)",
-  background: "var(--color-surface)",
-  borderRight: "1px solid var(--color-neutral-200)",
+  background: "var(--bg-panel)",
+  borderRight: "1px solid var(--border)",
 };
 
 const panelStyle: CSSProperties = {
@@ -102,7 +96,7 @@ const inlineRowStyle: CSSProperties = {
 const labelStyle: CSSProperties = {
   fontSize: "0.85rem",
   fontWeight: 600,
-  color: "var(--color-neutral-700)",
+  color: "var(--text-2)",
 };
 
 const headingStyle: CSSProperties = {
@@ -120,8 +114,8 @@ function navItemStyle(active: boolean): CSSProperties {
     cursor: "pointer",
     font: "inherit",
     fontWeight: active ? 600 : 400,
-    background: active ? "var(--color-accent)" : "transparent",
-    color: active ? "#fff" : "var(--color-text)",
+    background: active ? "var(--accent)" : "transparent",
+    color: active ? "var(--on-accent)" : "var(--text-1)",
   };
 }
 
@@ -143,11 +137,7 @@ function Toggle({
         cursor: "pointer",
       }}
     >
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-      />
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
       <span>{label}</span>
     </label>
   );
@@ -157,7 +147,7 @@ function Stub({ title }: { title: string }) {
   return (
     <div>
       <h2 style={headingStyle}>{title}</h2>
-      <p style={{ color: "var(--color-neutral-600)" }}>Coming soon.</p>
+      <p style={{ color: "var(--text-3)" }}>Coming soon.</p>
     </div>
   );
 }
@@ -180,11 +170,7 @@ function GeneralPanel({ settings, onChange, onChangeRecordingsFolder }: Settings
       <div style={fieldRowStyle}>
         <div style={inlineRowStyle}>
           <div style={{ flex: 1 }}>
-            <Input
-              label="Recordings folder"
-              value={settings.recordingsFolder}
-              readOnly
-            />
+            <Input label="Recordings folder" value={settings.recordingsFolder} readOnly />
           </div>
           <Button onClick={onChangeRecordingsFolder}>Change…</Button>
         </div>
@@ -203,9 +189,7 @@ function GeneralPanel({ settings, onChange, onChangeRecordingsFolder }: Settings
             min={1}
             value={settings.autoPruneDays}
             disabled={!settings.autoPrune}
-            onChange={(e) =>
-              onChange({ autoPruneDays: Number(e.target.value) })
-            }
+            onChange={(e) => onChange({ autoPruneDays: Number(e.target.value) })}
           />
         </div>
       </div>
@@ -242,9 +226,7 @@ function RecordingPanel({ settings, onChange }: SettingsProps) {
           name="settings-countdown"
           value={`${settings.defaultCountdown}`}
           options={COUNTDOWN_OPTIONS}
-          onChange={(v) =>
-            onChange({ defaultCountdown: Number(v) as Countdown })
-          }
+          onChange={(v) => onChange({ defaultCountdown: Number(v) as Countdown })}
         />
       </div>
 

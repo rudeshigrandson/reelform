@@ -1,19 +1,48 @@
 /**
- * Reelform design tokens — the "Organic" system, imported from the Claude
- * Design project (source of truth: the .dc.html design doc). Warm, light-first;
- * dark theme values layer on top via [data-theme="dark"] (filled in during the
- * UI milestone). Retune here, not in components.
+ * Reelform design tokens.
+ *
+ * Two layers:
+ *  1. Semantic tokens (design guide §2.2) — `--bg-*`, `--border*`, `--text-*`,
+ *     `--accent*`, `--record`, `--success`, `--warning`, `--danger`, `--track-*`.
+ *     Components use these. Every semantic token is defined in BOTH the light
+ *     block and the dark block (enforced by tokens.test.ts).
+ *  2. Legacy "Organic" names (`--color-bg`, `--color-surface`, `--color-text`,
+ *     `--color-accent`, `--color-divider`) alias the semantic layer so older
+ *     call sites follow the theme. The raw palette ramps (`--color-neutral-*`,
+ *     `--color-accent-*`, `--color-accent-2-*`) are fixed brand swatches — they do
+ *     NOT change with the theme, so never use them for chrome.
+ *
+ * Theme selection: light on bare :root; dark when the OS prefers dark (unless
+ * the user forced light), or when the user forced dark. `data-theme` is set on
+ * <html> by `applyThemePreference` in theme.ts.
+ *
+ * Fonts: no remote @import — the renderer CSP blocks font hosts and the app is
+ * local-first. Caprasimo/Figtree resolve only if installed; otherwise the
+ * system-ui fallbacks apply. TODO: bundle them as local @font-face woff2 files.
  */
-@import url("https://fonts.googleapis.com/css2?family=Caprasimo:wght@400&family=Figtree:wght@400;600;700&display=swap");
 
+/* ── Theme-independent ─────────────────────────────────────────────────── */
 :root {
-  --color-bg: #f5ead8;
-  --color-surface: #ebddc5;
-  --color-text: #201e1d;
-  --color-accent: #c67139;
-  --color-accent-2: #7a8a5e;
-  --color-divider: color-mix(in srgb, #201e1d 16%, transparent);
+  --font-heading: "Caprasimo", system-ui, sans-serif;
+  --font-heading-weight: 400;
+  --font-body: "Figtree", system-ui, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
 
+  --space-1: 4.4px;
+  --space-2: 8.8px;
+  --space-3: 13.2px;
+  --space-4: 17.6px;
+  --space-5: 22px;
+  --space-6: 26.4px;
+  --space-8: 35.2px;
+
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 28px;
+  --radius-full: 999px;
+
+  /* Raw brand ramps — fixed swatches, not theme-aware. */
   --color-neutral-100: #f9f4ed;
   --color-neutral-200: #eee7db;
   --color-neutral-300: #dcd3c4;
@@ -44,23 +73,140 @@
   --color-accent-2-800: #3d472b;
   --color-accent-2-900: #272e1b;
 
-  --font-heading: "Caprasimo", system-ui, sans-serif;
-  --font-heading-weight: 400;
-  --font-body: "Figtree", system-ui, sans-serif;
+  /* Legacy aliases → semantic layer (resolve per theme). */
+  --color-bg: var(--bg-app);
+  --color-surface: var(--bg-panel-raised);
+  --color-text: var(--text-1);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--success);
+  --color-divider: var(--border-strong);
+}
 
-  --space-1: 4.4px;
-  --space-2: 8.8px;
-  --space-3: 13.2px;
-  --space-4: 17.6px;
-  --space-5: 22px;
-  --space-6: 26.4px;
-  --space-8: 35.2px;
+/* ── Light (default) — warm "Organic" ─────────────────────────────────── */
+:root {
+  color-scheme: light;
 
-  --radius-sm: 8px;
-  --radius-md: 16px;
-  --radius-lg: 28px;
+  --bg-app: #f5ead8;
+  --bg-panel: #faf4ea;
+  --bg-panel-raised: #ebddc5;
+  --bg-sunken: #e6d7be;
+  --bg-hover: color-mix(in srgb, #201e1d 5%, transparent);
+  --bg-active: color-mix(in srgb, #201e1d 9%, transparent);
+  --border: color-mix(in srgb, #201e1d 10%, transparent);
+  --border-strong: color-mix(in srgb, #201e1d 20%, transparent);
+  --text-1: #201e1d;
+  --text-2: #5e574c;
+  --text-3: #857c6e;
 
+  --accent: #c67139;
+  --accent-hover: #b2622d;
+  --accent-pressed: #8c491a;
+  --accent-soft: color-mix(in srgb, #c67139 14%, transparent);
+  --on-accent: #fffaf3;
+  --focus-ring: color-mix(in srgb, #c67139 60%, transparent);
+
+  --record: #d63a3f;
+  --danger: #b8322f;
+  --success: #2e8a57;
+  --warning: #b86e00;
+
+  --scrim: color-mix(in srgb, #2e2b25 50%, transparent);
   --shadow-sm: 0 1px 2px color-mix(in srgb, #2e2b25 14%, transparent);
   --shadow-md: 0 3px 10px color-mix(in srgb, #2e2b25 16%, transparent);
   --shadow-lg: 0 12px 32px color-mix(in srgb, #2e2b25 22%, transparent);
+
+  /* Track hues — "same hues, darker" than dark theme (guide §2.2). */
+  --track-video: #6b7385;
+  --track-zoom: #4f5be6;
+  --track-speed: #c77a00;
+  --track-annotations: #1f9a5c;
+  --track-audio: #8a4fd9;
+  --track-captions: #1692c2;
+  --track-webcam: #d2517f;
+}
+
+/* ── Dark (guide §2.2) ─────────────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --bg-app: #0f1115;
+    --bg-panel: #161a21;
+    --bg-panel-raised: #1c2129;
+    --bg-sunken: #0b0d11;
+    --bg-hover: color-mix(in srgb, #ffffff 5%, transparent);
+    --bg-active: color-mix(in srgb, #ffffff 9%, transparent);
+    --border: color-mix(in srgb, #ffffff 8%, transparent);
+    --border-strong: color-mix(in srgb, #ffffff 16%, transparent);
+    --text-1: #edeff3;
+    --text-2: #a3a9b5;
+    --text-3: #6b7280;
+
+    --accent: #6e7bff;
+    --accent-hover: #8390ff;
+    --accent-pressed: #5a66e6;
+    --accent-soft: color-mix(in srgb, #6e7bff 16%, transparent);
+    --on-accent: #ffffff;
+    --focus-ring: color-mix(in srgb, #6e7bff 60%, transparent);
+
+    --record: #ff4d5e;
+    --danger: #ff4d5e;
+    --success: #3dd68c;
+    --warning: #ffb84d;
+
+    --scrim: color-mix(in srgb, #000000 60%, transparent);
+    --shadow-sm: 0 1px 2px color-mix(in srgb, #000000 40%, transparent);
+    --shadow-md: 0 8px 24px color-mix(in srgb, #000000 45%, transparent);
+    --shadow-lg: 0 24px 64px color-mix(in srgb, #000000 60%, transparent);
+
+    --track-video: #8a93a6;
+    --track-zoom: #6e7bff;
+    --track-speed: #ffb84d;
+    --track-annotations: #3dd68c;
+    --track-audio: #b57bff;
+    --track-captions: #4dd0ff;
+    --track-webcam: #ff8ab3;
+  }
+}
+
+/* Explicit override — keep in sync with the media block above. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-app: #0f1115;
+  --bg-panel: #161a21;
+  --bg-panel-raised: #1c2129;
+  --bg-sunken: #0b0d11;
+  --bg-hover: color-mix(in srgb, #ffffff 5%, transparent);
+  --bg-active: color-mix(in srgb, #ffffff 9%, transparent);
+  --border: color-mix(in srgb, #ffffff 8%, transparent);
+  --border-strong: color-mix(in srgb, #ffffff 16%, transparent);
+  --text-1: #edeff3;
+  --text-2: #a3a9b5;
+  --text-3: #6b7280;
+
+  --accent: #6e7bff;
+  --accent-hover: #8390ff;
+  --accent-pressed: #5a66e6;
+  --accent-soft: color-mix(in srgb, #6e7bff 16%, transparent);
+  --on-accent: #ffffff;
+  --focus-ring: color-mix(in srgb, #6e7bff 60%, transparent);
+
+  --record: #ff4d5e;
+  --danger: #ff4d5e;
+  --success: #3dd68c;
+  --warning: #ffb84d;
+
+  --scrim: color-mix(in srgb, #000000 60%, transparent);
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #000000 40%, transparent);
+  --shadow-md: 0 8px 24px color-mix(in srgb, #000000 45%, transparent);
+  --shadow-lg: 0 24px 64px color-mix(in srgb, #000000 60%, transparent);
+
+  --track-video: #8a93a6;
+  --track-zoom: #6e7bff;
+  --track-speed: #ffb84d;
+  --track-annotations: #3dd68c;
+  --track-audio: #b57bff;
+  --track-captions: #4dd0ff;
+  --track-webcam: #ff8ab3;
 }

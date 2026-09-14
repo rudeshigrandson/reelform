@@ -14,10 +14,10 @@
  * sibling `../bitrate` module.
  */
 
-import { useMemo, useState } from "react";
-import type { ReactNode } from "react";
 import { Button, Dialog, Input, Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
+import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { exportBitrate } from "../bitrate";
 import type {
   ExportCodec,
@@ -82,9 +82,7 @@ const MP4_CODECS: ReadonlyArray<SegmentedOption<ExportCodec>> = [
   { value: "av1", label: "AV1" },
 ];
 
-const WEBM_CODECS: ReadonlyArray<SegmentedOption<ExportCodec>> = [
-  { value: "vp9", label: "VP9" },
-];
+const WEBM_CODECS: ReadonlyArray<SegmentedOption<ExportCodec>> = [{ value: "vp9", label: "VP9" }];
 
 /** Progress phases in order, mapped to a human label. */
 const PHASE_LABEL: Record<Exclude<ExportPhase, "idle" | "done">, string> = {
@@ -127,24 +125,24 @@ const tokenStyles = {
     display: "block",
     marginBottom: "var(--space-2)",
     fontFamily: "var(--font-body)",
-    color: "var(--color-neutral-700)",
+    color: "var(--text-2)",
     fontSize: "0.85rem",
   } as const,
   select: {
     width: "100%",
     padding: "var(--space-2)",
     borderRadius: "var(--radius-md)",
-    background: "var(--color-surface)",
-    color: "var(--color-text)",
-    border: "1px solid var(--color-neutral-300)",
+    background: "var(--bg-sunken)",
+    color: "var(--text-1)",
+    border: "1px solid var(--border-strong)",
   } as const,
   readout: {
     display: "flex",
     justifyContent: "space-between",
     padding: "var(--space-3)",
     borderRadius: "var(--radius-md)",
-    background: "var(--color-neutral-100)",
-    color: "var(--color-text)",
+    background: "var(--bg-sunken)",
+    color: "var(--text-1)",
     fontFamily: "var(--font-body)",
     marginBottom: "var(--space-4)",
   } as const,
@@ -157,7 +155,7 @@ const tokenStyles = {
     height: "8px",
     width: "100%",
     borderRadius: "var(--radius-full)",
-    background: "var(--color-neutral-200)",
+    background: "var(--bg-active)",
     overflow: "hidden",
     marginBottom: "var(--space-3)",
   } as const,
@@ -273,13 +271,11 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
               style={{
                 height: "100%",
                 width: `${pct}%`,
-                background: "var(--color-accent)",
+                background: "var(--accent)",
               }}
             />
           </div>
-          <div style={{ fontFamily: "var(--font-body)", color: "var(--color-text)" }}>
-            {pct}%
-          </div>
+          <div style={{ fontFamily: "var(--font-body)", color: "var(--text-1)" }}>{pct}%</div>
         </div>
       </Dialog>
     );
@@ -294,7 +290,7 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
             style={{
               fontFamily: "var(--font-heading)",
               fontSize: "1.1rem",
-              color: "var(--color-text)",
+              color: "var(--text-1)",
               marginBottom: "var(--space-4)",
             }}
           >
@@ -303,7 +299,7 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
           <div
             style={{
               fontFamily: "var(--font-body)",
-              color: "var(--color-neutral-700)",
+              color: "var(--text-2)",
               marginBottom: "var(--space-4)",
               wordBreak: "break-all",
             }}
