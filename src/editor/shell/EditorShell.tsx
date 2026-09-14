@@ -168,6 +168,9 @@ export function EditorShell(props: EditorShellProps): ReactElement {
     onQualityChange,
     onRename,
     renderInspector,
+    renderPreview,
+    renderPlaybackBar,
+    renderTimeline,
   } = props;
 
   const [activeTab, setActiveTab] = useState<InspectorTab>("Frame");
@@ -175,8 +178,21 @@ export function EditorShell(props: EditorShellProps): ReactElement {
   const playheadPct =
     durationMs > 0 ? Math.min(100, Math.max(0, (currentMs / durationMs) * 100)) : 0;
 
+  const gridStyle: CSSProperties = renderPlaybackBar
+    ? {
+        ...shellStyle,
+        gridTemplateRows: "56px 1fr 44px 260px",
+        gridTemplateAreas: `
+          "topbar   topbar"
+          "stage    inspector"
+          "playback inspector"
+          "timeline inspector"
+        `,
+      }
+    : shellStyle;
+
   return (
-    <div style={shellStyle} data-testid="editor-shell">
+    <div style={gridStyle} data-testid="editor-shell">
       {/* Top bar */}
       <header style={topBarStyle}>
         <Button icon variant="ghost" aria-label="Back">
@@ -196,27 +212,30 @@ export function EditorShell(props: EditorShellProps): ReactElement {
           options={QUALITY_OPTIONS}
           onChange={(q) => onQualityChange?.(q)}
         />
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "var(--space-2)",
-            marginLeft: "var(--space-2)",
-          }}
-        >
-          <Button
-            icon
-            variant="secondary"
-            aria-label={isPlaying ? "Pause" : "Play"}
-            aria-pressed={isPlaying}
-            onClick={() => onTogglePlay?.()}
+        {/* Transport moves to the playback bar when one is provided (guide S12 D). */}
+        {!renderPlaybackBar && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--space-2)",
+              marginLeft: "var(--space-2)",
+            }}
           >
-            {isPlaying ? "❚❚" : "▶"}
-          </Button>
-          <span style={{ fontSize: "13px", color: "var(--color-neutral-300)" }}>
-            {formatTime(currentMs)} / {formatTime(durationMs)}
-          </span>
-        </div>
+            <Button
+              icon
+              variant="secondary"
+              aria-label={isPlaying ? "Pause" : "Play"}
+              aria-pressed={isPlaying}
+              onClick={() => onTogglePlay?.()}
+            >
+              {isPlaying ? "❚❚" : "▶"}
+            </Button>
+            <span style={{ fontSize: "13px", color: "var(--color-neutral-300)" }}>
+              {formatTime(currentMs)} / {formatTime(durationMs)}
+            </span>
+          </div>
+        )}
         <div style={{ marginLeft: "auto" }}>
           <Button variant="primary" onClick={() => onExport()}>
             Export
@@ -225,36 +244,51 @@ export function EditorShell(props: EditorShellProps): ReactElement {
       </header>
 
       {/* Preview stage */}
-      <main style={stageStyle}>
-        <div style={previewBoxStyle} aria-label="Preview">
-          Preview
-        </div>
+      <main style={renderPreview ? { ...stageStyle, padding: 0 } : stageStyle}>
+        {renderPreview ? (
+          renderPreview()
+        ) : (
+          <div style={previewBoxStyle} aria-label="Preview">
+            Preview
+          </div>
+        )}
       </main>
+
+      {/* Playback bar */}
+      {renderPlaybackBar && (
+        <div style={{ gridArea: "playback", minHeight: 0 }}>{renderPlaybackBar()}</div>
+      )}
 
       {/* Timeline */}
       <section style={timelineStyle} aria-label="Timeline">
-        <div style={rulerStyle}>0:00</div>
-        <div style={{ position: "relative", flex: "1 1 auto", overflow: "hidden" }}>
-          {TIMELINE_LANES.map((lane) => (
-            <div key={lane} style={laneStyle}>
-              <div style={laneLabelStyle}>{lane}</div>
-              <div style={laneTrackStyle} />
+        {renderTimeline ? (
+          renderTimeline()
+        ) : (
+          <>
+            <div style={rulerStyle}>0:00</div>
+            <div style={{ position: "relative", flex: "1 1 auto", overflow: "hidden" }}>
+              {TIMELINE_LANES.map((lane) => (
+                <div key={lane} style={laneStyle}>
+                  <div style={laneLabelStyle}>{lane}</div>
+                  <div style={laneTrackStyle} />
+                </div>
+              ))}
+              {/* Playhead */}
+              <div
+                data-testid="playhead"
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  left: `calc(84px + (100% - 84px) * ${playheadPct / 100})`,
+                  width: "2px",
+                  background: "var(--color-accent)",
+                  pointerEvents: "none",
+                }}
+              />
             </div>
-          ))}
-          {/* Playhead */}
-          <div
-            data-testid="playhead"
-            style={{
-              position: "absolute",
-              top: 0,
-              bottom: 0,
-              left: `calc(84px + (100% - 84px) * ${playheadPct / 100})`,
-              width: "2px",
-              background: "var(--color-accent)",
-              pointerEvents: "none",
-            }}
-          />
-        </div>
+          </>
+        )}
       </section>
 
       {/* Inspector */}

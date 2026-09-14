@@ -46,6 +46,12 @@ export interface EditorShellProps {
   onRename?: (name: string) => void;
   /** Renders the body of the active inspector tab; placeholder text when omitted. */
   renderInspector?: ((tab: InspectorTab) => ReactNode) | undefined;
+  /** Renders the preview canvas; placeholder box when omitted. */
+  renderPreview?: (() => ReactNode) | undefined;
+  /** Renders the 44px playback bar above the timeline; row omitted when absent. */
+  renderPlaybackBar?: (() => ReactNode) | undefined;
+  /** Renders the timeline; placeholder lanes + playhead when omitted. */
+  renderTimeline?: (() => ReactNode) | undefined;
 }
 
 export const sampleEditorShellProps: EditorShellProps = {

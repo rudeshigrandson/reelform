@@ -59,4 +59,67 @@ describe("EditorShell", () => {
       expect(within(timeline).getByText(lane)).toBeInTheDocument();
     }
   });
+
+  describe("render slots", () => {
+    it("falls back to placeholders when no slots are given", () => {
+      render(<EditorShell {...sampleEditorShellProps} />);
+      expect(screen.getByLabelText("Preview")).toHaveTextContent("Preview");
+      expect(screen.getByTestId("playhead")).toBeInTheDocument();
+      expect(screen.queryByTestId("playback-slot")).toBeNull();
+    });
+
+    it("renders the preview slot in place of the placeholder box", () => {
+      render(
+        <EditorShell
+          {...sampleEditorShellProps}
+          renderPreview={() => <canvas data-testid="preview-slot" />}
+        />,
+      );
+      expect(screen.getByTestId("preview-slot")).toBeInTheDocument();
+      expect(screen.queryByLabelText("Preview")).toBeNull();
+    });
+
+    it("renders the timeline slot inside the Timeline region, replacing lanes", () => {
+      render(
+        <EditorShell
+          {...sampleEditorShellProps}
+          renderTimeline={() => <div data-testid="timeline-slot" />}
+        />,
+      );
+      const timeline = screen.getByRole("region", { name: "Timeline" });
+      expect(within(timeline).getByTestId("timeline-slot")).toBeInTheDocument();
+      expect(within(timeline).queryByTestId("playhead")).toBeNull();
+      for (const lane of TIMELINE_LANES) {
+        expect(within(timeline).queryByText(lane)).toBeNull();
+      }
+    });
+
+    it("adds a playback row only when the playback bar slot is given", () => {
+      render(
+        <EditorShell
+          {...sampleEditorShellProps}
+          renderPlaybackBar={() => <div data-testid="playback-slot" />}
+        />,
+      );
+      expect(screen.getByTestId("playback-slot")).toBeInTheDocument();
+      expect(screen.getByTestId("editor-shell").style.gridTemplateRows).toBe("56px 1fr 44px 260px");
+      // Transport lives in the bar; the top bar must not duplicate Play.
+      expect(screen.queryByRole("button", { name: "Play" })).toBeNull();
+    });
+
+    it("keeps the inspector working alongside all slots", async () => {
+      render(
+        <EditorShell
+          {...sampleEditorShellProps}
+          renderPreview={() => <div />}
+          renderPlaybackBar={() => <div />}
+          renderTimeline={() => <div />}
+        />,
+      );
+      await userEvent.click(screen.getByRole("tab", { name: "Effects" }));
+      expect(within(screen.getByRole("tabpanel")).getByRole("heading")).toHaveTextContent(
+        "Effects",
+      );
+    });
+  });
 });
