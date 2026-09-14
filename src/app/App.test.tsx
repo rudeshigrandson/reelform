@@ -1,6 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "../App";
+import { useEditorStore } from "../editor/store";
+import { INSPECTOR_TABS } from "../editor/shell/types";
 import { useAppStore } from "./store";
 
 beforeEach(() => {
@@ -32,6 +34,26 @@ describe("App shell", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Export" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("editor inspector tabs render their real panels and write to the editor store", () => {
+    useEditorStore.getState().reset();
+    useAppStore.setState({ view: "editor", activeProjectName: "Demo" });
+    render(<App />);
+    const panel = screen.getByRole("tabpanel");
+    expect(within(panel).queryByText("Frame inspector")).toBeNull();
+
+    // Every tab mounts without throwing and replaces the placeholder.
+    for (const tab of INSPECTOR_TABS) {
+      fireEvent.click(screen.getByRole("tab", { name: tab }));
+      expect(within(panel).queryByText(`${tab} inspector`)).toBeNull();
+    }
+
+    // A control edit flows into the store.
+    fireEvent.click(screen.getByRole("tab", { name: "Cursor" }));
+    const before = useEditorStore.getState().cursor.show;
+    fireEvent.click(within(panel).getByRole("switch", { name: /show cursor/i }));
+    expect(useEditorStore.getState().cursor.show).toBe(!before);
   });
 
   it("shows the recording HUD while recording, and stopping opens the editor", () => {

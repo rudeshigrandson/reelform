@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { Button } from "@design/components";
 import { getAppVersion } from "./app/ipc";
 import { useAppStore } from "./app/store";
+import { InspectorPanel } from "./editor/inspector/InspectorPanel";
 import { EditorShell } from "./editor/shell/EditorShell";
+import { useEditorStore } from "./editor/store";
 import { RecordingHud } from "./hud/RecordingHud";
 import { Launcher, sampleLauncherProps } from "./launcher/Launcher";
 import { OnboardingFlow } from "./onboarding/OnboardingFlow";
@@ -17,6 +19,8 @@ import { ExportDialog } from "./export/ui/ExportDialog";
  */
 export function App() {
   const s = useAppStore();
+  const editorDurationMs = useEditorStore((e) => e.durationMs);
+  const editorCurrentMs = useEditorStore((e) => e.currentMs);
   const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {
@@ -72,11 +76,12 @@ export function App() {
       {s.view === "editor" && (
         <EditorShell
           projectName={s.activeProjectName ?? "Untitled Demo"}
-          durationMs={92_000}
-          currentMs={24_500}
+          durationMs={editorDurationMs}
+          currentMs={editorCurrentMs}
           isPlaying={false}
           previewQuality="auto"
           onExport={s.openExport}
+          renderInspector={(tab) => <InspectorPanel tab={tab} />}
         />
       )}
 
