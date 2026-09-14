@@ -45,8 +45,16 @@ export function App() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--color-bg)" }}>
+    <div
+      style={{
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        background: "var(--color-bg)",
+      }}
+    >
       <DevNav version={version} />
+      <div style={{ flex: "1 1 auto", minHeight: 0, overflow: "auto" }}>
 
       {s.view === "projects" && (
         <ProjectBrowser
@@ -77,6 +85,7 @@ export function App() {
       )}
 
       {s.view === "settings" && <Settings settings={s.settings} onChange={s.updateSettings} />}
+      </div>
 
       {s.recording && (
         <div

@@ -49,6 +49,9 @@ const ARROW_POINTS = [0, 0, 0, 24, 6, 18.5, 10.5, 28, 14.5, 26.2, 10.2, 17, 18, 
 
 export const createPixiStage: CreatePreviewStage = async (host, opts) => {
   const PIXI = await import("pixi.js");
+  // The renderer CSP has no 'unsafe-eval' (SPEC §13); this swaps Pixi's
+  // runtime-generated shader/uniform code for precompiled paths.
+  await import("pixi.js/unsafe-eval");
   const app = new PIXI.Application();
   await app.init({
     width: Math.max(1, opts.width),

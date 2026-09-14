@@ -64,8 +64,8 @@ const BACKEND_OPTIONS: ReadonlyArray<SegmentedOption<CaptureBackend>> = [
 const shellStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "220px 1fr",
-  width: "860px",
-  height: "620px",
+  width: "100%",
+  height: "100%",
   background: "var(--color-bg)",
   color: "var(--color-text)",
   fontFamily: "var(--font-body)",

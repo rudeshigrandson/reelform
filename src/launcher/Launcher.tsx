@@ -225,8 +225,11 @@ export function Launcher({
   return (
     <div
       style={{
-        width: 720,
+        // Fills the 720×520 launcher window; centred when hosted in a wider one.
+        width: "100%",
+        maxWidth: 720,
         minHeight: 520,
+        margin: "0 auto",
         boxSizing: "border-box",
         background: "var(--color-surface)",
         color: "var(--color-text)",

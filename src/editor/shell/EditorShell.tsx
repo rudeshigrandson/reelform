@@ -25,15 +25,18 @@ function formatTime(ms: number): string {
 
 const shellStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 320px",
+  gridTemplateColumns: "minmax(0, 1fr) 380px",
   gridTemplateRows: "56px 1fr 220px",
   gridTemplateAreas: `
     "topbar   topbar"
     "stage    inspector"
     "timeline inspector"
   `,
-  width: "1440px",
-  height: "900px",
+  // Fills its window; the guide's 1440×900 is the default window size, not a frame.
+  width: "100%",
+  height: "100%",
+  minWidth: "1024px",
+  minHeight: "700px",
   background: "var(--color-neutral-900)",
   color: "var(--color-neutral-100)",
   fontFamily: "var(--font-body)",
@@ -137,6 +140,9 @@ const tabRailStyle: CSSProperties = {
 
 const inspectorBodyStyle: CSSProperties = {
   flex: "1 1 auto",
+  minWidth: 0,
+  overflowY: "auto",
+  overflowX: "hidden",
   padding: "var(--space-4)",
 };
 

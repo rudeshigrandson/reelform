@@ -9,8 +9,14 @@
 *::after {
   box-sizing: border-box;
 }
+html,
+body,
+#root {
+  height: 100%;
+}
 body {
   margin: 0;
+  accent-color: var(--color-accent);
   font-size: 15px;
   line-height: 1.55;
   font-weight: 400;
