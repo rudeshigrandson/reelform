@@ -427,7 +427,7 @@ export function Timeline(props: TimelineProps): ReactElement {
           const r = d.last;
           const changed =
             r !== null && (r.item.startMs !== d.origin.startMs || r.item.endMs !== d.origin.endMs);
-          if (r && r.valid && changed) {
+          if (r?.valid && changed) {
             p.onItemChange(d.trackKind, {
               id: r.item.id,
               startMs: r.item.startMs,
@@ -461,9 +461,9 @@ export function Timeline(props: TimelineProps): ReactElement {
         const lo = Math.min(m.startLane, m.curLane);
         const hi = Math.max(m.startLane, m.curLane);
         const ids = new Set<string>(m.additive ? p.selectedIds : []);
-        p.tracks.slice(lo, hi + 1).forEach((t) => {
+        for (const t of p.tracks.slice(lo, hi + 1)) {
           for (const id of selectInRange(t.items, aMs, bMs)) ids.add(id);
-        });
+        }
         p.onSelect(ids);
       }
     };
