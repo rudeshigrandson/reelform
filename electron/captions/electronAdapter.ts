@@ -1,0 +1,52 @@
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import * as fsp from "node:fs/promises";
+import { availableParallelism, tmpdir } from "node:os";
+import * as path from "node:path";
+import { app } from "electron";
+import type { CaptionsProgress } from "./contracts";
+import type { CaptionsDeps } from "./handlers";
+import { nodeDownloadFs, nodeFetch, nodeSha256, nodeTranscribeFs } from "./nodeDeps";
+import { resolveWhisperBinary } from "./runtime";
+import type { SilenceSplitter, WavExtractor } from "./transcribe";
+import type { SpawnFn } from "./whisperCli";
+
+/**
+ * Real deps for {@link createCaptionsHandlers}. Audio extraction and silence
+ * splitting are ffmpeg jobs owned by the media module; the caller wires them.
+ */
+export function createElectronCaptionsDeps(opts: {
+  extractWav: WavExtractor;
+  splitter: SilenceSplitter;
+  emit: (event: CaptionsProgress) => void;
+}): CaptionsDeps {
+  return {
+    modelsDir: path.join(app.getPath("userData"), "models"),
+    join: path.join,
+    isAbsolute: path.isAbsolute,
+    mkdirp: async (dir) => {
+      await fsp.mkdir(dir, { recursive: true });
+    },
+    fetch: nodeFetch,
+    downloadFs: nodeDownloadFs,
+    createHash: nodeSha256,
+    fs: nodeTranscribeFs,
+    tempPrefix: path.join(tmpdir(), "reelform-captions-"),
+    spawn: ((cmd, args) => spawn(cmd, [...args], { windowsHide: true })) as SpawnFn,
+    extractWav: opts.extractWav,
+    splitter: opts.splitter,
+    threads: Math.max(1, Math.min(8, availableParallelism() - 1)),
+    emit: opts.emit,
+    resolveWhisperBinary: () =>
+      resolveWhisperBinary({
+        platform: process.platform,
+        arch: process.arch,
+        resourcesPath: process.resourcesPath,
+        appPath: app.getAppPath(),
+        isPackaged: app.isPackaged,
+        override: process.env.REELFORM_WHISPER_CLI,
+        join: path.join,
+        exists: existsSync,
+      }),
+  };
+}

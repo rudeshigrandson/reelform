@@ -1,0 +1,112 @@
+{
+  "systeminfo": "AVX = 0 | NEON = 1 | METAL = 1",
+  "model": { "type": "tiny", "multilingual": false, "vocab": 51864 },
+  "params": { "model": "ggml-tiny.en-q5_1.bin", "language": "en", "translate": false },
+  "result": { "language": "en" },
+  "transcription": [
+    {
+      "timestamps": { "from": "00:00:00,000", "to": "00:00:02,400" },
+      "offsets": { "from": 0, "to": 2400 },
+      "text": " Welcome to Reelform.",
+      "tokens": [
+        {
+          "text": "[_BEG_]",
+          "timestamps": { "from": "00:00:00,000", "to": "00:00:00,000" },
+          "offsets": { "from": 0, "to": 0 },
+          "id": 50363,
+          "p": 0.98,
+          "t_dtw": -1
+        },
+        {
+          "text": " Welcome",
+          "timestamps": { "from": "00:00:00,000", "to": "00:00:00,640" },
+          "offsets": { "from": 0, "to": 640 },
+          "id": 19134,
+          "p": 0.91,
+          "t_dtw": -1
+        },
+        {
+          "text": " to",
+          "timestamps": { "from": "00:00:00,640", "to": "00:00:00,820" },
+          "offsets": { "from": 640, "to": 820 },
+          "id": 284,
+          "p": 0.99,
+          "t_dtw": -1
+        },
+        {
+          "text": " Re",
+          "timestamps": { "from": "00:00:00,820", "to": "00:00:01,100" },
+          "offsets": { "from": 820, "to": 1100 },
+          "id": 797,
+          "p": 0.72,
+          "t_dtw": -1
+        },
+        {
+          "text": "el",
+          "timestamps": { "from": "00:00:01,100", "to": "00:00:01,380" },
+          "offsets": { "from": 1100, "to": 1380 },
+          "id": 417,
+          "p": 0.66,
+          "t_dtw": -1
+        },
+        {
+          "text": "form",
+          "timestamps": { "from": "00:00:01,380", "to": "00:00:01,900" },
+          "offsets": { "from": 1380, "to": 1900 },
+          "id": 687,
+          "p": 0.81,
+          "t_dtw": -1
+        },
+        {
+          "text": ".",
+          "timestamps": { "from": "00:00:01,900", "to": "00:00:02,000" },
+          "offsets": { "from": 1900, "to": 2000 },
+          "id": 13,
+          "p": 0.95,
+          "t_dtw": -1
+        },
+        {
+          "text": "[_TT_120]",
+          "timestamps": { "from": "00:00:02,400", "to": "00:00:02,400" },
+          "offsets": { "from": 2400, "to": 2400 },
+          "id": 50483,
+          "p": 0.3,
+          "t_dtw": -1
+        }
+      ]
+    },
+    {
+      "timestamps": { "from": "00:00:02,400", "to": "00:00:04,000" },
+      "offsets": { "from": 2400, "to": 4000 },
+      "text": " [BLANK_AUDIO]",
+      "tokens": [
+        { "text": " [", "offsets": { "from": 2400, "to": 2500 }, "id": 685, "p": 0.5 },
+        { "text": "BL", "offsets": { "from": 2500, "to": 2600 }, "id": 9148, "p": 0.5 },
+        { "text": "ANK", "offsets": { "from": 2600, "to": 2700 }, "id": 15154, "p": 0.5 },
+        { "text": "_", "offsets": { "from": 2700, "to": 2800 }, "id": 62, "p": 0.5 },
+        { "text": "AUDIO", "offsets": { "from": 2800, "to": 3900 }, "id": 48877, "p": 0.5 },
+        { "text": "]", "offsets": { "from": 3900, "to": 4000 }, "id": 60, "p": 0.5 }
+      ]
+    },
+    {
+      "timestamps": { "from": "00:00:04,000", "to": "00:00:07,200" },
+      "offsets": { "from": 4000, "to": 7200 },
+      "text": " Hit record, then let auto-zoom do the rest!",
+      "tokens": [
+        { "text": " Hit", "offsets": { "from": 4000, "to": 4300 }, "id": 7298, "p": 0.9 },
+        { "text": " record", "offsets": { "from": 4300, "to": 4800 }, "id": 1700, "p": 0.9 },
+        { "text": ",", "offsets": { "from": 4800, "to": 4850 }, "id": 11, "p": 0.9 },
+        { "text": " then", "offsets": { "from": 4850, "to": 5100 }, "id": 788, "p": 0.9 },
+        { "text": " let", "offsets": { "from": 5100, "to": 5300 }, "id": 1309, "p": 0.9 },
+        { "text": " auto", "offsets": { "from": 5300, "to": 5700 }, "id": 8295, "p": 0.9 },
+        { "text": "-", "offsets": { "from": 5700, "to": 5750 }, "id": 12, "p": 0.9 },
+        { "text": "zoom", "offsets": { "from": 5750, "to": 6100 }, "id": 89, "p": 0.9 },
+        { "text": " do", "offsets": { "from": 6100, "to": 6300 }, "id": 466, "p": 0.9 },
+        { "text": " the", "offsets": { "from": 6300, "to": 6450 }, "id": 262, "p": 0.9 },
+        { "text": " rest", "offsets": { "from": 6450, "to": 6900 }, "id": 1334, "p": 0.9 },
+        { "text": "!", "offsets": { "from": 6900, "to": 7000 }, "id": 0, "p": 0.9 },
+        { "text": "<|endoftext|>", "offsets": { "from": 7200, "to": 7200 }, "id": 50256, "p": 0.9 }
+      ]
+    }
+  ]
+}
