@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 
-export interface SegmentedOption<T extends string> {
+export interface SegmentedOption<T extends string | number> {
   value: T;
   label: ReactNode;
 }
 
-export interface SegmentedProps<T extends string> {
+export interface SegmentedProps<T extends string | number> {
   /** Radio-group name; defaults are fine when only one group is on screen. */
   name: string;
   value: T;
@@ -15,7 +15,7 @@ export interface SegmentedProps<T extends string> {
 }
 
 /** Segmented (pill) control — a styled radio group, one option selected. */
-export function Segmented<T extends string>({
+export function Segmented<T extends string | number>({
   name,
   value,
   options,

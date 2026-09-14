@@ -8,6 +8,7 @@ export default defineConfig({
     alias: {
       "@contracts": r("./electron/ipc/contracts.ts"),
       "@shared": r("./src/shared"),
+      "@design": r("./src/design"),
     },
   },
   test: {
@@ -16,6 +17,6 @@ export default defineConfig({
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "electron/**/*.test.ts"],
     setupFiles: ["src/test/setup.ts"],
     // Component (.tsx) tests need a DOM; pure-logic .ts tests stay on fast node.
-    environmentMatchGlobs: [["src/design/**", "jsdom"]],
+    environmentMatchGlobs: [["**/*.test.tsx", "jsdom"]],
   },
 });

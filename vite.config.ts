@@ -10,6 +10,7 @@ export default defineConfig({
     alias: {
       "@contracts": r("./electron/ipc/contracts.ts"),
       "@shared": r("./src/shared"),
+      "@design": r("./src/design"),
     },
   },
   plugins: [
