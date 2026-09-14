@@ -222,9 +222,12 @@ describe("clampFades", () => {
           expect(r.fadeInMs).toBeGreaterThanOrEqual(0);
           expect(r.fadeOutMs).toBeGreaterThanOrEqual(0);
           expect(r.fadeInMs + r.fadeOutMs).toBeLessThanOrEqual(d);
-          if (p === "in" && fi >= 0 && Math.round(fi) <= d) expect(r.fadeInMs).toBe(Math.round(fi));
+          // Math.max(0, …) normalizes -0: fc.double generates -0, which passes `>= 0`
+          // but Math.round(-0) is -0 and toBe uses Object.is.
+          if (p === "in" && fi >= 0 && Math.round(fi) <= d)
+            expect(r.fadeInMs).toBe(Math.max(0, Math.round(fi)));
           if (p === "out" && fo >= 0 && Math.round(fo) <= d)
-            expect(r.fadeOutMs).toBe(Math.round(fo));
+            expect(r.fadeOutMs).toBe(Math.max(0, Math.round(fo)));
         },
       ),
     );
