@@ -6,3 +6,6 @@ release/
 .DS_Store
 .vite/
 coverage/
+
+# agent worktrees (git worktrees, not part of the tree)
+.claude/worktrees/
