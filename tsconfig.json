@@ -21,7 +21,8 @@
     "baseUrl": ".",
     "paths": {
       "@contracts": ["electron/ipc/contracts.ts"],
-      "@shared/*": ["src/shared/*"]
+      "@shared/*": ["src/shared/*"],
+      "@design/*": ["src/design/*"]
     }
   },
   "include": ["src", "electron", "vite.config.ts", "vitest.config.ts"]
