@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "../App";
+import { usePlaybackStore } from "../editor/playback";
 import { INSPECTOR_TABS } from "../editor/shell/types";
 import { useEditorStore } from "../editor/store";
 import { useAppStore } from "./store";
@@ -54,6 +55,17 @@ describe("App shell", () => {
     const before = useEditorStore.getState().cursor.show;
     fireEvent.click(within(panel).getByRole("switch", { name: /show cursor/i }));
     expect(useEditorStore.getState().cursor.show).toBe(!before);
+  });
+
+  it("the editor playhead comes from the playback store, not the document store", () => {
+    useEditorStore.getState().reset();
+    usePlaybackStore.getState().reset();
+    usePlaybackStore.getState().setDuration(useEditorStore.getState().durationMs);
+    usePlaybackStore.getState().seek(65_000);
+    useAppStore.setState({ view: "editor", activeProjectName: "Demo" });
+    render(<App />);
+    expect(screen.getByText(/1:05 \//)).toBeInTheDocument();
+    expect("currentMs" in useEditorStore.getState()).toBe(false);
   });
 
   it("shows the recording HUD while recording, and stopping opens the editor", () => {

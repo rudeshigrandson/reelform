@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { getAppVersion } from "./app/ipc";
 import { useAppStore } from "./app/store";
 import { InspectorPanel } from "./editor/inspector/InspectorPanel";
+import { usePlaybackStore } from "./editor/playback";
 import { EditorShell } from "./editor/shell/EditorShell";
 import { useEditorStore } from "./editor/store";
 import { ExportDialog } from "./export/ui/ExportDialog";
@@ -20,7 +21,7 @@ import { Settings } from "./settings/Settings";
 export function App() {
   const s = useAppStore();
   const editorDurationMs = useEditorStore((e) => e.durationMs);
-  const editorCurrentMs = useEditorStore((e) => e.currentMs);
+  const editorCurrentMs = usePlaybackStore((p) => p.currentMs);
   const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {

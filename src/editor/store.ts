@@ -24,9 +24,9 @@ import { DEFAULT_ZOOM_SETTINGS, type ZoomRegion, type ZoomSettings } from "./ins
  * in memory until the `.reelform` save/load path (SPEC §4) owns the document.
  */
 
+/** The playhead is not document state; it lives in `playback/store` (SPEC §6.2). */
 export interface EditorData {
   durationMs: number;
-  currentMs: number;
   frame: FrameSettings;
   cursor: CursorSettings;
   cursorPointCount: number | null;
@@ -58,7 +58,6 @@ export interface EditorState extends EditorData {
 export function initialEditorData(): EditorData {
   return {
     durationMs: 92_000,
-    currentMs: 24_500,
     frame: structuredClone(DEFAULT_FRAME_SETTINGS),
     cursor: structuredClone(DEFAULT_CURSOR_SETTINGS),
     cursorPointCount: 1204,

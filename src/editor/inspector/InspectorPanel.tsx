@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import { usePlaybackStore } from "../playback";
 import type { InspectorTab } from "../shell/types";
 import { useEditorStore } from "../store";
 import { AnnotationsInspector, duplicateAnnotation } from "./annotations";
@@ -19,6 +20,40 @@ let idCounter = 0;
 function newId(prefix: string): string {
   idCounter += 1;
   return `${prefix}-${Date.now().toString(36)}-${idCounter}`;
+}
+
+/**
+ * Captions reads the playhead, so it subscribes to the playback store on its own
+ * to keep per-frame updates from re-rendering the other tabs.
+ */
+function CaptionsTab(): ReactElement {
+  const e = useEditorStore();
+  const update = e.update;
+  const currentMs = usePlaybackStore((p) => p.currentMs);
+  const seek = usePlaybackStore((p) => p.seek);
+  return (
+    <CaptionsInspector
+      captions={e.captions}
+      onCaptionsChange={(captions) => update({ captions })}
+      style={e.captionStyle}
+      onStyleChange={(captionStyle) => update({ captionStyle })}
+      status={e.captionStatus}
+      modelDownloaded={false}
+      model={e.captionModel}
+      onModelChange={(captionModel) => update({ captionModel })}
+      language={e.captionLanguage}
+      onLanguageChange={(captionLanguage) => update({ captionLanguage })}
+      onGenerate={noop}
+      onDownloadModel={noop}
+      onSeek={seek}
+      currentMs={currentMs}
+      durationMs={e.durationMs}
+      burnIn={e.burnInCaptions}
+      onBurnInChange={(burnInCaptions) => update({ burnInCaptions })}
+      onExportSrt={noop}
+      onExportVtt={noop}
+    />
+  );
 }
 
 /** Binds the active inspector tab to the editor store. */
@@ -90,29 +125,7 @@ export function InspectorPanel({ tab }: { tab: InspectorTab }): ReactElement {
       );
 
     case "Captions":
-      return (
-        <CaptionsInspector
-          captions={e.captions}
-          onCaptionsChange={(captions) => update({ captions })}
-          style={e.captionStyle}
-          onStyleChange={(captionStyle) => update({ captionStyle })}
-          status={e.captionStatus}
-          modelDownloaded={false}
-          model={e.captionModel}
-          onModelChange={(captionModel) => update({ captionModel })}
-          language={e.captionLanguage}
-          onLanguageChange={(captionLanguage) => update({ captionLanguage })}
-          onGenerate={noop}
-          onDownloadModel={noop}
-          onSeek={(currentMs) => update({ currentMs })}
-          currentMs={e.currentMs}
-          durationMs={e.durationMs}
-          burnIn={e.burnInCaptions}
-          onBurnInChange={(burnInCaptions) => update({ burnInCaptions })}
-          onExportSrt={noop}
-          onExportVtt={noop}
-        />
-      );
+      return <CaptionsTab />;
 
     case "Annotations": {
       const selected = e.annotations.find((a) => a.id === e.selectedAnnotationId) ?? null;
