@@ -1,10 +1,21 @@
 import { z } from "zod";
+import { captionsContracts, captionsEvents } from "../captions/contracts";
+import { diagnosticsContracts } from "../diagnostics/contracts";
+import { exportContracts } from "../export/contracts";
+import { mediaContracts } from "../media/contracts";
+import { permissionsContracts, permissionsEvents } from "../permissions/contracts";
+import { projectContracts } from "../project/contracts";
+import { recordingContracts, recordingEvents } from "../recording/contracts";
+import { settingsContracts, settingsEvents } from "../settings/contracts";
+import { updaterContracts, updaterEvents } from "../updater/contracts";
+import { windowsContracts } from "../windows/contracts";
 
 /**
  * Single source of truth for every IPC channel name and its request/response
  * shape. Shared by main (handler registration) and renderer (typed invoke) via
  * the `@contracts` path alias. Renderer never imports anything else from
- * `electron/`. Channels are named `domain:verb`.
+ * `electron/`. Channels are named `domain:verb`; each domain owns its fragment
+ * in `electron/<domain>/contracts.ts` and is merged here.
  */
 
 export const IpcError = z.object({
@@ -27,10 +38,41 @@ const channel = <Req extends z.ZodTypeAny, Res extends z.ZodTypeAny>(
   response: Res,
 ): Channel<Req, Res> => ({ name, request, response });
 
-// ---- system domain (minimal M0 surface) --------------------------------
+// ---- system domain ------------------------------------------------------
+const systemContracts = {
+  "system:ping": channel(
+    "system:ping",
+    z.void(),
+    z.object({ pong: z.literal(true), version: z.string() }),
+  ),
+  "system:openExternal": channel(
+    "system:openExternal",
+    z.object({ url: z.string().url() }),
+    z.object({ ok: z.boolean() }),
+  ),
+} as const;
+
 export const contracts = {
-  "system:ping": channel("system:ping", z.void(), z.object({ pong: z.literal(true), version: z.string() })),
-  "system:openExternal": channel("system:openExternal", z.object({ url: z.string().url() }), z.object({ ok: z.boolean() })),
+  ...systemContracts,
+  ...projectContracts,
+  ...exportContracts,
+  ...mediaContracts,
+  ...recordingContracts,
+  ...captionsContracts,
+  ...permissionsContracts,
+  ...settingsContracts,
+  ...updaterContracts,
+  ...diagnosticsContracts,
+  ...windowsContracts,
+} as const;
+
+/** Main → renderer push events, delivered through `ReelformApi.on`. */
+export const events = {
+  ...recordingEvents,
+  ...captionsEvents,
+  ...permissionsEvents,
+  ...settingsEvents,
+  ...updaterEvents,
 } as const;
 
 export type Contracts = typeof contracts;
@@ -39,8 +81,19 @@ export type ChannelName = keyof Contracts;
 export type RequestOf<K extends ChannelName> = z.infer<Contracts[K]["request"]>;
 export type ResponseOf<K extends ChannelName> = z.infer<Contracts[K]["response"]>;
 
+export type Events = typeof events;
+export type EventName = keyof Events;
+type EventSchema<K extends EventName> = Events[K] extends { payload: infer P extends z.ZodTypeAny }
+  ? P
+  : Events[K] extends { schema: infer S extends z.ZodTypeAny }
+    ? S
+    : z.ZodUnknown;
+export type EventPayloadOf<K extends EventName> = z.infer<EventSchema<K>>;
+
 /** The typed API exposed on `window.reelform` by the preload bridge. */
 export interface ReelformApi {
   invoke<K extends ChannelName>(channel: K, payload: RequestOf<K>): Promise<ResponseOf<K>>;
   on(channel: string, cb: (payload: unknown) => void): () => void;
 }
+
+export { IPC_ERROR_PREFIX, ReelformIpcError, decodeIpcError, toIpcError } from "./errors";
