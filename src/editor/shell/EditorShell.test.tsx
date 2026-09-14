@@ -102,9 +102,9 @@ describe("EditorShell", () => {
         />,
       );
       expect(screen.getByTestId("playback-slot")).toBeInTheDocument();
-      expect(screen.getByTestId("editor-shell").style.gridTemplateRows).toBe(
-        "56px 1fr 44px 260px",
-      );
+      expect(screen.getByTestId("editor-shell").style.gridTemplateRows).toBe("56px 1fr 44px 260px");
+      // Transport lives in the bar; the top bar must not duplicate Play.
+      expect(screen.queryByRole("button", { name: "Play" })).toBeNull();
     });
 
     it("keeps the inspector working alongside all slots", async () => {

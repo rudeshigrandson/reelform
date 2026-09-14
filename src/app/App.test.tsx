@@ -1,10 +1,20 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { usePlaybackStore } from "../editor/playback";
 import { INSPECTOR_TABS } from "../editor/shell/types";
 import { useEditorStore } from "../editor/store";
 import { useAppStore } from "./store";
+
+// jsdom has no WebGL/WebGPU; the editor's preview gets an inert stage.
+vi.mock("../editor/preview/pixiStage", () => ({
+  createPixiStage: async () => ({
+    setVideo: () => {},
+    render: () => {},
+    resize: () => {},
+    destroy: () => {},
+  }),
+}));
 
 beforeEach(() => {
   useAppStore.setState({
@@ -64,7 +74,7 @@ describe("App shell", () => {
     usePlaybackStore.getState().seek(65_000);
     useAppStore.setState({ view: "editor", activeProjectName: "Demo" });
     render(<App />);
-    expect(screen.getByText(/1:05 \//)).toBeInTheDocument();
+    expect(screen.getByText(/01:05\.000/)).toBeInTheDocument();
     expect("currentMs" in useEditorStore.getState()).toBe(false);
   });
 

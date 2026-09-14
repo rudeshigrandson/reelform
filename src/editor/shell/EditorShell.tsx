@@ -212,27 +212,30 @@ export function EditorShell(props: EditorShellProps): ReactElement {
           options={QUALITY_OPTIONS}
           onChange={(q) => onQualityChange?.(q)}
         />
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "var(--space-2)",
-            marginLeft: "var(--space-2)",
-          }}
-        >
-          <Button
-            icon
-            variant="secondary"
-            aria-label={isPlaying ? "Pause" : "Play"}
-            aria-pressed={isPlaying}
-            onClick={() => onTogglePlay?.()}
+        {/* Transport moves to the playback bar when one is provided (guide S12 D). */}
+        {!renderPlaybackBar && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--space-2)",
+              marginLeft: "var(--space-2)",
+            }}
           >
-            {isPlaying ? "❚❚" : "▶"}
-          </Button>
-          <span style={{ fontSize: "13px", color: "var(--color-neutral-300)" }}>
-            {formatTime(currentMs)} / {formatTime(durationMs)}
-          </span>
-        </div>
+            <Button
+              icon
+              variant="secondary"
+              aria-label={isPlaying ? "Pause" : "Play"}
+              aria-pressed={isPlaying}
+              onClick={() => onTogglePlay?.()}
+            >
+              {isPlaying ? "❚❚" : "▶"}
+            </Button>
+            <span style={{ fontSize: "13px", color: "var(--color-neutral-300)" }}>
+              {formatTime(currentMs)} / {formatTime(durationMs)}
+            </span>
+          </div>
+        )}
         <div style={{ marginLeft: "auto" }}>
           <Button variant="primary" onClick={() => onExport()}>
             Export

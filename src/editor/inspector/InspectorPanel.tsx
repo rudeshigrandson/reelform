@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import { type ReactElement, memo } from "react";
 import { usePlaybackStore } from "../playback";
 import type { InspectorTab } from "../shell/types";
 import { useEditorStore } from "../store";
@@ -56,8 +56,13 @@ function CaptionsTab(): ReactElement {
   );
 }
 
-/** Binds the active inspector tab to the editor store. */
-export function InspectorPanel({ tab }: { tab: InspectorTab }): ReactElement {
+/**
+ * Binds the active inspector tab to the editor store. Memoised so the editor
+ * window's per-frame playhead re-renders don't cascade into the tabs.
+ */
+export const InspectorPanel = memo(InspectorPanelImpl);
+
+function InspectorPanelImpl({ tab }: { tab: InspectorTab }): ReactElement {
   const e = useEditorStore();
   const update = e.update;
 
