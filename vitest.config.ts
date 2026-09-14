@@ -13,6 +13,9 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    include: ["src/**/*.test.ts", "electron/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "electron/**/*.test.ts"],
+    setupFiles: ["src/test/setup.ts"],
+    // Component (.tsx) tests need a DOM; pure-logic .ts tests stay on fast node.
+    environmentMatchGlobs: [["src/design/**", "jsdom"]],
   },
 });
