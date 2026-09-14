@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 export type InspectorTab =
   | "Frame"
   | "Cursor"
@@ -42,6 +44,8 @@ export interface EditorShellProps {
   onTogglePlay?: () => void;
   onQualityChange?: (quality: PreviewQuality) => void;
   onRename?: (name: string) => void;
+  /** Renders the body of the active inspector tab; placeholder text when omitted. */
+  renderInspector?: ((tab: InspectorTab) => ReactNode) | undefined;
 }
 
 export const sampleEditorShellProps: EditorShellProps = {
