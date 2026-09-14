@@ -3,7 +3,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 type TagVariant = "accent" | "accent-2" | "neutral" | "outline";
 
 export interface TagProps extends HTMLAttributes<HTMLSpanElement> {
-  variant?: TagVariant;
+  variant?: TagVariant | undefined;
   children?: ReactNode;
 }
 
