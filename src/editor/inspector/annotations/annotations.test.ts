@@ -2,6 +2,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
   ANNOTATION_KINDS,
+  type Annotation,
   DEFAULT_DURATION_MS,
   DUPLICATE_OFFSET,
   MIN_DURATION_MS,
@@ -9,11 +10,14 @@ import {
   duplicateAnnotation,
   nextBadgeNumber,
   updateTiming,
-  type Annotation,
 } from "./index";
 
-const make = (tool: (typeof ANNOTATION_KINDS)[number], playheadMs = 0, timelineDurationMs = 60_000, existing: Annotation[] = []) =>
-  createAnnotation(tool, { id: `id-${tool}`, playheadMs, timelineDurationMs, existing });
+const make = (
+  tool: (typeof ANNOTATION_KINDS)[number],
+  playheadMs = 0,
+  timelineDurationMs = 60_000,
+  existing: Annotation[] = [],
+) => createAnnotation(tool, { id: `id-${tool}`, playheadMs, timelineDurationMs, existing });
 
 describe("createAnnotation", () => {
   it("creates every kind with defaults at the playhead for 3s", () => {
@@ -40,11 +44,19 @@ describe("createAnnotation", () => {
 
   it("always yields a valid range inside the timeline (property)", () => {
     fc.assert(
-      fc.property(fc.integer({ min: -10_000, max: 200_000 }), fc.integer({ min: 0, max: 120_000 }), (p, d) => {
-        const a = make("arrow", p, d);
-        const total = Math.max(MIN_DURATION_MS, d);
-        return a.startMs >= 0 && a.endMs <= total && a.endMs - a.startMs >= Math.min(MIN_DURATION_MS, total);
-      }),
+      fc.property(
+        fc.integer({ min: -10_000, max: 200_000 }),
+        fc.integer({ min: 0, max: 120_000 }),
+        (p, d) => {
+          const a = make("arrow", p, d);
+          const total = Math.max(MIN_DURATION_MS, d);
+          return (
+            a.startMs >= 0 &&
+            a.endMs <= total &&
+            a.endMs - a.startMs >= Math.min(MIN_DURATION_MS, total)
+          );
+        },
+      ),
     );
   });
 
@@ -61,9 +73,19 @@ describe("createAnnotation", () => {
   });
 
   it("centers on a click point, kept inside the frame", () => {
-    const a = createAnnotation("rect", { id: "r", playheadMs: 0, timelineDurationMs: 10_000, at: { x: 0.5, y: 0.5 } });
+    const a = createAnnotation("rect", {
+      id: "r",
+      playheadMs: 0,
+      timelineDurationMs: 10_000,
+      at: { x: 0.5, y: 0.5 },
+    });
     expect(a.x + a.w / 2).toBeCloseTo(0.5);
-    const edge = createAnnotation("rect", { id: "r", playheadMs: 0, timelineDurationMs: 10_000, at: { x: 1, y: 0 } });
+    const edge = createAnnotation("rect", {
+      id: "r",
+      playheadMs: 0,
+      timelineDurationMs: 10_000,
+      at: { x: 1, y: 0 },
+    });
     expect(edge.x + edge.w).toBeLessThanOrEqual(1);
     expect(edge.y).toBe(0);
   });
@@ -81,7 +103,11 @@ describe("nextBadgeNumber", () => {
     expect(nextBadgeNumber([])).toBe(1);
     fc.assert(
       fc.property(fc.array(fc.integer({ min: 0, max: 500 }), { minLength: 1 }), (values) => {
-        const badges = values.map((value, i) => ({ ...make("numberBadge"), id: String(i), value })) as Annotation[];
+        const badges = values.map((value, i) => ({
+          ...make("numberBadge"),
+          id: String(i),
+          value,
+        })) as Annotation[];
         return nextBadgeNumber(badges) === Math.max(0, ...values) + 1;
       }),
     );
@@ -118,18 +144,27 @@ describe("updateTiming", () => {
   const a = { ...make("text"), startMs: 1000, endMs: 4000 };
 
   it("applies valid edits", () => {
-    expect(updateTiming(a, { startMs: 2000 }, 10_000)).toMatchObject({ startMs: 2000, endMs: 4000 });
+    expect(updateTiming(a, { startMs: 2000 }, 10_000)).toMatchObject({
+      startMs: 2000,
+      endMs: 4000,
+    });
     expect(updateTiming(a, { endMs: 8000 }, 10_000)).toMatchObject({ startMs: 1000, endMs: 8000 });
   });
 
   it("pushes end when start passes it, and pulls start when end precedes it", () => {
-    expect(updateTiming(a, { startMs: 5000 }, 10_000)).toMatchObject({ startMs: 5000, endMs: 5000 + MIN_DURATION_MS });
+    expect(updateTiming(a, { startMs: 5000 }, 10_000)).toMatchObject({
+      startMs: 5000,
+      endMs: 5000 + MIN_DURATION_MS,
+    });
     expect(updateTiming(a, { endMs: 500 }, 10_000)).toMatchObject({ startMs: 400, endMs: 500 });
   });
 
   it("clamps to the timeline", () => {
     expect(updateTiming(a, { endMs: 99_999 }, 10_000).endMs).toBe(10_000);
-    expect(updateTiming(a, { startMs: 99_999 }, 10_000)).toMatchObject({ startMs: 9900, endMs: 10_000 });
+    expect(updateTiming(a, { startMs: 99_999 }, 10_000)).toMatchObject({
+      startMs: 9900,
+      endMs: 10_000,
+    });
     expect(updateTiming(a, { startMs: -5 }, 10_000).startMs).toBe(0);
   });
 

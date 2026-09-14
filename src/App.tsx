@@ -1,16 +1,16 @@
-import { useEffect, useState } from "react";
 import { Button } from "@design/components";
+import { useEffect, useState } from "react";
 import { getAppVersion } from "./app/ipc";
 import { useAppStore } from "./app/store";
 import { InspectorPanel } from "./editor/inspector/InspectorPanel";
 import { EditorShell } from "./editor/shell/EditorShell";
 import { useEditorStore } from "./editor/store";
+import { ExportDialog } from "./export/ui/ExportDialog";
 import { RecordingHud } from "./hud/RecordingHud";
 import { Launcher, sampleLauncherProps } from "./launcher/Launcher";
 import { OnboardingFlow } from "./onboarding/OnboardingFlow";
 import { ProjectBrowser } from "./projects/ProjectBrowser";
 import { Settings } from "./settings/Settings";
-import { ExportDialog } from "./export/ui/ExportDialog";
 
 /**
  * Pre-window-management app shell. A single window switches between the built
@@ -85,12 +85,19 @@ export function App() {
         />
       )}
 
-      {s.view === "settings" && (
-        <Settings settings={s.settings} onChange={s.updateSettings} />
-      )}
+      {s.view === "settings" && <Settings settings={s.settings} onChange={s.updateSettings} />}
 
       {s.recording && (
-        <div style={{ position: "fixed", bottom: 24, left: 0, right: 0, display: "flex", justifyContent: "center" }}>
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            left: 0,
+            right: 0,
+            display: "flex",
+            justifyContent: "center",
+          }}
+        >
           <RecordingHud
             phase={s.recording.phase}
             elapsedMs={s.recording.elapsedMs}
@@ -139,7 +146,9 @@ function DevNav({ version }: { version: string | null }) {
         color: "var(--color-neutral-200)",
       }}
     >
-      <span style={{ fontFamily: "var(--font-heading)", marginRight: "var(--space-2)" }}>Reelform</span>
+      <span style={{ fontFamily: "var(--font-heading)", marginRight: "var(--space-2)" }}>
+        Reelform
+      </span>
       {items.map((it) => (
         <Button
           key={it.to}

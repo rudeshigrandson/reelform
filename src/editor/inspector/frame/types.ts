@@ -26,7 +26,16 @@ const range = (r: { min: number; max: number }) => z.number().min(r.min).max(r.m
 export const BACKGROUND_KINDS = ["wallpaper", "color", "gradient", "image", "none"] as const;
 export type BackgroundKind = (typeof BACKGROUND_KINDS)[number];
 
-export const ASPECT_PRESETS = ["16:9", "9:16", "1:1", "4:3", "4:5", "21:9", "source", "custom"] as const;
+export const ASPECT_PRESETS = [
+  "16:9",
+  "9:16",
+  "1:1",
+  "4:3",
+  "4:5",
+  "21:9",
+  "source",
+  "custom",
+] as const;
 export type AspectPreset = (typeof ASPECT_PRESETS)[number];
 
 export const gradientStopSchema = z.object({
@@ -44,7 +53,10 @@ export const frameSettingsSchema = z.object({
     gradient: z.object({
       type: z.enum(["linear", "radial"]),
       angle: range(FRAME_LIMITS.gradientAngle),
-      stops: z.array(gradientStopSchema).min(FRAME_LIMITS.gradientStops.min).max(FRAME_LIMITS.gradientStops.max),
+      stops: z
+        .array(gradientStopSchema)
+        .min(FRAME_LIMITS.gradientStops.min)
+        .max(FRAME_LIMITS.gradientStops.max),
     }),
     image: z.object({
       /** Project-relative path under `media/`; null = dropzone empty. */
@@ -78,13 +90,22 @@ export const frameSettingsSchema = z.object({
   aspect: z.object({
     preset: z.enum(ASPECT_PRESETS),
     customWidth: z.number().int().min(FRAME_LIMITS.customSize.min).max(FRAME_LIMITS.customSize.max),
-    customHeight: z.number().int().min(FRAME_LIMITS.customSize.min).max(FRAME_LIMITS.customSize.max),
+    customHeight: z
+      .number()
+      .int()
+      .min(FRAME_LIMITS.customSize.min)
+      .max(FRAME_LIMITS.customSize.max),
   }),
   /** Source scale inside the frame, percent. */
   inset: range(FRAME_LIMITS.inset),
   /** Normalized source crop rect (edited on canvas); null = uncropped. */
   crop: z
-    .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), width: z.number().min(0).max(1), height: z.number().min(0).max(1) })
+    .object({
+      x: z.number().min(0).max(1),
+      y: z.number().min(0).max(1),
+      width: z.number().min(0).max(1),
+      height: z.number().min(0).max(1),
+    })
     .nullable(),
 });
 
@@ -137,7 +158,14 @@ function preset(id: string, name: string, patch: (s: FrameSettings) => FrameSett
   return { id, name, builtIn: true, settings: patch(structuredClone(DEFAULT_FRAME_SETTINGS)) };
 }
 
-const uniformPadding = (n: number): FramePadding => ({ matchAll: true, all: n, top: n, right: n, bottom: n, left: n });
+const uniformPadding = (n: number): FramePadding => ({
+  matchAll: true,
+  all: n,
+  top: n,
+  right: n,
+  bottom: n,
+  left: n,
+});
 
 export const BUILT_IN_FRAME_PRESETS: readonly FramePreset[] = [
   preset("default", "Default", (s) => s),
@@ -184,7 +212,14 @@ export const BUILT_IN_FRAME_PRESETS: readonly FramePreset[] = [
   })),
 ];
 
-export const WALLPAPER_CATEGORIES = ["Abstract", "Gradient", "Mesh", "Mac", "Solid", "Custom"] as const;
+export const WALLPAPER_CATEGORIES = [
+  "Abstract",
+  "Gradient",
+  "Mesh",
+  "Mac",
+  "Solid",
+  "Custom",
+] as const;
 export type WallpaperCategory = (typeof WALLPAPER_CATEGORIES)[number];
 
 export interface Wallpaper {
@@ -205,16 +240,17 @@ const TILE_TOKENS = [
 ] as const;
 
 /** Placeholder wallpaper pack: 24 thumbnails across the bundled categories. */
-export const PLACEHOLDER_WALLPAPERS: readonly Wallpaper[] = (["Abstract", "Gradient", "Mesh", "Mac", "Solid"] as const).flatMap(
-  (category, ci) =>
-    Array.from({ length: ci === 4 ? 4 : 5 }, (_, i): Wallpaper => {
-      const a = TILE_TOKENS[(ci + i) % TILE_TOKENS.length] ?? TILE_TOKENS[0];
-      const b = TILE_TOKENS[(ci + i + 2) % TILE_TOKENS.length] ?? TILE_TOKENS[1];
-      return {
-        id: `${category.toLowerCase()}-${i + 1}`,
-        name: `${category} ${i + 1}`,
-        category,
-        preview: category === "Solid" ? a : `linear-gradient(135deg, ${a}, ${b})`,
-      };
-    }),
+export const PLACEHOLDER_WALLPAPERS: readonly Wallpaper[] = (
+  ["Abstract", "Gradient", "Mesh", "Mac", "Solid"] as const
+).flatMap((category, ci) =>
+  Array.from({ length: ci === 4 ? 4 : 5 }, (_, i): Wallpaper => {
+    const a = TILE_TOKENS[(ci + i) % TILE_TOKENS.length] ?? TILE_TOKENS[0];
+    const b = TILE_TOKENS[(ci + i + 2) % TILE_TOKENS.length] ?? TILE_TOKENS[1];
+    return {
+      id: `${category.toLowerCase()}-${i + 1}`,
+      name: `${category} ${i + 1}`,
+      category,
+      preview: category === "Solid" ? a : `linear-gradient(135deg, ${a}, ${b})`,
+    };
+  }),
 );

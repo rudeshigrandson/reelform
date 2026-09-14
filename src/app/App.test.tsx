@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "../App";
-import { useEditorStore } from "../editor/store";
 import { INSPECTOR_TABS } from "../editor/shell/types";
+import { useEditorStore } from "../editor/store";
 import { useAppStore } from "./store";
 
 beforeEach(() => {

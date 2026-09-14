@@ -78,13 +78,19 @@ export const CAPTION_LANGUAGES: readonly CaptionLanguage[] = [
 
 export type GenerationStatus =
   | { kind: "idle" }
-  | { kind: "downloading"; /** 0–1 */ progress: number }
-  | { kind: "transcribing"; /** 0–1 */ progress: number; doneMs: number; totalMs: number }
+  | { kind: "downloading" /** 0–1 */; progress: number }
+  | { kind: "transcribing" /** 0–1 */; progress: number; doneMs: number; totalMs: number }
   | { kind: "error"; message: string };
 
 export const IDLE_STATUS: GenerationStatus = { kind: "idle" };
 
-export const DEFAULT_CAPTION_FONTS: readonly string[] = ["Inter", "SF Pro", "Helvetica Neue", "Arial", "Georgia"];
+export const DEFAULT_CAPTION_FONTS: readonly string[] = [
+  "Inter",
+  "SF Pro",
+  "Helvetica Neue",
+  "Arial",
+  "Georgia",
+];
 
 export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   preset: "clean",
@@ -118,27 +124,67 @@ export const CAPTION_PRESETS: readonly CaptionPresetInfo[] = [
   {
     id: "clean",
     label: "Clean",
-    fields: { color: "#ffffff", bgColor: "#000000", bgOpacity: 0, wordHighlight: false, highlightColor: "#ffd60a", uppercase: false, outline: false },
+    fields: {
+      color: "#ffffff",
+      bgColor: "#000000",
+      bgOpacity: 0,
+      wordHighlight: false,
+      highlightColor: "#ffd60a",
+      uppercase: false,
+      outline: false,
+    },
   },
   {
     id: "bold",
     label: "Bold",
-    fields: { color: "#ffffff", bgColor: "#000000", bgOpacity: 0, wordHighlight: false, highlightColor: "#ffd60a", uppercase: true, outline: false },
+    fields: {
+      color: "#ffffff",
+      bgColor: "#000000",
+      bgOpacity: 0,
+      wordHighlight: false,
+      highlightColor: "#ffd60a",
+      uppercase: true,
+      outline: false,
+    },
   },
   {
     id: "karaoke",
     label: "Karaoke",
-    fields: { color: "#ffffff", bgColor: "#000000", bgOpacity: 40, wordHighlight: true, highlightColor: "#ffd60a", uppercase: false, outline: false },
+    fields: {
+      color: "#ffffff",
+      bgColor: "#000000",
+      bgOpacity: 40,
+      wordHighlight: true,
+      highlightColor: "#ffd60a",
+      uppercase: false,
+      outline: false,
+    },
   },
   {
     id: "outline",
     label: "Outline",
-    fields: { color: "#ffffff", bgColor: "#000000", bgOpacity: 0, wordHighlight: false, highlightColor: "#ffd60a", uppercase: false, outline: true },
+    fields: {
+      color: "#ffffff",
+      bgColor: "#000000",
+      bgOpacity: 0,
+      wordHighlight: false,
+      highlightColor: "#ffd60a",
+      uppercase: false,
+      outline: true,
+    },
   },
   {
     id: "pill",
     label: "Pill",
-    fields: { color: "#ffffff", bgColor: "#000000", bgOpacity: 70, wordHighlight: false, highlightColor: "#ffd60a", uppercase: false, outline: false },
+    fields: {
+      color: "#ffffff",
+      bgColor: "#000000",
+      bgOpacity: 70,
+      wordHighlight: false,
+      highlightColor: "#ffd60a",
+      uppercase: false,
+      outline: false,
+    },
   },
 ];
 

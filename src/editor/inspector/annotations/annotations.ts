@@ -1,10 +1,10 @@
 import { clamp } from "../controls";
 import {
+  type Annotation,
+  type AnnotationTool,
   DEFAULT_BASE,
   DEFAULT_BASE_OVERRIDES,
   DEFAULT_PROPS,
-  type Annotation,
-  type AnnotationTool,
 } from "./types";
 
 /** New annotations last 3s (design guide S19). */
@@ -31,7 +31,10 @@ export function clampRange(
   endMs: number,
   timelineDurationMs: number,
 ): { startMs: number; endMs: number } {
-  const total = Math.max(MIN_DURATION_MS, Number.isFinite(timelineDurationMs) ? timelineDurationMs : Infinity);
+  const total = Math.max(
+    MIN_DURATION_MS,
+    Number.isFinite(timelineDurationMs) ? timelineDurationMs : Number.POSITIVE_INFINITY,
+  );
   let start = clamp(Number.isFinite(startMs) ? startMs : 0, 0, total - MIN_DURATION_MS);
   let end = clamp(Number.isFinite(endMs) ? endMs : start + MIN_DURATION_MS, 0, total);
   if (end - start < MIN_DURATION_MS) {
@@ -60,7 +63,8 @@ export function createAnnotation(tool: AnnotationTool, opts: CreateAnnotationOpt
   const total = Math.max(MIN_DURATION_MS, opts.timelineDurationMs);
   const playhead = clamp(opts.playheadMs, 0, total);
   const endMs = Math.min(total, playhead + DEFAULT_DURATION_MS);
-  const startMs = endMs - playhead < MIN_DURATION_MS ? Math.max(0, endMs - DEFAULT_DURATION_MS) : playhead;
+  const startMs =
+    endMs - playhead < MIN_DURATION_MS ? Math.max(0, endMs - DEFAULT_DURATION_MS) : playhead;
 
   const merged = { ...DEFAULT_BASE, ...DEFAULT_BASE_OVERRIDES[tool] };
   const base = { ...merged, animIn: { ...merged.animIn }, animOut: { ...merged.animOut } };

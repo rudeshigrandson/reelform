@@ -15,7 +15,10 @@ const cap = (id: string, startMs: number, endMs: number, text: string): Caption 
   words: [],
 });
 
-const SAMPLE: Caption[] = [cap("a", 1000, 2000, "hello world"), cap("b", 3000, 4000, "second line")];
+const SAMPLE: Caption[] = [
+  cap("a", 1000, 2000, "hello world"),
+  cap("b", 3000, 4000, "second line"),
+];
 
 function baseProps(overrides: Partial<CaptionsInspectorProps> = {}): CaptionsInspectorProps {
   return {
@@ -59,7 +62,9 @@ function Harness(props: { initial: Caption[]; onChange?: (c: Caption[]) => void 
 }
 
 const rows = (): HTMLTextAreaElement[] =>
-  within(screen.getByRole("list", { name: "Caption list" })).getAllByRole("textbox") as HTMLTextAreaElement[];
+  within(screen.getByRole("list", { name: "Caption list" })).getAllByRole(
+    "textbox",
+  ) as HTMLTextAreaElement[];
 
 describe("CaptionsInspector — states", () => {
   it("empty: shows empty state, generate button and privacy line", () => {
@@ -82,9 +87,16 @@ describe("CaptionsInspector — states", () => {
   });
 
   it("model downloading: shows progress and locks selects", () => {
-    render(<CaptionsInspector {...baseProps({ modelDownloaded: false, status: { kind: "downloading", progress: 0.42 } })} />);
+    render(
+      <CaptionsInspector
+        {...baseProps({ modelDownloaded: false, status: { kind: "downloading", progress: 0.42 } })}
+      />,
+    );
     expect(screen.getByText(/Downloading Balanced model 42%/)).toBeInTheDocument();
-    expect(screen.getByRole("progressbar", { name: "Model download" })).toHaveAttribute("aria-valuenow", "42");
+    expect(screen.getByRole("progressbar", { name: "Model download" })).toHaveAttribute(
+      "aria-valuenow",
+      "42",
+    );
     expect(screen.getByLabelText("Model")).toBeDisabled();
     expect(screen.queryByRole("button", { name: /Download \(/ })).toBeNull();
   });
@@ -92,23 +104,32 @@ describe("CaptionsInspector — states", () => {
   it("generating: shows 'Transcribing 34%… 00:14/00:42'", () => {
     render(
       <CaptionsInspector
-        {...baseProps({ status: { kind: "transcribing", progress: 0.34, doneMs: 14_000, totalMs: 42_000 } })}
+        {...baseProps({
+          status: { kind: "transcribing", progress: 0.34, doneMs: 14_000, totalMs: 42_000 },
+        })}
       />,
     );
     const status = screen.getByText(/Transcribing/);
     expect(status.textContent).toBe("Transcribing 34%… 00:14/00:42");
-    expect(screen.getByRole("progressbar", { name: "Transcription" })).toHaveAttribute("aria-valuenow", "34");
+    expect(screen.getByRole("progressbar", { name: "Transcription" })).toHaveAttribute(
+      "aria-valuenow",
+      "34",
+    );
     expect(screen.queryByRole("button", { name: "Generate captions" })).toBeNull();
     expect(screen.queryByText("No captions yet")).toBeNull();
   });
 
   it("clamps out-of-range progress", () => {
-    render(<CaptionsInspector {...baseProps({ status: { kind: "downloading", progress: 1.7 } })} />);
+    render(
+      <CaptionsInspector {...baseProps({ status: { kind: "downloading", progress: 1.7 } })} />,
+    );
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
   });
 
   it("error: shows message and retry", () => {
-    const props = baseProps({ status: { kind: "error", message: "Couldn't transcribe — no speech detected" } });
+    const props = baseProps({
+      status: { kind: "error", message: "Couldn't transcribe — no speech detected" },
+    });
     render(<CaptionsInspector {...props} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Couldn't transcribe — no speech detected");
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
@@ -133,9 +154,15 @@ describe("CaptionsInspector — states", () => {
     render(<CaptionsInspector {...props} />);
     const first = rows()[0]!;
     fireEvent.focus(first);
-    expect(within(screen.getByRole("list")).getAllByRole("listitem")[0]).toHaveAttribute("data-editing", "true");
+    expect(within(screen.getByRole("list")).getAllByRole("listitem")[0]).toHaveAttribute(
+      "data-editing",
+      "true",
+    );
     fireEvent.change(first, { target: { value: "hello there" } });
-    expect(props.onCaptionsChange).toHaveBeenCalledWith([{ ...SAMPLE[0], text: "hello there" }, SAMPLE[1]]);
+    expect(props.onCaptionsChange).toHaveBeenCalledWith([
+      { ...SAMPLE[0], text: "hello there" },
+      SAMPLE[1],
+    ]);
   });
 });
 
@@ -181,13 +208,20 @@ describe("CaptionsInspector — keyboard", () => {
 
   it("Backspace elsewhere, on the first row, or while searching does not merge", () => {
     const onChange = vi.fn();
-    render(<Harness initial={[cap("a", 0, 1000, "hello"), cap("b", 1000, 2000, "world")]} onChange={onChange} />);
+    render(
+      <Harness
+        initial={[cap("a", 0, 1000, "hello"), cap("b", 1000, 2000, "world")]}
+        onChange={onChange}
+      />,
+    );
     const [first, second] = rows();
     second!.setSelectionRange(2, 2);
     fireEvent.keyDown(second!, { key: "Backspace" });
     first!.setSelectionRange(0, 0);
     fireEvent.keyDown(first!, { key: "Backspace" });
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search captions" }), { target: { value: "o" } });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search captions" }), {
+      target: { value: "o" },
+    });
     const filteredSecond = rows()[1]!;
     filteredSecond.setSelectionRange(0, 0);
     fireEvent.keyDown(filteredSecond, { key: "Backspace" });
@@ -227,9 +261,13 @@ describe("CaptionsInspector — search & add", () => {
   });
 
   it("disables Add caption when the playhead is inside a caption or at the end", () => {
-    const { rerender } = render(<CaptionsInspector {...baseProps({ captions: SAMPLE, currentMs: 1500 })} />);
+    const { rerender } = render(
+      <CaptionsInspector {...baseProps({ captions: SAMPLE, currentMs: 1500 })} />,
+    );
     expect(screen.getByRole("button", { name: "Add caption" })).toBeDisabled();
-    rerender(<CaptionsInspector {...baseProps({ captions: SAMPLE, currentMs: 5000, durationMs: 5000 })} />);
+    rerender(
+      <CaptionsInspector {...baseProps({ captions: SAMPLE, currentMs: 5000, durationMs: 5000 })} />,
+    );
     expect(screen.getByRole("button", { name: "Add caption" })).toBeDisabled();
     rerender(<CaptionsInspector {...baseProps({ captions: SAMPLE, currentMs: 2000 })} />);
     expect(screen.getByRole("button", { name: "Add caption" })).toBeEnabled();
@@ -268,7 +306,9 @@ describe("CaptionsInspector — generate controls, style, export", () => {
     render(<StyleHarness spy={spy} />);
     const karaoke = screen.getByRole("radio", { name: "Karaoke" });
     fireEvent.click(karaoke);
-    expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ preset: "karaoke", wordHighlight: true }));
+    expect(spy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ preset: "karaoke", wordHighlight: true }),
+    );
     expect(karaoke).toHaveAttribute("aria-checked", "true");
     // Word highlight on → highlight color control appears.
     expect(screen.getByLabelText("Highlight")).toBeInTheDocument();
@@ -301,7 +341,11 @@ describe("CaptionsInspector — generate controls, style, export", () => {
   });
 
   it("keeps an unknown current font selectable and hides custom-font option without handler", () => {
-    render(<CaptionsInspector {...baseProps({ style: { ...DEFAULT_CAPTION_STYLE, font: "Comic Neue" } })} />);
+    render(
+      <CaptionsInspector
+        {...baseProps({ style: { ...DEFAULT_CAPTION_STYLE, font: "Comic Neue" } })}
+      />,
+    );
     expect(screen.getByLabelText("Font")).toHaveValue("Comic Neue");
     expect(screen.queryByRole("option", { name: "Add custom font…" })).toBeNull();
   });

@@ -1,6 +1,11 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { CursorInspector, DEFAULT_CURSOR_SETTINGS, type CursorInspectorProps, type CursorSettings } from "./index";
+import {
+  CursorInspector,
+  type CursorInspectorProps,
+  type CursorSettings,
+  DEFAULT_CURSOR_SETTINGS,
+} from "./index";
 
 function setup(overrides: Partial<CursorInspectorProps> = {}, value: Partial<CursorSettings> = {}) {
   const onChange = vi.fn<(next: CursorSettings) => void>();
@@ -14,12 +19,16 @@ function setup(overrides: Partial<CursorInspectorProps> = {}, value: Partial<Cur
   return { ...utils, onChange, props };
 }
 
-const lastChange = (fn: ReturnType<typeof vi.fn>): CursorSettings => fn.mock.lastCall?.[0] as CursorSettings;
+const lastChange = (fn: ReturnType<typeof vi.fn>): CursorSettings =>
+  fn.mock.lastCall?.[0] as CursorSettings;
 
 describe("CursorInspector — default state", () => {
   it("renders master switch, macOS style, preview tiles and tracked pill", () => {
     setup();
-    expect(screen.getByRole("switch", { name: "Show cursor" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("switch", { name: "Show cursor" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
     expect(screen.getByRole("radio", { name: "macOS" })).toBeChecked();
     const preview = screen.getByLabelText("Cursor preview");
     for (const name of ["Arrow", "Hand", "Text beam", "Resize"]) {
@@ -50,8 +59,15 @@ describe("CursorInspector — default state", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Loop mode" }));
     expect(lastChange(onChange).loop).toBe(true);
 
-    fireEvent.click(within(screen.getByRole("group", { name: "Click effect" })).getByRole("radio", { name: "Bounce" }));
-    expect(lastChange(onChange).clickEffect).toEqual({ ...DEFAULT_CURSOR_SETTINGS.clickEffect, type: "bounce" });
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Click effect" })).getByRole("radio", {
+        name: "Bounce",
+      }),
+    );
+    expect(lastChange(onChange).clickEffect).toEqual({
+      ...DEFAULT_CURSOR_SETTINGS.clickEffect,
+      type: "bounce",
+    });
 
     fireEvent.change(screen.getByLabelText("Effect size"), { target: { value: "200" } });
     expect(lastChange(onChange).clickEffect.size).toBe(200);
@@ -59,7 +75,11 @@ describe("CursorInspector — default state", () => {
     fireEvent.change(screen.getByLabelText("Color"), { target: { value: "#ff0000" } });
     expect(lastChange(onChange).clickEffect.color).toBe("#ff0000");
 
-    fireEvent.click(within(screen.getByRole("group", { name: "Click sound" })).getByRole("radio", { name: "Soft" }));
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Click sound" })).getByRole("radio", {
+        name: "Soft",
+      }),
+    );
     expect(lastChange(onChange).clickSound.type).toBe("soft");
   });
 
@@ -83,7 +103,12 @@ describe("CursorInspector — dependent controls", () => {
     expect(screen.getByLabelText("Amount")).toBeDisabled();
     fireEvent.click(screen.getByRole("switch", { name: "Motion blur" }));
     expect(lastChange(onChange).motionBlur).toEqual({ enabled: true, amount: 50 });
-    rerender(<CursorInspector {...props} value={{ ...props.value, motionBlur: { enabled: true, amount: 50 } }} />);
+    rerender(
+      <CursorInspector
+        {...props}
+        value={{ ...props.value, motionBlur: { enabled: true, amount: 50 } }}
+      />,
+    );
     expect(screen.getByLabelText("Amount")).toBeEnabled();
     fireEvent.change(screen.getByLabelText("Amount"), { target: { value: "70" } });
     expect(lastChange(onChange).motionBlur).toEqual({ enabled: true, amount: 70 });
@@ -99,10 +124,13 @@ describe("CursorInspector — dependent controls", () => {
   });
 
   it("click effect None disables color and size; sound None disables volume", () => {
-    setup({}, {
-      clickEffect: { ...DEFAULT_CURSOR_SETTINGS.clickEffect, type: "none" },
-      clickSound: { ...DEFAULT_CURSOR_SETTINGS.clickSound, type: "none" },
-    });
+    setup(
+      {},
+      {
+        clickEffect: { ...DEFAULT_CURSOR_SETTINGS.clickEffect, type: "none" },
+        clickSound: { ...DEFAULT_CURSOR_SETTINGS.clickSound, type: "none" },
+      },
+    );
     expect(screen.getByLabelText("Color")).toBeDisabled();
     expect(screen.getByLabelText("Effect size")).toBeDisabled();
     expect(screen.getByLabelText("Volume")).toBeDisabled();
@@ -125,7 +153,8 @@ describe("CursorInspector — Show cursor off", () => {
 });
 
 describe("CursorInspector — custom cursor upload", () => {
-  const png = () => new File([new Uint8Array([137, 80, 78, 71])], "arrow.png", { type: "image/png" });
+  const png = () =>
+    new File([new Uint8Array([137, 80, 78, 71])], "arrow.png", { type: "image/png" });
 
   it("shows an upload button instead of preview and forwards a valid file", () => {
     const onUploadCustomCursor = vi.fn();
@@ -161,7 +190,10 @@ describe("CursorInspector — custom cursor upload", () => {
   it("shows the uploaded file name with Replace", () => {
     setup(
       { onUploadCustomCursor: vi.fn() },
-      { style: "custom", customCursor: { fileName: "arrow.svg", path: "/proj/arrow.svg", kind: "svg" } },
+      {
+        style: "custom",
+        customCursor: { fileName: "arrow.svg", path: "/proj/arrow.svg", kind: "svg" },
+      },
     );
     expect(screen.getByText("arrow.svg")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Replace" })).toBeEnabled();
@@ -177,16 +209,30 @@ describe("CursorInspector — custom cursor upload", () => {
 describe("CursorInspector — custom click sound", () => {
   it("offers a sound picker and forwards the file", () => {
     const onUploadCustomSound = vi.fn();
-    setup({ onUploadCustomSound }, { clickSound: { type: "custom", volume: 60, customSound: null } });
+    setup(
+      { onUploadCustomSound },
+      { clickSound: { type: "custom", volume: 60, customSound: null } },
+    );
     expect(screen.getByRole("button", { name: "Choose sound…" })).toBeEnabled();
     expect(screen.getByLabelText("Volume")).toBeEnabled();
     const wav = new File([new Uint8Array([1])], "click.wav", { type: "audio/wav" });
-    fireEvent.change(screen.getByLabelText("Custom click sound file"), { target: { files: [wav] } });
+    fireEvent.change(screen.getByLabelText("Custom click sound file"), {
+      target: { files: [wav] },
+    });
     expect(onUploadCustomSound).toHaveBeenCalledWith(wav);
   });
 
   it("shows the chosen sound name", () => {
-    setup({}, { clickSound: { type: "custom", volume: 60, customSound: { fileName: "click.wav", path: "/p/click.wav" } } });
+    setup(
+      {},
+      {
+        clickSound: {
+          type: "custom",
+          volume: 60,
+          customSound: { fileName: "click.wav", path: "/p/click.wav" },
+        },
+      },
+    );
     expect(screen.getByText("click.wav")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Replace" })).toBeDisabled();
   });
@@ -195,8 +241,12 @@ describe("CursorInspector — custom click sound", () => {
 describe("CursorInspector — no telemetry", () => {
   it.each([null, 0])("explains and disables everything when point count is %s", (count) => {
     const { onChange } = setup({ cursorPointCount: count });
-    expect(screen.getByRole("status")).toHaveTextContent("No cursor data — rendered cursor unavailable");
-    expect(screen.getByRole("note")).toHaveTextContent("No cursor data — rendered cursor unavailable");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "No cursor data — rendered cursor unavailable",
+    );
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "No cursor data — rendered cursor unavailable",
+    );
     expect(screen.queryByText(/Tracked ✓/)).toBeNull();
     const master = screen.getByRole("switch", { name: "Show cursor" });
     expect(master).toBeDisabled();

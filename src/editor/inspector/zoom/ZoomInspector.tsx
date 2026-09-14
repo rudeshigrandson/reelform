@@ -1,7 +1,7 @@
-import type { CSSProperties, KeyboardEvent, ReactElement } from "react";
-import { useId } from "react";
 import { Button, Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
+import type { CSSProperties, KeyboardEvent, ReactElement } from "react";
+import { useId } from "react";
 import { AnchorGrid, EmptyState, NumberField, Section, Slider, Switch } from "../controls";
 import {
   EASE_MS_MAX,
@@ -112,7 +112,14 @@ export function ZoomInspector(props: ZoomInspectorProps): ReactElement {
           disabled={!hasTelemetry}
           onChange={(v) => setAuto({ sensitivity: v / 100 })}
         />
-        <div style={{ ...hintStyle, display: "flex", justifyContent: "space-between", paddingLeft: "104px" }}>
+        <div
+          style={{
+            ...hintStyle,
+            display: "flex",
+            justifyContent: "space-between",
+            paddingLeft: "104px",
+          }}
+        >
           <span>Fewer</span>
           <span>More</span>
         </div>
@@ -288,7 +295,10 @@ function RegionEditor({
         />
         <div style={rowStyle}>
           <span style={labelStyle}>Duration</span>
-          <span data-testid="zoom-duration" style={{ fontFamily: mono, fontSize: "12px", color: "var(--color-neutral-300)" }}>
+          <span
+            data-testid="zoom-duration"
+            style={{ fontFamily: mono, fontSize: "12px", color: "var(--color-neutral-300)" }}
+          >
             {formatTimecode(regionDurationMs(region))}
           </span>
         </div>
@@ -365,9 +375,18 @@ function CurvePreview({ curve, label }: { curve: ZoomCurve; label: string }): Re
       width={w}
       height={h}
       viewBox={`0 0 ${w} ${h}`}
-      style={{ flex: "0 0 auto", background: "var(--color-neutral-800)", borderRadius: "var(--radius-sm)" }}
+      style={{
+        flex: "0 0 auto",
+        background: "var(--color-neutral-800)",
+        borderRadius: "var(--radius-sm)",
+      }}
     >
-      <path d={curvePath(sampleCurve(curve), w, h)} fill="none" stroke="var(--color-accent)" strokeWidth={1.5} />
+      <path
+        d={curvePath(sampleCurve(curve), w, h)}
+        fill="none"
+        stroke="var(--color-accent)"
+        strokeWidth={1.5}
+      />
     </svg>
   );
 }
@@ -376,8 +395,21 @@ function Spinner(): ReactElement {
   return (
     <svg width={14} height={14} viewBox="0 0 16 16" aria-hidden="true">
       <circle cx={8} cy={8} r={6} fill="none" stroke="var(--color-neutral-700)" strokeWidth={2} />
-      <path d="M8 2 a6 6 0 0 1 6 6" fill="none" stroke="var(--color-accent)" strokeWidth={2} strokeLinecap="round">
-        <animateTransform attributeName="transform" type="rotate" from="0 8 8" to="360 8 8" dur="0.9s" repeatCount="indefinite" />
+      <path
+        d="M8 2 a6 6 0 0 1 6 6"
+        fill="none"
+        stroke="var(--color-accent)"
+        strokeWidth={2}
+        strokeLinecap="round"
+      >
+        <animateTransform
+          attributeName="transform"
+          type="rotate"
+          from="0 8 8"
+          to="360 8 8"
+          dur="0.9s"
+          repeatCount="indefinite"
+        />
       </path>
     </svg>
   );

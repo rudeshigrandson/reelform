@@ -1,13 +1,13 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
+  type AudioEnvelope,
+  type CursorSample,
   DEFAULT_EFFECTS_SETTINGS,
   DEFAULT_TITLE_CARD,
   EffectsInspector,
-  RemoveSilenceDialog,
-  type AudioEnvelope,
-  type CursorSample,
   type EffectsInspectorProps,
+  RemoveSilenceDialog,
   type SpeedRegionEdit,
 } from "./index";
 
@@ -23,11 +23,20 @@ const region: SpeedRegionEdit = {
 
 // 10 windows/s: 1s loud, 2s silent, 1s loud, 1.5s silent → 2 gaps, 3.5s total
 const envelope: AudioEnvelope = {
-  envelopeDb: [...Array(10).fill(-10), ...Array(20).fill(-70), ...Array(10).fill(-10), ...Array(15).fill(-70)],
+  envelopeDb: [
+    ...Array(10).fill(-10),
+    ...Array(20).fill(-70),
+    ...Array(10).fill(-10),
+    ...Array(15).fill(-70),
+  ],
   sampleRateHz: 10,
 };
 
-const idleSamples: CursorSample[] = Array.from({ length: 51 }, (_, i) => ({ tMs: i * 100, x: 0.5, y: 0.5 }));
+const idleSamples: CursorSample[] = Array.from({ length: 51 }, (_, i) => ({
+  tMs: i * 100,
+  x: 0.5,
+  y: 0.5,
+}));
 
 function setup(over: Partial<EffectsInspectorProps> = {}) {
   const props: EffectsInspectorProps = {
@@ -148,7 +157,15 @@ describe("EffectsInspector — auto speed-up idle", () => {
     const { props } = setup();
     fireEvent.click(screen.getByRole("button", { name: "Auto speed-up idle" }));
     expect(props.onAutoSpeedIdle).toHaveBeenCalledWith([
-      { id: "idle-0-0", startMs: 0, endMs: 5000, rate: 3, keepPitch: true, rampInMs: 300, rampOutMs: 300 },
+      {
+        id: "idle-0-0",
+        startMs: 0,
+        endMs: 5000,
+        rate: 3,
+        keepPitch: true,
+        rampInMs: 300,
+        rampOutMs: 300,
+      },
     ]);
   });
 
@@ -165,7 +182,10 @@ describe("EffectsInspector — intro card", () => {
   it("adds an intro card with defaults", () => {
     const { props } = setup();
     fireEvent.click(screen.getByRole("button", { name: "Add intro title card" }));
-    expect(props.onChange).toHaveBeenCalledWith({ ...DEFAULT_EFFECTS_SETTINGS, intro: DEFAULT_TITLE_CARD });
+    expect(props.onChange).toHaveBeenCalledWith({
+      ...DEFAULT_EFFECTS_SETTINGS,
+      intro: DEFAULT_TITLE_CARD,
+    });
   });
 
   it("intro card added: edits text, bg, duration and removes", () => {
@@ -178,13 +198,26 @@ describe("EffectsInspector — intro card", () => {
     expect(screen.getByRole("button", { name: "Add outro title card" })).toBeInTheDocument();
 
     fireEvent.change(within(group).getByLabelText("Intro text"), { target: { value: "Welcome" } });
-    expect(onChange).toHaveBeenLastCalledWith({ ...value, intro: { ...value.intro, text: "Welcome" } });
+    expect(onChange).toHaveBeenLastCalledWith({
+      ...value,
+      intro: { ...value.intro, text: "Welcome" },
+    });
 
-    fireEvent.change(within(group).getByLabelText("Intro background"), { target: { value: "#ff0000" } });
-    expect(onChange).toHaveBeenLastCalledWith({ ...value, intro: { ...value.intro, bg: "#ff0000" } });
+    fireEvent.change(within(group).getByLabelText("Intro background"), {
+      target: { value: "#ff0000" },
+    });
+    expect(onChange).toHaveBeenLastCalledWith({
+      ...value,
+      intro: { ...value.intro, bg: "#ff0000" },
+    });
 
-    fireEvent.change(within(group).getByLabelText("Intro duration"), { target: { value: "99999" } });
-    expect(onChange).toHaveBeenLastCalledWith({ ...value, intro: { ...value.intro, durationMs: 10000 } });
+    fireEvent.change(within(group).getByLabelText("Intro duration"), {
+      target: { value: "99999" },
+    });
+    expect(onChange).toHaveBeenLastCalledWith({
+      ...value,
+      intro: { ...value.intro, durationMs: 10000 },
+    });
 
     fireEvent.click(within(group).getByRole("button", { name: "Remove intro title card" }));
     expect(onChange).toHaveBeenLastCalledWith({ ...value, intro: null });
@@ -196,12 +229,18 @@ describe("EffectsInspector — transitions, color, motion", () => {
     const { props, rerender } = setup();
     expect(screen.getByLabelText("Duration")).toBeDisabled();
     fireEvent.click(screen.getByLabelText("Cross-dissolve"));
-    const next = { ...DEFAULT_EFFECTS_SETTINGS, transition: { kind: "cross-dissolve" as const, durationMs: 400 } };
+    const next = {
+      ...DEFAULT_EFFECTS_SETTINGS,
+      transition: { kind: "cross-dissolve" as const, durationMs: 400 },
+    };
     expect(props.onChange).toHaveBeenLastCalledWith(next);
     rerender(<EffectsInspector {...props} value={next} />);
     expect(screen.getByLabelText("Duration")).not.toBeDisabled();
     fireEvent.change(screen.getByLabelText("Duration"), { target: { value: "10" } });
-    expect(props.onChange).toHaveBeenLastCalledWith({ ...next, transition: { ...next.transition, durationMs: 100 } });
+    expect(props.onChange).toHaveBeenLastCalledWith({
+      ...next,
+      transition: { ...next.transition, durationMs: 100 },
+    });
   });
 
   it("color sliders, grain, and motion switches patch only their field", () => {

@@ -37,7 +37,8 @@ export function makeInfo(overrides: Partial<ProjectInfo> = {}): ProjectInfo {
       {
         role: "video",
         path: "recording/screen.mp4",
-        absolutePath: "/Users/me/Movies/Reelform/Onboarding flow walkthrough.reelform/recording/screen.mp4",
+        absolutePath:
+          "/Users/me/Movies/Reelform/Onboarding flow walkthrough.reelform/recording/screen.mp4",
         sizeBytes: 1_288_490_189,
         missing: false,
         durationMs: 42_180,

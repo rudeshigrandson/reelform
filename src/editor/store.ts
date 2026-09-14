@@ -1,16 +1,20 @@
 import { create } from "zustand";
-import { DEFAULT_AUDIO_SETTINGS, type AudioSettings } from "./inspector/audio";
 import type { Annotation, AnnotationTool } from "./inspector/annotations";
+import { type AudioSettings, DEFAULT_AUDIO_SETTINGS } from "./inspector/audio";
 import {
-  DEFAULT_CAPTION_STYLE,
-  IDLE_STATUS,
   type Caption,
   type CaptionModel,
   type CaptionStyle,
+  DEFAULT_CAPTION_STYLE,
   type GenerationStatus,
+  IDLE_STATUS,
 } from "./inspector/captions";
-import { DEFAULT_CURSOR_SETTINGS, type CursorSettings } from "./inspector/cursor";
-import { DEFAULT_EFFECTS_SETTINGS, type EffectsSettings, type SpeedRegionEdit } from "./inspector/effects";
+import { type CursorSettings, DEFAULT_CURSOR_SETTINGS } from "./inspector/cursor";
+import {
+  DEFAULT_EFFECTS_SETTINGS,
+  type EffectsSettings,
+  type SpeedRegionEdit,
+} from "./inspector/effects";
 import { DEFAULT_FRAME_SETTINGS, type FrameSettings } from "./inspector/frame";
 import { DEFAULT_WEBCAM_SETTINGS, type WebcamSettings } from "./inspector/webcam";
 import { DEFAULT_ZOOM_SETTINGS, type ZoomRegion, type ZoomSettings } from "./inspector/zoom";

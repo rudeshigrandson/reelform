@@ -53,7 +53,9 @@ export function InspectorPanel({ tab }: { tab: InspectorTab }): ReactElement {
             const regions = duplicateRegion(e.zoomRegions, id, e.durationMs, newId("zoom"));
             if (regions) update({ zoomRegions: regions });
           }}
-          onDelete={(id) => update({ zoomRegions: deleteRegion(e.zoomRegions, id), selectedZoomId: null })}
+          onDelete={(id) =>
+            update({ zoomRegions: deleteRegion(e.zoomRegions, id), selectedZoomId: null })
+          }
           onGenerate={noop}
           status="idle"
           hasTelemetry={e.cursorPointCount !== null && e.cursorPointCount > 0}
@@ -127,7 +129,10 @@ export function InspectorPanel({ tab }: { tab: InspectorTab }): ReactElement {
             update({ annotations: [...e.annotations, copy], selectedAnnotationId: copy.id });
           }}
           onDelete={(a) =>
-            update({ annotations: e.annotations.filter((x) => x.id !== a.id), selectedAnnotationId: null })
+            update({
+              annotations: e.annotations.filter((x) => x.id !== a.id),
+              selectedAnnotationId: null,
+            })
           }
           detectedShortcuts={[]}
           onAddAllShortcuts={noop}

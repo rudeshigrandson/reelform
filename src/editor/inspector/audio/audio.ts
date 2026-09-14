@@ -1,14 +1,14 @@
 import { clamp } from "../controls";
 import {
   AUDIO_LIMITS,
-  DEFAULT_DUCK,
-  SILENT_DB,
-  TRACK_KINDS,
   type AudioRegion,
   type AudioSettings,
   type AvailableTracks,
+  DEFAULT_DUCK,
   type MasterSettings,
   type NewAudioRegion,
+  SILENT_DB,
+  TRACK_KINDS,
   type TrackKind,
 } from "./types";
 
@@ -27,7 +27,7 @@ export function clampDb(db: number): number {
 
 /** dB → linear gain. −∞ → 0; capped at +12 dB. */
 export function dbToGain(db: number): number {
-  if (Number.isNaN(db) || db === -Infinity) return 0;
+  if (Number.isNaN(db) || db === Number.NEGATIVE_INFINITY) return 0;
   return 10 ** (Math.min(db, maxDb) / 20);
 }
 
@@ -157,13 +157,20 @@ export function updateTrack<K extends TrackKind>(
   const next: AudioSettings["tracks"][K] = {
     ...merged,
     volumeDb: clampDb(merged.volumeDb),
-    fadeInMs: durationMs === undefined ? Math.min(fades.fadeInMs, AUDIO_LIMITS.fadeMaxMs) : fades.fadeInMs,
-    fadeOutMs: durationMs === undefined ? Math.min(fades.fadeOutMs, AUDIO_LIMITS.fadeMaxMs) : fades.fadeOutMs,
+    fadeInMs:
+      durationMs === undefined ? Math.min(fades.fadeInMs, AUDIO_LIMITS.fadeMaxMs) : fades.fadeInMs,
+    fadeOutMs:
+      durationMs === undefined
+        ? Math.min(fades.fadeOutMs, AUDIO_LIMITS.fadeMaxMs)
+        : fades.fadeOutMs,
   };
   return { ...settings, tracks: { ...settings.tracks, [kind]: next } as AudioSettings["tracks"] };
 }
 
-export function updateMaster(settings: AudioSettings, patch: Partial<MasterSettings>): AudioSettings {
+export function updateMaster(
+  settings: AudioSettings,
+  patch: Partial<MasterSettings>,
+): AudioSettings {
   const master = { ...settings.master, ...patch };
   return { ...settings, master: { ...master, volumeDb: clampDb(master.volumeDb) } };
 }
@@ -200,24 +207,37 @@ export function removeRegion(settings: AudioSettings, id: string): AudioSettings
   return { ...settings, regions: settings.regions.filter((r) => r.id !== id) };
 }
 
-export type RegionPatch = Partial<Omit<AudioRegion, "id" | "duck">> & { duck?: Partial<AudioRegion["duck"]> };
+export type RegionPatch = Partial<Omit<AudioRegion, "id" | "duck">> & {
+  duck?: Partial<AudioRegion["duck"]>;
+};
 
 /** Patch a region; clamps volume, duck amount, and fades to the region duration. */
-export function updateRegion(settings: AudioSettings, id: string, patch: RegionPatch): AudioSettings {
+export function updateRegion(
+  settings: AudioSettings,
+  id: string,
+  patch: RegionPatch,
+): AudioSettings {
   const index = settings.regions.findIndex((r) => r.id === id);
   if (index < 0) return settings;
   const current = settings.regions[index] as AudioRegion;
   const { duck, ...rest } = patch;
   const merged: AudioRegion = { ...current, ...rest, duck: { ...current.duck, ...duck } };
   const { min, max } = AUDIO_LIMITS.duckAmountDb;
-  const fades = clampFades(merged.fadeInMs, merged.fadeOutMs, regionDurationMs(merged), fadePriority(patch));
+  const fades = clampFades(
+    merged.fadeInMs,
+    merged.fadeOutMs,
+    regionDurationMs(merged),
+    fadePriority(patch),
+  );
   const next: AudioRegion = {
     ...merged,
     volumeDb: clampDb(merged.volumeDb),
     ...fades,
     duck: {
       enabled: merged.duck.enabled,
-      amountDb: Number.isFinite(merged.duck.amountDb) ? clamp(merged.duck.amountDb, min, max) : current.duck.amountDb,
+      amountDb: Number.isFinite(merged.duck.amountDb)
+        ? clamp(merged.duck.amountDb, min, max)
+        : current.duck.amountDb,
     },
   };
   const regions = settings.regions.slice();

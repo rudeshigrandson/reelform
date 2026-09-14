@@ -1,14 +1,21 @@
-import { useId, useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { Button, Segmented, Tag } from "@design/components";
 import type { SegmentedOption } from "@design/components";
+import {
+  type CSSProperties,
+  type ReactElement,
+  type ReactNode,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { ColorField, EmptyState, Section, Slider, Switch } from "../controls";
 import { formatPointCount, hasTelemetry, validateCustomCursorFile } from "./logic";
 import {
-  CURSOR_LIMITS as L,
   type ClickEffect,
   type ClickSound,
   type CursorSettings,
   type CursorStyle,
+  CURSOR_LIMITS as L,
 } from "./types";
 
 export interface CursorInspectorProps {
@@ -56,13 +63,20 @@ const fieldsetStyle: CSSProperties = { border: 0, margin: 0, padding: 0, minWidt
 
 const hintStyle: CSSProperties = { fontSize: "11px", color: "var(--color-neutral-500)" };
 
-const errorStyle: CSSProperties = { fontSize: "12px", color: "var(--warning, var(--color-accent-2))" };
+const errorStyle: CSSProperties = {
+  fontSize: "12px",
+  color: "var(--warning, var(--color-accent-2))",
+};
 
 const groupLabelStyle: CSSProperties = { fontSize: "13px", color: "var(--color-neutral-400)" };
 
 function Group({ label, children }: { label: string; children: ReactNode }): ReactElement {
   return (
-    <div role="group" aria-label={label} style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+    <div
+      role="group"
+      aria-label={label}
+      style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}
+    >
       <span style={groupLabelStyle}>{label}</span>
       {children}
     </div>
@@ -119,9 +133,22 @@ function CursorPreview({ style }: { style: CursorStyle }): ReactElement {
         >
           <svg width="24" height="24" viewBox="0 0 24 24" role="img" aria-label={v.label}>
             {style === "minimal-dot" ? (
-              <circle cx="12" cy="12" r={v.id === "text" ? 3 : 5} fill={stroke} stroke={fill} strokeWidth="1" />
+              <circle
+                cx="12"
+                cy="12"
+                r={v.id === "text" ? 3 : 5}
+                fill={stroke}
+                stroke={fill}
+                strokeWidth="1"
+              />
             ) : (
-              <path d={PREVIEW_PATHS[v.id]} fill={fill} stroke={stroke} strokeWidth="1.2" strokeLinejoin="round" />
+              <path
+                d={PREVIEW_PATHS[v.id]}
+                fill={fill}
+                stroke={stroke}
+                strokeWidth="1.2"
+                strokeLinejoin="round"
+              />
             )}
           </svg>
         </div>
@@ -177,7 +204,10 @@ export function CursorInspector({
         onChange={(show) => patch({ show })}
       />
 
-      <fieldset disabled={controlsDisabled} style={{ ...fieldsetStyle, opacity: controlsDisabled ? 0.5 : 1 }}>
+      <fieldset
+        disabled={controlsDisabled}
+        style={{ ...fieldsetStyle, opacity: controlsDisabled ? 0.5 : 1 }}
+      >
         <Section title="Style">
           <Group label="Cursor style">
             <Segmented
@@ -218,11 +248,17 @@ export function CursorInspector({
                   </Button>
                 </div>
               ) : (
-                <Button block disabled={!onUploadCustomCursor} onClick={() => cursorFileRef.current?.click()}>
+                <Button
+                  block
+                  disabled={!onUploadCustomCursor}
+                  onClick={() => cursorFileRef.current?.click()}
+                >
                   Upload PNG or SVG…
                 </Button>
               )}
-              <span style={hintStyle}>Replaces the arrow; other cursor types use the macOS set.</span>
+              <span style={hintStyle}>
+                Replaces the arrow; other cursor types use the macOS set.
+              </span>
               {uploadError && (
                 <span role="alert" style={errorStyle}>
                   {uploadError}
@@ -253,7 +289,14 @@ export function CursorInspector({
             disabled={controlsDisabled}
             onChange={(smoothing) => patch({ smoothing })}
           />
-          <div style={{ ...hintStyle, display: "flex", justifyContent: "space-between", paddingLeft: "104px" }}>
+          <div
+            style={{
+              ...hintStyle,
+              display: "flex",
+              justifyContent: "space-between",
+              paddingLeft: "104px",
+            }}
+          >
             <span>Snappy</span>
             <span aria-hidden="true">⟷</span>
             <span>Silky</span>
@@ -385,11 +428,14 @@ export function CursorInspector({
             <Tag variant="accent">Tracked ✓ {formatPointCount(cursorPointCount)}</Tag>
           </div>
         ) : (
-          <div role="note" style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+          <div
+            role="note"
+            style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}
+          >
             <span style={errorStyle}>No cursor data — rendered cursor unavailable</span>
             <span style={hintStyle}>
-              Cursor movement wasn’t tracked for this recording (e.g. imported video or input monitoring
-              was off). Auto-zoom and cursor effects need it.
+              Cursor movement wasn’t tracked for this recording (e.g. imported video or input
+              monitoring was off). Auto-zoom and cursor effects need it.
             </span>
           </div>
         )}

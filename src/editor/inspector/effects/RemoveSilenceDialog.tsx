@@ -1,11 +1,11 @@
-import { useMemo, useState, type ReactElement } from "react";
 import { Button, Dialog } from "@design/components";
+import { type ReactElement, useMemo, useState } from "react";
 import { NumberField, Slider } from "../controls";
 import { detectSilentGaps, formatSilencePreview, summarizeGaps } from "./logic";
 import {
+  type AudioEnvelope,
   DEFAULT_SILENCE_PARAMS,
   EFFECTS_LIMITS,
-  type AudioEnvelope,
   type SilenceParams,
   type TimeRange,
 } from "./types";
@@ -59,7 +59,14 @@ export function RemoveSilenceDialog({
         </>
       }
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", minWidth: "320px" }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-2)",
+          minWidth: "320px",
+        }}
+      >
         <Slider
           label="Threshold"
           value={params.thresholdDb}

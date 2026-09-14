@@ -16,10 +16,16 @@ import {
   uniqueId,
   updateCaptionText,
 } from "./logic";
-import { applyPreset, DEFAULT_CAPTION_STYLE, modelInfo } from "./types";
+import { DEFAULT_CAPTION_STYLE, applyPreset, modelInfo } from "./types";
 import type { Caption } from "./types";
 
-const cap = (id: string, startMs: number, endMs: number, text: string, words: Caption["words"] = []): Caption => ({
+const cap = (
+  id: string,
+  startMs: number,
+  endMs: number,
+  text: string,
+  words: Caption["words"] = [],
+): Caption => ({
   id,
   startMs,
   endMs,
@@ -33,7 +39,9 @@ const captionListArb = fc
     fc.record({
       gap: fc.integer({ min: 0, max: 2000 }),
       dur: fc.integer({ min: 2, max: 5000 }),
-      text: fc.array(fc.stringMatching(/^[a-z]{1,8}$/), { minLength: 1, maxLength: 6 }).map((w) => w.join(" ")),
+      text: fc
+        .array(fc.stringMatching(/^[a-z]{1,8}$/), { minLength: 1, maxLength: 6 })
+        .map((w) => w.join(" ")),
     }),
     { maxLength: 12 },
   )
@@ -142,7 +150,9 @@ describe("mergeWithPrevious", () => {
   });
 
   it("does not double a space and handles empty text", () => {
-    expect(mergeWithPrevious([cap("a", 0, 1, "hi "), cap("b", 1, 2, "x")], "b")!.captions[0]!.text).toBe("hi x");
+    expect(
+      mergeWithPrevious([cap("a", 0, 1, "hi "), cap("b", 1, 2, "x")], "b")!.captions[0]!.text,
+    ).toBe("hi x");
     const empty = mergeWithPrevious([cap("a", 0, 1, "hi"), cap("b", 1, 2, "")], "b")!;
     expect(empty.captions[0]!.text).toBe("hi");
     expect(empty.cursor).toBe(2);
@@ -161,7 +171,9 @@ describe("mergeWithPrevious", () => {
         if (!s) return;
         const m = mergeWithPrevious(s.captions, s.newId)!;
         expect(isValidCaptionList(m.captions)).toBe(true);
-        expect(m.captions.map((c) => [c.id, c.startMs, c.endMs])).toEqual(list.map((c) => [c.id, c.startMs, c.endMs]));
+        expect(m.captions.map((c) => [c.id, c.startMs, c.endMs])).toEqual(
+          list.map((c) => [c.id, c.startMs, c.endMs]),
+        );
       }),
     );
   });
@@ -210,7 +222,10 @@ describe("updateCaptionText", () => {
   ];
   it("keeps word timings when token count matches, drops otherwise", () => {
     const list = [cap("a", 0, 300, "helo world", words)];
-    expect(updateCaptionText(list, "a", "hello world")[0]!.words.map((w) => w.text)).toEqual(["hello", "world"]);
+    expect(updateCaptionText(list, "a", "hello world")[0]!.words.map((w) => w.text)).toEqual([
+      "hello",
+      "world",
+    ]);
     expect(updateCaptionText(list, "a", "hello big world")[0]!.words).toEqual([]);
   });
 });
@@ -303,7 +318,12 @@ describe("presets", () => {
   it("applies preset fields while keeping layout fields", () => {
     const base = { ...DEFAULT_CAPTION_STYLE, sizePx: 60, position: "top" as const };
     const k = applyPreset(base, "karaoke");
-    expect(k).toMatchObject({ preset: "karaoke", wordHighlight: true, sizePx: 60, position: "top" });
+    expect(k).toMatchObject({
+      preset: "karaoke",
+      wordHighlight: true,
+      sizePx: 60,
+      position: "top",
+    });
     expect(applyPreset(base, "outline").outline).toBe(true);
     expect(modelInfo("accurate").size).toBe("1.5 GB");
   });

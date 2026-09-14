@@ -2,13 +2,13 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
   KEYSTROKE_BADGE_MS,
+  type KeyTelemetryEvent,
   MOD,
   detectKeystrokes,
   formatShortcut,
   keyGlyph,
   keystrokeBadgesFromCandidates,
   summarizeShortcuts,
-  type KeyTelemetryEvent,
 } from "./index";
 
 const ALL = MOD.ctrl | MOD.alt | MOD.shift | MOD.meta;
@@ -60,8 +60,24 @@ describe("detectKeystrokes", () => {
   });
 
   it("merges a modifier press into a key within 80ms", () => {
-    expect(detectKeystrokes([[1000, "MetaLeft", 0], [1050, "KeyS", 0]], "mac")).toEqual([{ tMs: 1050, label: "⌘S" }]);
-    expect(detectKeystrokes([[1000, "MetaLeft", 0], [1200, "KeyS", 0]], "mac")).toEqual([]);
+    expect(
+      detectKeystrokes(
+        [
+          [1000, "MetaLeft", 0],
+          [1050, "KeyS", 0],
+        ],
+        "mac",
+      ),
+    ).toEqual([{ tMs: 1050, label: "⌘S" }]);
+    expect(
+      detectKeystrokes(
+        [
+          [1000, "MetaLeft", 0],
+          [1200, "KeyS", 0],
+        ],
+        "mac",
+      ),
+    ).toEqual([]);
   });
 
   it("collapses key repeat but keeps separate presses", () => {
@@ -87,7 +103,13 @@ describe("detectKeystrokes", () => {
     const codes = ["KeyA", "KeyK", "Digit3", "Enter", "Space", "MetaLeft", "ShiftLeft", "Comma"];
     fc.assert(
       fc.property(
-        fc.array(fc.tuple(fc.integer({ min: 0, max: 5000 }), fc.constantFrom(...codes), fc.integer({ min: 0, max: ALL }))),
+        fc.array(
+          fc.tuple(
+            fc.integer({ min: 0, max: 5000 }),
+            fc.constantFrom(...codes),
+            fc.integer({ min: 0, max: ALL }),
+          ),
+        ),
         (keys) => detectKeystrokes(keys, "win").every((c) => c.label.includes("+")),
       ),
     );
@@ -122,7 +144,12 @@ describe("keystrokeBadgesFromCandidates", () => {
       { timelineDurationMs: 10_000, newId },
     );
     expect(badges).toHaveLength(2);
-    expect(badges[0]).toMatchObject({ kind: "keystrokeBadge", label: "⌘K", startMs: 1000, endMs: 1000 + KEYSTROKE_BADGE_MS });
+    expect(badges[0]).toMatchObject({
+      kind: "keystrokeBadge",
+      label: "⌘K",
+      startMs: 1000,
+      endMs: 1000 + KEYSTROKE_BADGE_MS,
+    });
     expect(badges[1]?.endMs).toBe(10_000);
     const b = badges[0];
     expect(b && b.x + b.w / 2).toBeCloseTo(0.5);
@@ -130,9 +157,14 @@ describe("keystrokeBadgesFromCandidates", () => {
   });
 
   it("is idempotent: Add all twice adds nothing new", () => {
-    const cands = [{ tMs: 1000, label: "⌘K" }, { tMs: 1000, label: "⌘K" }];
+    const cands = [
+      { tMs: 1000, label: "⌘K" },
+      { tMs: 1000, label: "⌘K" },
+    ];
     const first = keystrokeBadgesFromCandidates(cands, { timelineDurationMs: 10_000, newId });
     expect(first).toHaveLength(1);
-    expect(keystrokeBadgesFromCandidates(cands, { timelineDurationMs: 10_000, newId, existing: first })).toEqual([]);
+    expect(
+      keystrokeBadgesFromCandidates(cands, { timelineDurationMs: 10_000, newId, existing: first }),
+    ).toEqual([]);
   });
 });

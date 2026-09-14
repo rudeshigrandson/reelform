@@ -20,18 +20,26 @@ import {
   updateRegion,
   updateTrack,
 } from "./audio";
-import { AUDIO_LIMITS, DEFAULT_AUDIO_SETTINGS, type AudioSettings } from "./types";
+import { AUDIO_LIMITS, type AudioSettings, DEFAULT_AUDIO_SETTINGS } from "./types";
 
 const base = DEFAULT_AUDIO_SETTINGS;
-const music = { id: "r1", fileName: "music.mp3", path: "audio/music.mp3", startMs: 0, endMs: 10_000 };
-const withTracks = (patch: Partial<AudioSettings["tracks"]["mic"]>, sys: Partial<AudioSettings["tracks"]["system"]> = {}) =>
-  updateTrack(updateTrack(base, "mic", patch), "system", sys);
+const music = {
+  id: "r1",
+  fileName: "music.mp3",
+  path: "audio/music.mp3",
+  startMs: 0,
+  endMs: 10_000,
+};
+const withTracks = (
+  patch: Partial<AudioSettings["tracks"]["mic"]>,
+  sys: Partial<AudioSettings["tracks"]["system"]> = {},
+) => updateTrack(updateTrack(base, "mic", patch), "system", sys);
 
 describe("dB ↔ gain", () => {
   it("maps −∞ ↔ 0 and 0 dB ↔ 1", () => {
-    expect(dbToGain(-Infinity)).toBe(0);
-    expect(gainToDb(0)).toBe(-Infinity);
-    expect(gainToDb(-1)).toBe(-Infinity);
+    expect(dbToGain(Number.NEGATIVE_INFINITY)).toBe(0);
+    expect(gainToDb(0)).toBe(Number.NEGATIVE_INFINITY);
+    expect(gainToDb(-1)).toBe(Number.NEGATIVE_INFINITY);
     expect(dbToGain(Number.NaN)).toBe(0);
     expect(dbToGain(0)).toBe(1);
     expect(gainToDb(1)).toBe(0);
@@ -52,16 +60,20 @@ describe("dB ↔ gain", () => {
 
   it("gain is monotonic in dB (property)", () => {
     fc.assert(
-      fc.property(fc.double({ min: -100, max: 12, noNaN: true }), fc.double({ min: -100, max: 12, noNaN: true }), (a, b) => {
-        if (a <= b) expect(dbToGain(a)).toBeLessThanOrEqual(dbToGain(b));
-      }),
+      fc.property(
+        fc.double({ min: -100, max: 12, noNaN: true }),
+        fc.double({ min: -100, max: 12, noNaN: true }),
+        (a, b) => {
+          if (a <= b) expect(dbToGain(a)).toBeLessThanOrEqual(dbToGain(b));
+        },
+      ),
     );
   });
 
   it("clampDb normalizes floor, NaN and cap", () => {
-    expect(clampDb(AUDIO_LIMITS.minDb)).toBe(-Infinity);
-    expect(clampDb(-80)).toBe(-Infinity);
-    expect(clampDb(Number.NaN)).toBe(-Infinity);
+    expect(clampDb(AUDIO_LIMITS.minDb)).toBe(Number.NEGATIVE_INFINITY);
+    expect(clampDb(-80)).toBe(Number.NEGATIVE_INFINITY);
+    expect(clampDb(Number.NaN)).toBe(Number.NEGATIVE_INFINITY);
     expect(clampDb(20)).toBe(12);
     expect(clampDb(-6)).toBe(-6);
   });
@@ -69,13 +81,13 @@ describe("dB ↔ gain", () => {
 
 describe("slider ↔ dB", () => {
   it("maps endpoints", () => {
-    expect(sliderPositionToDb(0)).toBe(-Infinity);
-    expect(dbToSliderPosition(-Infinity)).toBe(0);
+    expect(sliderPositionToDb(0)).toBe(Number.NEGATIVE_INFINITY);
+    expect(dbToSliderPosition(Number.NEGATIVE_INFINITY)).toBe(0);
     expect(sliderPositionToDb(SLIDER_STEPS)).toBe(12);
     expect(dbToSliderPosition(99)).toBe(SLIDER_STEPS);
     expect(sliderPositionToDb(1)).toBeCloseTo(-59.9);
-    expect(sliderPositionToDb(Number.NaN)).toBe(-Infinity);
-    expect(sliderPositionToDb(-5)).toBe(-Infinity);
+    expect(sliderPositionToDb(Number.NaN)).toBe(Number.NEGATIVE_INFINITY);
+    expect(sliderPositionToDb(-5)).toBe(Number.NEGATIVE_INFINITY);
   });
 
   it("any audible dB gets a non-zero position", () => {
@@ -93,13 +105,15 @@ describe("slider ↔ dB", () => {
   it("dB → position → dB stays within 0.1 dB (property)", () => {
     fc.assert(
       fc.property(fc.double({ min: -59.99, max: 12, noNaN: true }), (db) => {
-        expect(Math.abs(sliderPositionToDb(dbToSliderPosition(db)) - db)).toBeLessThanOrEqual(0.1 + 1e-9);
+        expect(Math.abs(sliderPositionToDb(dbToSliderPosition(db)) - db)).toBeLessThanOrEqual(
+          0.1 + 1e-9,
+        );
       }),
     );
   });
 
   it("formats dB", () => {
-    expect(formatDb(-Infinity)).toBe("−∞ dB");
+    expect(formatDb(Number.NEGATIVE_INFINITY)).toBe("−∞ dB");
     expect(formatDb(0)).toBe("0.0 dB");
     expect(formatDb(-0.04)).toBe("0.0 dB");
     expect(formatDb(3.46)).toBe("+3.5 dB");
@@ -162,10 +176,13 @@ describe("effective gain", () => {
           muteAll: fc.boolean(),
         }),
         (x) => {
-          const s = updateMaster(withTracks({ volumeDb: x.micDb, muted: x.muted, solo: x.solo }, { solo: x.sysSolo }), {
-            volumeDb: x.masterDb,
-            muteAll: x.muteAll,
-          });
+          const s = updateMaster(
+            withTracks({ volumeDb: x.micDb, muted: x.muted, solo: x.solo }, { solo: x.sysSolo }),
+            {
+              volumeDb: x.masterDb,
+              muteAll: x.muteAll,
+            },
+          );
           const g = trackGain(s, "mic");
           expect(g).toBeGreaterThanOrEqual(0);
           expect(g).toBeLessThanOrEqual(cap + 1e-9);
@@ -206,7 +223,8 @@ describe("clampFades", () => {
           expect(r.fadeOutMs).toBeGreaterThanOrEqual(0);
           expect(r.fadeInMs + r.fadeOutMs).toBeLessThanOrEqual(d);
           if (p === "in" && fi >= 0 && Math.round(fi) <= d) expect(r.fadeInMs).toBe(Math.round(fi));
-          if (p === "out" && fo >= 0 && Math.round(fo) <= d) expect(r.fadeOutMs).toBe(Math.round(fo));
+          if (p === "out" && fo >= 0 && Math.round(fo) <= d)
+            expect(r.fadeOutMs).toBe(Math.round(fo));
         },
       ),
     );
@@ -222,7 +240,9 @@ describe("tracks / master / clicks", () => {
   });
 
   it("caps fades without a known duration", () => {
-    expect(updateTrack(base, "mic", { fadeInMs: 99_999 }).tracks.mic.fadeInMs).toBe(AUDIO_LIMITS.fadeMaxMs);
+    expect(updateTrack(base, "mic", { fadeInMs: 99_999 }).tracks.mic.fadeInMs).toBe(
+      AUDIO_LIMITS.fadeMaxMs,
+    );
   });
 
   it("does not mutate input", () => {
@@ -243,7 +263,12 @@ describe("regions", () => {
   it("adds with defaults and ducking on", () => {
     const s = addRegion(base, music);
     expect(s.regions).toHaveLength(1);
-    expect(s.regions[0]).toMatchObject({ id: "r1", volumeDb: 0, loop: false, duck: { enabled: true } });
+    expect(s.regions[0]).toMatchObject({
+      id: "r1",
+      volumeDb: 0,
+      loop: false,
+      duck: { enabled: true },
+    });
   });
 
   it("ignores duplicate ids and unknown removals", () => {
@@ -269,15 +294,19 @@ describe("regions", () => {
 
   it("add then remove restores the region list (property)", () => {
     fc.assert(
-      fc.property(fc.uniqueArray(fc.string({ minLength: 1, maxLength: 6 }), { maxLength: 8 }), fc.nat(), (ids, pick) => {
-        let s = base;
-        for (const id of ids) s = addRegion(s, { ...music, id });
-        expect(s.regions.map((r) => r.id)).toEqual(ids);
-        if (ids.length === 0) return;
-        const victim = ids[pick % ids.length]!;
-        const after = removeRegion(s, victim);
-        expect(after.regions.map((r) => r.id)).toEqual(ids.filter((id) => id !== victim));
-      }),
+      fc.property(
+        fc.uniqueArray(fc.string({ minLength: 1, maxLength: 6 }), { maxLength: 8 }),
+        fc.nat(),
+        (ids, pick) => {
+          let s = base;
+          for (const id of ids) s = addRegion(s, { ...music, id });
+          expect(s.regions.map((r) => r.id)).toEqual(ids);
+          if (ids.length === 0) return;
+          const victim = ids[pick % ids.length]!;
+          const after = removeRegion(s, victim);
+          expect(after.regions.map((r) => r.id)).toEqual(ids.filter((id) => id !== victim));
+        },
+      ),
     );
   });
 });
@@ -291,13 +320,17 @@ describe("downsamplePeaks", () => {
 
   it("keeps length ≤ bars, values in [0,1] and preserves the max (property)", () => {
     fc.assert(
-      fc.property(fc.array(fc.double({ min: -2, max: 2, noNaN: true }), { minLength: 1, maxLength: 500 }), fc.integer({ min: 1, max: 64 }), (peaks, bars) => {
-        const out = downsamplePeaks(peaks, bars);
-        expect(out.length).toBe(Math.min(peaks.length, bars));
-        for (const v of out) expect(v >= 0 && v <= 1).toBe(true);
-        const clampedMax = Math.max(...peaks.map((p) => Math.min(1, Math.max(0, p))));
-        expect(Math.max(...out)).toBe(clampedMax);
-      }),
+      fc.property(
+        fc.array(fc.double({ min: -2, max: 2, noNaN: true }), { minLength: 1, maxLength: 500 }),
+        fc.integer({ min: 1, max: 64 }),
+        (peaks, bars) => {
+          const out = downsamplePeaks(peaks, bars);
+          expect(out.length).toBe(Math.min(peaks.length, bars));
+          for (const v of out) expect(v >= 0 && v <= 1).toBe(true);
+          const clampedMax = Math.max(...peaks.map((p) => Math.min(1, Math.max(0, p))));
+          expect(Math.max(...out)).toBe(clampedMax);
+        },
+      ),
     );
   });
 });

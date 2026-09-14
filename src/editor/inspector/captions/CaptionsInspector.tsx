@@ -1,7 +1,7 @@
-import { useLayoutEffect, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent, ReactElement } from "react";
 import { Button, Input, Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
+import { useLayoutEffect, useRef, useState } from "react";
+import type { CSSProperties, KeyboardEvent, ReactElement } from "react";
 import { ColorField, EmptyState, NumberField, Section, Slider, Switch, clamp } from "../controls";
 import {
   addCaptionAt,
@@ -21,7 +21,14 @@ import {
   applyPreset,
   modelInfo,
 } from "./types";
-import type { Caption, CaptionLanguage, CaptionModel, CaptionPosition, CaptionStyle, GenerationStatus } from "./types";
+import type {
+  Caption,
+  CaptionLanguage,
+  CaptionModel,
+  CaptionPosition,
+  CaptionStyle,
+  GenerationStatus,
+} from "./types";
 
 export interface CaptionsInspectorProps {
   captions: readonly Caption[];
@@ -64,7 +71,12 @@ const rootStyle: CSSProperties = {
   fontSize: "13px",
 };
 
-const rowStyle: CSSProperties = { display: "flex", alignItems: "center", gap: "var(--space-2)", minHeight: "28px" };
+const rowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-2)",
+  minHeight: "28px",
+};
 const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--color-neutral-400)" };
 const hintStyle: CSSProperties = { fontSize: "11px", color: "var(--color-neutral-500)" };
 
@@ -95,7 +107,12 @@ function ProgressBar({ value, label }: { value: number; label: string }): ReactE
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={pct}
-      style={{ height: "4px", borderRadius: "999px", background: "var(--color-neutral-800)", overflow: "hidden" }}
+      style={{
+        height: "4px",
+        borderRadius: "999px",
+        background: "var(--color-neutral-800)",
+        overflow: "hidden",
+      }}
     >
       <div style={{ width: `${pct}%`, height: "100%", background: "var(--color-accent)" }} />
     </div>
@@ -232,17 +249,24 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
         </div>
 
         {status.kind === "downloading" ? (
-          <div role="status" style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+          <div
+            role="status"
+            style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}
+          >
             <span>
-              Downloading {info.label} model {Math.round(clamp(status.progress, 0, 1) * 100)}%… ({info.size})
+              Downloading {info.label} model {Math.round(clamp(status.progress, 0, 1) * 100)}%… (
+              {info.size})
             </span>
             <ProgressBar value={status.progress} label="Model download" />
           </div>
         ) : status.kind === "transcribing" ? (
-          <div role="status" style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+          <div
+            role="status"
+            style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}
+          >
             <span style={{ fontVariantNumeric: "tabular-nums" }}>
-              Transcribing {Math.round(clamp(status.progress, 0, 1) * 100)}%… {formatClock(status.doneMs)}/
-              {formatClock(status.totalMs)}
+              Transcribing {Math.round(clamp(status.progress, 0, 1) * 100)}%…{" "}
+              {formatClock(status.doneMs)}/{formatClock(status.totalMs)}
             </span>
             <ProgressBar value={status.progress} label="Transcription" />
           </div>
@@ -303,7 +327,14 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
             ) : (
               <ul
                 aria-label="Caption list"
-                style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "2px" }}
+                style={{
+                  listStyle: "none",
+                  margin: 0,
+                  padding: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "2px",
+                }}
               >
                 {visible.map((c) => {
                   const isActive = active?.id === c.id;
@@ -325,7 +356,13 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
                         background: isActive ? "var(--color-neutral-800)" : "transparent",
                       }}
                     >
-                      <span style={{ fontFamily: MONO, fontSize: "11px", color: "var(--color-neutral-400)" }}>
+                      <span
+                        style={{
+                          fontFamily: MONO,
+                          fontSize: "11px",
+                          color: "var(--color-neutral-400)",
+                        }}
+                      >
                         {formatCueTime(c.startMs)} – {formatCueTime(c.endMs)}
                       </span>
                       <textarea
@@ -339,7 +376,9 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
                         placeholder="Type caption…"
                         onFocus={() => setEditingId(c.id)}
                         onBlur={() => setEditingId((id) => (id === c.id ? null : id))}
-                        onChange={(e) => onCaptionsChange(updateCaptionText(captions, c.id, e.target.value))}
+                        onChange={(e) =>
+                          onCaptionsChange(updateCaptionText(captions, c.id, e.target.value))
+                        }
                         onKeyDown={(e) => handleKeyDown(e, c)}
                         style={{
                           resize: "none",
@@ -372,7 +411,11 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
 
       {/* ── Style ────────────────────────────────────────────── */}
       <Section title="Style">
-        <div role="radiogroup" aria-label="Caption preset" style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-1)" }}>
+        <div
+          role="radiogroup"
+          aria-label="Caption preset"
+          style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-1)" }}
+        >
           {CAPTION_PRESETS.map((p) => {
             const selected = style.preset === p.id;
             return (
@@ -420,7 +463,14 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
             {onAddCustomFont && <option value={ADD_FONT}>Add custom font…</option>}
           </select>
         </div>
-        <Slider label="Size" value={style.sizePx} min={12} max={120} unit="px" onChange={(v) => set("sizePx", v)} />
+        <Slider
+          label="Size"
+          value={style.sizePx}
+          min={12}
+          max={120}
+          unit="px"
+          onChange={(v) => set("sizePx", v)}
+        />
         <ColorField label="Color" value={style.color} onChange={(v) => set("color", v)} />
         <ColorField label="Background" value={style.bgColor} onChange={(v) => set("bgColor", v)} />
         <Slider
@@ -433,12 +483,30 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
         />
         <div style={rowStyle}>
           <span style={labelStyle}>Position</span>
-          <Segmented name="captions-position" value={style.position} options={POSITION_OPTIONS} onChange={(v) => set("position", v)} />
+          <Segmented
+            name="captions-position"
+            value={style.position}
+            options={POSITION_OPTIONS}
+            onChange={(v) => set("position", v)}
+          />
         </div>
         {style.position === "custom" && (
-          <Slider label="Y" value={style.customY} min={0} max={100} unit="%" onChange={(v) => set("customY", v)} />
+          <Slider
+            label="Y"
+            value={style.customY}
+            min={0}
+            max={100}
+            unit="%"
+            onChange={(v) => set("customY", v)}
+          />
         )}
-        <NumberField label="Max lines" value={style.maxLines} min={1} max={3} onChange={(v) => set("maxLines", Math.round(v))} />
+        <NumberField
+          label="Max lines"
+          value={style.maxLines}
+          min={1}
+          max={3}
+          onChange={(v) => set("maxLines", Math.round(v))}
+        />
         <Switch
           label="Word highlight"
           hint="Karaoke — highlights the current word"
@@ -446,7 +514,11 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
           onChange={(v) => set("wordHighlight", v)}
         />
         {style.wordHighlight && (
-          <ColorField label="Highlight" value={style.highlightColor} onChange={(v) => set("highlightColor", v)} />
+          <ColorField
+            label="Highlight"
+            value={style.highlightColor}
+            onChange={(v) => set("highlightColor", v)}
+          />
         )}
         <Switch label="Uppercase" checked={style.uppercase} onChange={(v) => set("uppercase", v)} />
       </Section>

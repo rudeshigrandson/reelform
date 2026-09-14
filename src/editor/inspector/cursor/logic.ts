@@ -1,5 +1,10 @@
 import { knobToMinCutoff } from "../../preview/cursorSmoothing";
-import { cursorSettingsSchema, CURSOR_LIMITS, DEFAULT_CURSOR_SETTINGS, type CursorSettings } from "./types";
+import {
+  CURSOR_LIMITS,
+  type CursorSettings,
+  DEFAULT_CURSOR_SETTINGS,
+  cursorSettingsSchema,
+} from "./types";
 
 /** Map the inspector's 0–100 "Snappy ⟷ Silky" value to the preview engine's 0..1 knob. */
 export function smoothingToKnob(smoothing: number): number {
@@ -47,7 +52,8 @@ export function validateCustomCursorFile(file: CursorFileLike): CustomCursorVali
   else if (mime === "image/svg+xml" || (mime === "" && ext === "svg")) kind = "svg";
   if (kind === null) return { ok: false, error: "Use a PNG or SVG file." };
   if (file.size <= 0) return { ok: false, error: "That file is empty." };
-  if (file.size > MAX_CUSTOM_CURSOR_BYTES) return { ok: false, error: "Cursor image must be 2 MB or smaller." };
+  if (file.size > MAX_CUSTOM_CURSOR_BYTES)
+    return { ok: false, error: "Cursor image must be 2 MB or smaller." };
   return { ok: true, kind };
 }
 

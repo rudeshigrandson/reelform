@@ -1,7 +1,8 @@
-import { useId, type CSSProperties, type ReactElement } from "react";
 import { Button } from "@design/components";
+import { type CSSProperties, type ReactElement, useId } from "react";
 import { EmptyState, NumberField, Section, Slider, Switch } from "../controls";
 import {
+  SLIDER_STEPS,
   anySolo,
   dbToSliderPosition,
   downsamplePeaks,
@@ -14,15 +15,14 @@ import {
   updateMaster,
   updateRegion,
   updateTrack,
-  SLIDER_STEPS,
 } from "./audio";
 import {
   AUDIO_LIMITS,
-  TRACK_KINDS,
-  TRACK_LABELS,
   type AudioRegion,
   type AudioSettings,
   type AvailableTracks,
+  TRACK_KINDS,
+  TRACK_LABELS,
   type TrackKind,
 } from "./types";
 
@@ -182,7 +182,9 @@ function MiniWaveform({ kind, peaks, silent }: MiniWaveformProps): ReactElement 
     >
       {bars.map((p, i) => {
         const h = Math.max(1, p * height);
-        return <rect key={i} x={i * 3} y={(height - h) / 2} width={2} height={h} rx={0.5} fill={fill} />;
+        return (
+          <rect key={i} x={i * 3} y={(height - h) / 2} width={2} height={h} rx={0.5} fill={fill} />
+        );
       })}
     </svg>
   );
@@ -220,46 +222,115 @@ export function AudioInspector({
         <div style={{ ...rowStyle, justifyContent: "space-between" }}>
           <span style={{ fontWeight: 600 }}>{label}</span>
           <span style={{ display: "flex", gap: "var(--space-1)" }}>
-            <ToggleChip label={`Mute ${label}`} short="M" pressed={track.muted} onToggle={() => set({ muted: !track.muted })} />
-            <ToggleChip label={`Solo ${label}`} short="S" pressed={track.solo} onToggle={() => set({ solo: !track.solo })} />
+            <ToggleChip
+              label={`Mute ${label}`}
+              short="M"
+              pressed={track.muted}
+              onToggle={() => set({ muted: !track.muted })}
+            />
+            <ToggleChip
+              label={`Solo ${label}`}
+              short="S"
+              pressed={track.solo}
+              onToggle={() => set({ solo: !track.solo })}
+            />
           </span>
         </div>
         <MiniWaveform kind={kind} peaks={waveforms?.[kind]} silent={silent} />
         {silencedBySolo && <span style={hintStyle}>Silenced — another track is soloed</span>}
-        <VolumeSlider label="Volume" db={track.volumeDb} onChange={(volumeDb) => set({ volumeDb })} />
+        <VolumeSlider
+          label="Volume"
+          db={track.volumeDb}
+          onChange={(volumeDb) => set({ volumeDb })}
+        />
         {kind === "mic" && (
           <Switch
             label="Noise reduction"
             checked={value.tracks.mic.noiseReduction}
-            onChange={(noiseReduction) => onChange(updateTrack(value, "mic", { noiseReduction }, trackDurationMs))}
+            onChange={(noiseReduction) =>
+              onChange(updateTrack(value, "mic", { noiseReduction }, trackDurationMs))
+            }
           />
         )}
-        <Switch label="Normalize" hint="−16 LUFS" checked={track.normalize} onChange={(normalize) => set({ normalize })} />
-        <NumberField label="Fade in" unit="ms" min={0} max={fadeMax} step={50} value={track.fadeInMs} onChange={(fadeInMs) => set({ fadeInMs })} />
-        <NumberField label="Fade out" unit="ms" min={0} max={fadeMax} step={50} value={track.fadeOutMs} onChange={(fadeOutMs) => set({ fadeOutMs })} />
+        <Switch
+          label="Normalize"
+          hint="−16 LUFS"
+          checked={track.normalize}
+          onChange={(normalize) => set({ normalize })}
+        />
+        <NumberField
+          label="Fade in"
+          unit="ms"
+          min={0}
+          max={fadeMax}
+          step={50}
+          value={track.fadeInMs}
+          onChange={(fadeInMs) => set({ fadeInMs })}
+        />
+        <NumberField
+          label="Fade out"
+          unit="ms"
+          min={0}
+          max={fadeMax}
+          step={50}
+          value={track.fadeOutMs}
+          onChange={(fadeOutMs) => set({ fadeOutMs })}
+        />
       </div>
     );
   };
 
   const renderRegion = (region: AudioRegion): ReactElement => {
-    const set = (patch: Parameters<typeof updateRegion>[2]) => onChange(updateRegion(value, region.id, patch));
+    const set = (patch: Parameters<typeof updateRegion>[2]) =>
+      onChange(updateRegion(value, region.id, patch));
     const duration = regionDurationMs(region);
     return (
       <div key={region.id} role="group" aria-label={region.fileName} style={cardStyle}>
         <div style={{ ...rowStyle, justifyContent: "space-between" }}>
           <span
             title={region.path}
-            style={{ ...monoStyle, textAlign: "left", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            style={{
+              ...monoStyle,
+              textAlign: "left",
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
           >
             {region.fileName}
           </span>
-          <Button variant="ghost" aria-label={`Remove ${region.fileName}`} onClick={() => onChange(removeRegion(value, region.id))}>
+          <Button
+            variant="ghost"
+            aria-label={`Remove ${region.fileName}`}
+            onClick={() => onChange(removeRegion(value, region.id))}
+          >
             Remove
           </Button>
         </div>
-        <VolumeSlider label="Volume" db={region.volumeDb} onChange={(volumeDb) => set({ volumeDb })} />
-        <NumberField label="Fade in" unit="ms" min={0} max={duration} step={50} value={region.fadeInMs} onChange={(fadeInMs) => set({ fadeInMs })} />
-        <NumberField label="Fade out" unit="ms" min={0} max={duration} step={50} value={region.fadeOutMs} onChange={(fadeOutMs) => set({ fadeOutMs })} />
+        <VolumeSlider
+          label="Volume"
+          db={region.volumeDb}
+          onChange={(volumeDb) => set({ volumeDb })}
+        />
+        <NumberField
+          label="Fade in"
+          unit="ms"
+          min={0}
+          max={duration}
+          step={50}
+          value={region.fadeInMs}
+          onChange={(fadeInMs) => set({ fadeInMs })}
+        />
+        <NumberField
+          label="Fade out"
+          unit="ms"
+          min={0}
+          max={duration}
+          step={50}
+          value={region.fadeOutMs}
+          onChange={(fadeOutMs) => set({ fadeOutMs })}
+        />
         <Switch label="Loop" checked={region.loop} onChange={(loop) => set({ loop })} />
         <Switch
           label="Duck under voice"
@@ -282,11 +353,19 @@ export function AudioInspector({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", fontFamily: "var(--font-body)", color: "var(--color-neutral-100)" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        fontFamily: "var(--font-body)",
+        color: "var(--color-neutral-100)",
+      }}
+    >
       <Section title="Tracks">
         {noTracks ? (
           <EmptyState title="No recorded audio">
-            This recording has no microphone or system audio. You can still add music or a voiceover below.
+            This recording has no microphone or system audio. You can still add music or a voiceover
+            below.
           </EmptyState>
         ) : (
           TRACK_KINDS.map(renderTrack)
@@ -295,7 +374,9 @@ export function AudioInspector({
 
       <Section title="Extra audio">
         {value.regions.length === 0 ? (
-          <EmptyState title="No extra audio">Add music or a voiceover to play under your recording.</EmptyState>
+          <EmptyState title="No extra audio">
+            Add music or a voiceover to play under your recording.
+          </EmptyState>
         ) : (
           value.regions.map(renderRegion)
         )}
@@ -310,7 +391,11 @@ export function AudioInspector({
           db={value.master.volumeDb}
           onChange={(volumeDb) => onChange(updateMaster(value, { volumeDb }))}
         />
-        <Switch label="Mute all" checked={value.master.muteAll} onChange={(muteAll) => onChange(updateMaster(value, { muteAll }))} />
+        <Switch
+          label="Mute all"
+          checked={value.master.muteAll}
+          onChange={(muteAll) => onChange(updateMaster(value, { muteAll }))}
+        />
       </Section>
 
       <Section title="Clicks">

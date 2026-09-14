@@ -1,7 +1,7 @@
 import { clamp } from "../controls";
 import {
-  FRAME_LIMITS,
   type AspectPreset,
+  FRAME_LIMITS,
   type FrameAspect,
   type FrameGradient,
   type FramePadding,
@@ -12,7 +12,8 @@ import {
 
 /** Pure Frame-tab logic: presets, aspect → output size, padding modes, gradient stops, clamping. */
 
-const lim = (n: number, r: { min: number; max: number }): number => clamp(Number.isFinite(n) ? n : r.min, r.min, r.max);
+const lim = (n: number, r: { min: number; max: number }): number =>
+  clamp(Number.isFinite(n) ? n : r.min, r.min, r.max);
 
 /** Returns a copy with every numeric field clamped to its S13 range. */
 export function clampFrameSettings(s: FrameSettings): FrameSettings {
@@ -25,7 +26,11 @@ export function clampFrameSettings(s: FrameSettings): FrameSettings {
     ...s,
     background: {
       ...s.background,
-      gradient: { ...s.background.gradient, angle: lim(s.background.gradient.angle, L.gradientAngle), stops },
+      gradient: {
+        ...s.background.gradient,
+        angle: lim(s.background.gradient.angle, L.gradientAngle),
+        stops,
+      },
       image: { ...s.background.image },
     },
     blur: lim(s.blur, L.blur),
@@ -44,7 +49,11 @@ export function clampFrameSettings(s: FrameSettings): FrameSettings {
       offsetY: lim(s.shadow.offsetY, L.shadowOffsetY),
       blur: lim(s.shadow.blur, L.shadowBlur),
     },
-    border: { ...s.border, width: lim(s.border.width, L.borderWidth), opacity: lim(s.border.opacity, L.borderOpacity) },
+    border: {
+      ...s.border,
+      width: lim(s.border.width, L.borderWidth),
+      opacity: lim(s.border.opacity, L.borderOpacity),
+    },
     aspect: {
       ...s.aspect,
       customWidth: Math.round(lim(s.aspect.customWidth, L.customSize)),
@@ -57,7 +66,10 @@ export function clampFrameSettings(s: FrameSettings): FrameSettings {
 
 /** Applies a preset as a single command. The source crop is recording-specific and is kept. */
 export function applyPreset(current: FrameSettings, preset: FramePreset): FrameSettings {
-  return clampFrameSettings({ ...structuredClone(preset.settings), crop: current.crop ? { ...current.crop } : null });
+  return clampFrameSettings({
+    ...structuredClone(preset.settings),
+    crop: current.crop ? { ...current.crop } : null,
+  });
 }
 
 /** Deep equality of everything a preset controls (crop excluded). */
@@ -67,7 +79,10 @@ export function matchesPreset(s: FrameSettings, preset: FramePreset): boolean {
 }
 
 /** Id of the first preset the settings match, or null when customized. */
-export function findMatchingPreset(s: FrameSettings, presets: readonly FramePreset[]): string | null {
+export function findMatchingPreset(
+  s: FrameSettings,
+  presets: readonly FramePreset[],
+): string | null {
   return presets.find((p) => matchesPreset(s, p))?.id ?? null;
 }
 
@@ -83,7 +98,8 @@ const RATIOS: Record<Exclude<AspectPreset, "source" | "custom">, [number, number
 /** Output width / height, or null when the source size is unknown for "source". */
 export function aspectRatio(aspect: FrameAspect, source: Size | null | undefined): number | null {
   if (aspect.preset === "custom") return aspect.customWidth / aspect.customHeight;
-  if (aspect.preset === "source") return source && source.width > 0 && source.height > 0 ? source.width / source.height : null;
+  if (aspect.preset === "source")
+    return source && source.width > 0 && source.height > 0 ? source.width / source.height : null;
   const [w, h] = RATIOS[aspect.preset];
   return w / h;
 }
@@ -95,8 +111,13 @@ const even = (n: number): number => Math.max(2, Math.round(n / 2) * 2);
  * recording size; Custom uses W×H. Dimensions are rounded to even (H.264).
  * Falls back to 1920×1080 when Source is requested without a known size.
  */
-export function outputSize(aspect: FrameAspect, source: Size | null | undefined, shortEdge = 1080): Size {
-  if (aspect.preset === "custom") return { width: even(aspect.customWidth), height: even(aspect.customHeight) };
+export function outputSize(
+  aspect: FrameAspect,
+  source: Size | null | undefined,
+  shortEdge = 1080,
+): Size {
+  if (aspect.preset === "custom")
+    return { width: even(aspect.customWidth), height: even(aspect.customHeight) };
   if (aspect.preset === "source") {
     if (!source || source.width <= 0 || source.height <= 0) return { width: 1920, height: 1080 };
     return { width: even(source.width), height: even(source.height) };
@@ -107,7 +128,9 @@ export function outputSize(aspect: FrameAspect, source: Size | null | undefined,
     : { width: even(shortEdge), height: even((shortEdge * h) / w) };
 }
 
-export type CustomSizeResult = { ok: true; width: number; height: number } | { ok: false; error: string };
+export type CustomSizeResult =
+  | { ok: true; width: number; height: number }
+  | { ok: false; error: string };
 
 /** Validates raw Custom W×H text input. */
 export function validateCustomSize(widthText: string, heightText: string): CustomSizeResult {
@@ -115,14 +138,23 @@ export function validateCustomSize(widthText: string, heightText: string): Custo
   const parse = (t: string): number | null => (/^\s*\d+\s*$/.test(t) ? Number(t) : null);
   const w = parse(widthText);
   const h = parse(heightText);
-  if (w === null || h === null) return { ok: false, error: "Width and height must be whole numbers" };
-  if (w < min || w > max || h < min || h > max) return { ok: false, error: `Size must be between ${min} and ${max} px` };
+  if (w === null || h === null)
+    return { ok: false, error: "Width and height must be whole numbers" };
+  if (w < min || w > max || h < min || h > max)
+    return { ok: false, error: `Size must be between ${min} and ${max} px` };
   return { ok: true, width: w, height: h };
 }
 
 /** Effective per-side padding. */
-export function resolvePadding(p: FramePadding): { top: number; right: number; bottom: number; left: number } {
-  return p.matchAll ? { top: p.all, right: p.all, bottom: p.all, left: p.all } : { top: p.top, right: p.right, bottom: p.bottom, left: p.left };
+export function resolvePadding(p: FramePadding): {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+} {
+  return p.matchAll
+    ? { top: p.all, right: p.all, bottom: p.all, left: p.all }
+    : { top: p.top, right: p.right, bottom: p.bottom, left: p.left };
 }
 
 /**
@@ -131,7 +163,8 @@ export function resolvePadding(p: FramePadding): { top: number; right: number; b
  */
 export function setPaddingMatchAll(p: FramePadding, matchAll: boolean): FramePadding {
   if (matchAll === p.matchAll) return p;
-  if (!matchAll) return { matchAll, all: p.all, top: p.all, right: p.all, bottom: p.all, left: p.all };
+  if (!matchAll)
+    return { matchAll, all: p.all, top: p.all, right: p.all, bottom: p.all, left: p.all };
   return { matchAll, all: p.top, top: p.top, right: p.top, bottom: p.top, left: p.top };
 }
 
@@ -168,17 +201,26 @@ export function addGradientStop(g: FrameGradient): FrameGradient {
 
 /** Removes a stop; no-op at the 2-stop minimum or for an out-of-range index. */
 export function removeGradientStop(g: FrameGradient, index: number): FrameGradient {
-  if (g.stops.length <= FRAME_LIMITS.gradientStops.min || index < 0 || index >= g.stops.length) return g;
+  if (g.stops.length <= FRAME_LIMITS.gradientStops.min || index < 0 || index >= g.stops.length)
+    return g;
   return { ...g, stops: g.stops.filter((_, i) => i !== index) };
 }
 
-export function updateGradientStop(g: FrameGradient, index: number, patch: Partial<{ color: string; position: number }>): FrameGradient {
+export function updateGradientStop(
+  g: FrameGradient,
+  index: number,
+  patch: Partial<{ color: string; position: number }>,
+): FrameGradient {
   if (index < 0 || index >= g.stops.length) return g;
   return {
     ...g,
     stops: g.stops.map((s, i) =>
       i === index
-        ? { color: patch.color ?? s.color, position: patch.position === undefined ? s.position : lim(patch.position, { min: 0, max: 100 }) }
+        ? {
+            color: patch.color ?? s.color,
+            position:
+              patch.position === undefined ? s.position : lim(patch.position, { min: 0, max: 100 }),
+          }
         : s,
     ),
   };
@@ -190,5 +232,7 @@ export function gradientToCss(g: FrameGradient): string {
     .sort((a, b) => a.position - b.position)
     .map((s) => `${s.color} ${s.position}%`)
     .join(", ");
-  return g.type === "radial" ? `radial-gradient(circle, ${stops})` : `linear-gradient(${g.angle}deg, ${stops})`;
+  return g.type === "radial"
+    ? `radial-gradient(circle, ${stops})`
+    : `linear-gradient(${g.angle}deg, ${stops})`;
 }

@@ -1,5 +1,12 @@
-import { useEffect, useId, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { Button, Dialog, Input, Tag } from "@design/components";
+import {
+  type CSSProperties,
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useId,
+  useState,
+} from "react";
 import { EmptyState, Section, Switch } from "../controls";
 import { formatBytes, formatDateTime, formatDurationMs } from "./logic";
 import type { DeleteProjectOptions, ProjectInfo, SourceInfo } from "./types";
@@ -53,7 +60,11 @@ const monoStyle: CSSProperties = {
   minWidth: 0,
 };
 
-function InfoRow({ label, children, mono = false }: { label: string; children: ReactNode; mono?: boolean }): ReactElement {
+function InfoRow({
+  label,
+  children,
+  mono = false,
+}: { label: string; children: ReactNode; mono?: boolean }): ReactElement {
   return (
     <div style={rowStyle}>
       <span style={labelStyle}>{label}</span>
@@ -62,7 +73,10 @@ function InfoRow({ label, children, mono = false }: { label: string; children: R
   );
 }
 
-function NameField({ name, onRename }: { name: string; onRename: (name: string) => void }): ReactElement {
+function NameField({
+  name,
+  onRename,
+}: { name: string; onRename: (name: string) => void }): ReactElement {
   const [draft, setDraft] = useState(name);
   useEffect(() => setDraft(name), [name]);
   const commit = (): void => {
@@ -87,7 +101,15 @@ function NameField({ name, onRename }: { name: string; onRename: (name: string) 
   );
 }
 
-function SourceRow({ source, onRelink, onReveal }: { source: SourceInfo; onRelink: (p: string) => void; onReveal: (p: string) => void }): ReactElement {
+function SourceRow({
+  source,
+  onRelink,
+  onReveal,
+}: {
+  source: SourceInfo;
+  onRelink: (p: string) => void;
+  onReveal: (p: string) => void;
+}): ReactElement {
   return (
     <div
       data-testid={`source-${source.path}`}
@@ -100,14 +122,23 @@ function SourceRow({ source, onRelink, onReveal }: { source: SourceInfo; onRelin
         border: `1px solid ${source.missing ? "var(--color-accent)" : "var(--color-neutral-800)"}`,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", justifyContent: "space-between" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--space-2)",
+          justifyContent: "space-between",
+        }}
+      >
         <span style={monoStyle} title={source.absolutePath}>
           {source.path}
         </span>
         {source.missing ? (
           <Tag variant="accent">Missing</Tag>
         ) : (
-          <span style={{ ...monoStyle, flex: "0 0 auto" }}>{source.sizeBytes === null ? "—" : formatBytes(source.sizeBytes)}</span>
+          <span style={{ ...monoStyle, flex: "0 0 auto" }}>
+            {source.sizeBytes === null ? "—" : formatBytes(source.sizeBytes)}
+          </span>
         )}
       </div>
       {source.missing && (
@@ -116,11 +147,18 @@ function SourceRow({ source, onRelink, onReveal }: { source: SourceInfo; onRelin
         </span>
       )}
       <div style={{ display: "flex", gap: "var(--space-2)" }}>
-        <Button variant={source.missing ? "primary" : "secondary"} onClick={() => onRelink(source.path)}>
+        <Button
+          variant={source.missing ? "primary" : "secondary"}
+          onClick={() => onRelink(source.path)}
+        >
           Relink media…
         </Button>
         {!source.missing && (
-          <Button variant="ghost" onClick={() => onReveal(source.absolutePath)} aria-label={`Reveal ${source.path}`}>
+          <Button
+            variant="ghost"
+            onClick={() => onReveal(source.absolutePath)}
+            aria-label={`Reveal ${source.path}`}
+          >
             Reveal
           </Button>
         )}
@@ -177,10 +215,17 @@ export function ProjectInspector({
 
       <Section title="Source files">
         {anyMissing && (
-          <EmptyState title="Media offline">Relink the missing file to preview and export this project.</EmptyState>
+          <EmptyState title="Media offline">
+            Relink the missing file to preview and export this project.
+          </EmptyState>
         )}
         {info.sources.map((s) => (
-          <SourceRow key={`${s.role}:${s.path}`} source={s} onRelink={onRelink} onReveal={onReveal} />
+          <SourceRow
+            key={`${s.role}:${s.path}`}
+            source={s}
+            onRelink={onRelink}
+            onReveal={onReveal}
+          />
         ))}
       </Section>
 
@@ -199,7 +244,9 @@ export function ProjectInspector({
         </InfoRow>
         <InfoRow label="Capture">{rec.captureBackend ?? "Unknown"}</InfoRow>
         <InfoRow label="Cursor data" mono>
-          {rec.cursorPointCount === null ? "None" : `${rec.cursorPointCount.toLocaleString("en-US")} points`}
+          {rec.cursorPointCount === null
+            ? "None"
+            : `${rec.cursorPointCount.toLocaleString("en-US")} points`}
         </InfoRow>
         <InfoRow label="Audio tracks">
           {rec.audioTracks.length === 0 ? (
@@ -262,12 +309,15 @@ export function ProjectInspector({
           </>
         }
       >
-        <p style={{ margin: 0 }}>
-          “{info.name}” will be removed. This can’t be undone.
-        </p>
+        <p style={{ margin: 0 }}>“{info.name}” will be removed. This can’t be undone.</p>
         <label
           htmlFor={checkboxId}
-          style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginTop: "var(--space-3)" }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--space-2)",
+            marginTop: "var(--space-3)",
+          }}
         >
           <input
             id={checkboxId}

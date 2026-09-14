@@ -1,16 +1,16 @@
+import { Button, Dialog } from "@design/components";
 import {
-  useEffect,
-  useRef,
-  useState,
   type CSSProperties,
   type MouseEvent,
   type ReactElement,
   type ReactNode,
+  useEffect,
+  useRef,
+  useState,
 } from "react";
-import { Button, Dialog } from "@design/components";
 import { Slider } from "../controls";
-import { cropFromZoom, cropToView, shapeAspect, type Size } from "./logic";
-import { WEBCAM_LIMITS, type CropRect, type WebcamShape } from "./types";
+import { type Size, cropFromZoom, cropToView, shapeAspect } from "./logic";
+import { type CropRect, WEBCAM_LIMITS, type WebcamShape } from "./types";
 
 /**
  * S16b — Crop / reframe modal. Shows the webcam frame with a crop overlay in the
@@ -140,7 +140,14 @@ export function CropModal(props: CropModalProps): ReactElement | null {
         </>
       }
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)", minWidth: "min(480px, 100%)" }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-3)",
+          minWidth: "min(480px, 100%)",
+        }}
+      >
         <div
           ref={frameRef}
           data-testid="crop-frame"
@@ -167,7 +174,14 @@ export function CropModal(props: CropModalProps): ReactElement | null {
           unit="×"
           onChange={setZoom}
         />
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--space-2)" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "var(--space-2)",
+          }}
+        >
           <Button variant="secondary" onClick={() => void centerOnFace()} disabled={detecting}>
             {detecting ? "Detecting face…" : "Center on face"}
           </Button>

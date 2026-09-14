@@ -18,29 +18,43 @@ import {
 import {
   BUILT_IN_FRAME_PRESETS,
   DEFAULT_FRAME_SETTINGS,
-  PLACEHOLDER_WALLPAPERS,
-  frameSettingsSchema,
   type FrameAspect,
   type FrameSettings,
+  PLACEHOLDER_WALLPAPERS,
+  frameSettingsSchema,
 } from "./types";
 
 const base = (): FrameSettings => structuredClone(DEFAULT_FRAME_SETTINGS);
-const aspect = (preset: FrameAspect["preset"], w = 1920, h = 1080): FrameAspect => ({ preset, customWidth: w, customHeight: h });
+const aspect = (preset: FrameAspect["preset"], w = 1920, h = 1080): FrameAspect => ({
+  preset,
+  customWidth: w,
+  customHeight: h,
+});
 
 describe("types", () => {
   it("defaults and every bundled preset satisfy the schema", () => {
     expect(frameSettingsSchema.safeParse(DEFAULT_FRAME_SETTINGS).success).toBe(true);
-    for (const p of BUILT_IN_FRAME_PRESETS) expect(frameSettingsSchema.safeParse(p.settings).success).toBe(true);
+    for (const p of BUILT_IN_FRAME_PRESETS)
+      expect(frameSettingsSchema.safeParse(p.settings).success).toBe(true);
   });
 
   it("ships the five named presets and 24 placeholder wallpapers with unique ids", () => {
-    expect(BUILT_IN_FRAME_PRESETS.map((p) => p.name)).toEqual(["Default", "Minimal", "Product Hunt", "Twitter", "Vertical"]);
+    expect(BUILT_IN_FRAME_PRESETS.map((p) => p.name)).toEqual([
+      "Default",
+      "Minimal",
+      "Product Hunt",
+      "Twitter",
+      "Vertical",
+    ]);
     expect(PLACEHOLDER_WALLPAPERS).toHaveLength(24);
     expect(new Set(PLACEHOLDER_WALLPAPERS.map((w) => w.id)).size).toBe(24);
   });
 
   it("schema rejects out-of-range values", () => {
-    expect(frameSettingsSchema.safeParse({ ...base(), padding: { ...base().padding, all: 201 } }).success).toBe(false);
+    expect(
+      frameSettingsSchema.safeParse({ ...base(), padding: { ...base().padding, all: 201 } })
+        .success,
+    ).toBe(false);
     expect(frameSettingsSchema.safeParse({ ...base(), inset: 49 }).success).toBe(false);
   });
 });
@@ -98,7 +112,12 @@ describe("presets", () => {
 
   it("findMatchingPreset detects the active preset and ignores crop", () => {
     expect(findMatchingPreset(base(), BUILT_IN_FRAME_PRESETS)).toBe("default");
-    expect(findMatchingPreset({ ...base(), crop: { x: 0, y: 0, width: 1, height: 1 } }, BUILT_IN_FRAME_PRESETS)).toBe("default");
+    expect(
+      findMatchingPreset(
+        { ...base(), crop: { x: 0, y: 0, width: 1, height: 1 } },
+        BUILT_IN_FRAME_PRESETS,
+      ),
+    ).toBe("default");
     expect(findMatchingPreset({ ...base(), radius: 13 }, BUILT_IN_FRAME_PRESETS)).toBeNull();
   });
 });
@@ -116,7 +135,10 @@ describe("aspect ratio / output size", () => {
   });
 
   it("source uses recording size rounded to even, falls back to 1080p when unknown", () => {
-    expect(outputSize(aspect("source"), { width: 2559, height: 1601 })).toEqual({ width: 2560, height: 1602 });
+    expect(outputSize(aspect("source"), { width: 2559, height: 1601 })).toEqual({
+      width: 2560,
+      height: 1602,
+    });
     expect(outputSize(aspect("source"), null)).toEqual({ width: 1920, height: 1080 });
     expect(aspectRatio(aspect("source"), null)).toBeNull();
     expect(aspectRatio(aspect("source"), { width: 0, height: 100 })).toBeNull();
@@ -130,22 +152,40 @@ describe("aspect ratio / output size", () => {
   it("validateCustomSize accepts integers in range and rejects junk", () => {
     expect(validateCustomSize("1280", " 720 ")).toEqual({ ok: true, width: 1280, height: 720 });
     expect(validateCustomSize("64", "7680").ok).toBe(true);
-    for (const [w, h] of [["", "720"], ["12.5", "720"], ["-100", "720"], ["abc", "1"], ["1e3", "720"]] as const) {
-      expect(validateCustomSize(w, h)).toMatchObject({ ok: false, error: expect.stringMatching(/whole numbers/) });
+    for (const [w, h] of [
+      ["", "720"],
+      ["12.5", "720"],
+      ["-100", "720"],
+      ["abc", "1"],
+      ["1e3", "720"],
+    ] as const) {
+      expect(validateCustomSize(w, h)).toMatchObject({
+        ok: false,
+        error: expect.stringMatching(/whole numbers/),
+      });
     }
-    expect(validateCustomSize("63", "720")).toMatchObject({ ok: false, error: expect.stringMatching(/between 64 and 7680/) });
+    expect(validateCustomSize("63", "720")).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/between 64 and 7680/),
+    });
     expect(validateCustomSize("1920", "7681").ok).toBe(false);
   });
 });
 
 describe("padding", () => {
   it("turning match-all off seeds per-side values from the uniform value", () => {
-    const p = setPaddingMatchAll({ ...base().padding, all: 40, top: 1, right: 2, bottom: 3, left: 4 }, false);
+    const p = setPaddingMatchAll(
+      { ...base().padding, all: 40, top: 1, right: 2, bottom: 3, left: 4 },
+      false,
+    );
     expect(p).toEqual({ matchAll: false, all: 40, top: 40, right: 40, bottom: 40, left: 40 });
   });
 
   it("turning match-all on adopts the top side", () => {
-    const p = setPaddingMatchAll({ matchAll: false, all: 10, top: 30, right: 5, bottom: 6, left: 7 }, true);
+    const p = setPaddingMatchAll(
+      { matchAll: false, all: 10, top: 30, right: 5, bottom: 6, left: 7 },
+      true,
+    );
     expect(resolvePadding(p)).toEqual({ top: 30, right: 30, bottom: 30, left: 30 });
   });
 
@@ -183,7 +223,10 @@ describe("gradient stops", () => {
 
   it("updateGradientStop clamps position", () => {
     expect(updateGradientStop(g(), 1, { position: 140 }).stops[1]?.position).toBe(100);
-    expect(updateGradientStop(g(), 0, { color: "#123456" }).stops[0]).toEqual({ color: "#123456", position: 0 });
+    expect(updateGradientStop(g(), 0, { color: "#123456" }).stops[0]).toEqual({
+      color: "#123456",
+      position: 0,
+    });
   });
 
   it("gradientToCss renders linear and radial", () => {

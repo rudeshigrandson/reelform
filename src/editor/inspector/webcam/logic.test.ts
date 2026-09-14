@@ -88,7 +88,12 @@ describe("bubbleRect", () => {
   it("handles degenerate frames and NaN input without escaping", () => {
     const zero = bubbleRect({ width: 0, height: 0 }, base);
     expect(zero).toEqual({ x: 0, y: 0, w: 0, h: 0 });
-    const nan = bubbleRect(FRAME, { ...base, anchor: null, customX: Number.NaN, marginPx: Number.NaN });
+    const nan = bubbleRect(FRAME, {
+      ...base,
+      anchor: null,
+      customX: Number.NaN,
+      marginPx: Number.NaN,
+    });
     inside(nan);
   });
 });
@@ -151,8 +156,18 @@ describe("crop", () => {
   });
 
   it("clampCrop pulls rects back inside source and enforces min size", () => {
-    expect(clampCrop({ x: 1200, y: -50, w: 400, h: 400 }, SRC)).toEqual({ x: 880, y: 0, w: 400, h: 400 });
-    expect(clampCrop({ x: 0, y: 0, w: 5000, h: 5000 }, SRC)).toEqual({ x: 0, y: 0, w: 1280, h: 720 });
+    expect(clampCrop({ x: 1200, y: -50, w: 400, h: 400 }, SRC)).toEqual({
+      x: 880,
+      y: 0,
+      w: 400,
+      h: 400,
+    });
+    expect(clampCrop({ x: 0, y: 0, w: 5000, h: 5000 }, SRC)).toEqual({
+      x: 0,
+      y: 0,
+      w: 1280,
+      h: 720,
+    });
     const tiny = clampCrop({ x: 10, y: 10, w: 1, h: 1 }, SRC);
     expect(tiny.w).toBe(MIN_CROP_PX);
     expect(clampCrop({ x: Number.NaN, y: 0, w: Number.NaN, h: 100 }, SRC).w).toBe(1280);

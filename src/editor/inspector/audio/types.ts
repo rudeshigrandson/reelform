@@ -26,7 +26,7 @@ export const AUDIO_LIMITS = {
   clickVolume: { min: 0, max: 100 },
 } as const;
 
-export const SILENT_DB = -Infinity;
+export const SILENT_DB = Number.NEGATIVE_INFINITY;
 
 export interface TrackSettings {
   volumeDb: number;

@@ -1,10 +1,18 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_FRAME_SETTINGS, FrameInspector, type FrameInspectorProps, type FrameSettings } from "./index";
+import {
+  DEFAULT_FRAME_SETTINGS,
+  FrameInspector,
+  type FrameInspectorProps,
+  type FrameSettings,
+} from "./index";
 
 const base = (): FrameSettings => structuredClone(DEFAULT_FRAME_SETTINGS);
-const withBg = (kind: FrameSettings["background"]["kind"], patch: Partial<FrameSettings["background"]> = {}): FrameSettings => {
+const withBg = (
+  kind: FrameSettings["background"]["kind"],
+  patch: Partial<FrameSettings["background"]> = {},
+): FrameSettings => {
   const s = base();
   return { ...s, background: { ...s.background, ...patch, kind } };
 };
@@ -37,14 +45,29 @@ function Controlled(props: { initial: FrameSettings; spy: (s: FrameSettings) => 
 describe("FrameInspector — layout", () => {
   it("renders every S13 section open by default, presets row at top", () => {
     setup();
-    for (const t of ["Background", "Blur", "Padding", "Corner radius", "Shadow", "Border", "Aspect ratio", "Inset"]) {
-      expect(screen.getByRole("button", { name: new RegExp(t) })).toHaveAttribute("aria-expanded", "true");
+    for (const t of [
+      "Background",
+      "Blur",
+      "Padding",
+      "Corner radius",
+      "Shadow",
+      "Border",
+      "Aspect ratio",
+      "Inset",
+    ]) {
+      expect(screen.getByRole("button", { name: new RegExp(t) })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
     }
     const presets = screen.getByRole("group", { name: "Presets" });
     for (const n of ["Default", "Minimal", "Product Hunt", "Twitter", "Vertical"]) {
       expect(within(presets).getByRole("button", { name: n })).toBeInTheDocument();
     }
-    expect(within(presets).getByRole("button", { name: "Default" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(presets).getByRole("button", { name: "Default" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   it("honours remembered collapse state and reports toggles", () => {
@@ -77,10 +100,21 @@ describe("FrameInspector — presets", () => {
 
   it("no preset is pressed when customized; user presets listed; save button wiring", () => {
     const onSavePreset = vi.fn();
-    const mine = { id: "u1", name: "My launch", builtIn: false, settings: { ...base(), radius: 33 } };
+    const mine = {
+      id: "u1",
+      name: "My launch",
+      builtIn: false,
+      settings: { ...base(), radius: 33 },
+    };
     setup({ value: { ...base(), radius: 33 }, userPresets: [mine], onSavePreset });
-    expect(screen.getByRole("button", { name: "Default" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("button", { name: "My launch" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Default" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "My launch" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Save current as preset…" }));
     expect(onSavePreset).toHaveBeenCalledTimes(1);
   });
@@ -97,7 +131,10 @@ describe("FrameInspector — background: wallpaper selected", () => {
     expect(screen.getByRole("radio", { name: "Wallpaper" })).toBeChecked();
     const grid = screen.getByRole("listbox", { name: "Wallpapers" });
     expect(within(grid).getAllByRole("option")).toHaveLength(5);
-    expect(within(grid).getByRole("option", { name: "Abstract 1" })).toHaveAttribute("aria-selected", "true");
+    expect(within(grid).getByRole("option", { name: "Abstract 1" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Mesh" }));
     fireEvent.click(screen.getByRole("option", { name: "Mesh 3" }));
     expect(last().background).toMatchObject({ kind: "wallpaper", wallpaperId: "mesh-3" });
@@ -194,14 +231,18 @@ describe("FrameInspector — image dropzone", () => {
   it("ignores non-image drops and accepts browsed files", () => {
     const onImageSelect = vi.fn();
     setup({ value: withBg("image"), onImageSelect });
-    fireEvent.drop(screen.getByTestId("image-dropzone"), { dataTransfer: { files: [new File(["x"], "a.txt", { type: "text/plain" })] } });
+    fireEvent.drop(screen.getByTestId("image-dropzone"), {
+      dataTransfer: { files: [new File(["x"], "a.txt", { type: "text/plain" })] },
+    });
     expect(onImageSelect).not.toHaveBeenCalled();
     fireEvent.change(screen.getByTestId("image-input"), { target: { files: [png()] } });
     expect(onImageSelect).toHaveBeenCalledTimes(1);
   });
 
   it("filled shows the file name, Remove clears path, Fit/Fill toggles", () => {
-    const { last } = setup({ value: withBg("image", { image: { path: "media/wallpapers/desk.jpg", fit: "fill" } }) });
+    const { last } = setup({
+      value: withBg("image", { image: { path: "media/wallpapers/desk.jpg", fit: "fill" } }),
+    });
     expect(screen.getByTestId("image-dropzone")).toHaveAttribute("data-state", "filled");
     expect(screen.getByText("desk.jpg")).toBeInTheDocument();
     expect(screen.getByLabelText("Background blur")).not.toBeDisabled();
@@ -265,7 +306,11 @@ describe("FrameInspector — padding", () => {
     const p = spy.mock.calls.at(-1)?.[0].padding;
     expect(p).toMatchObject({ matchAll: false, top: 100, right: 100, bottom: 100, left: 200 });
     fireEvent.click(screen.getByRole("switch", { name: "Match all sides" }));
-    expect(spy.mock.calls.at(-1)?.[0].padding).toMatchObject({ matchAll: true, all: 100, left: 100 });
+    expect(spy.mock.calls.at(-1)?.[0].padding).toMatchObject({
+      matchAll: true,
+      all: 100,
+      left: 100,
+    });
     expect(screen.queryByLabelText("Left")).toBeNull();
   });
 });
@@ -287,13 +332,19 @@ describe("FrameInspector — aspect ratio", () => {
   });
 
   it("custom aspect editing: valid W×H commits, invalid shows an error and does not commit", () => {
-    const { onChange, last } = setup({ value: { ...base(), aspect: { preset: "custom", customWidth: 1920, customHeight: 1080 } } });
+    const { onChange, last } = setup({
+      value: { ...base(), aspect: { preset: "custom", customWidth: 1920, customHeight: 1080 } },
+    });
     const w = screen.getByLabelText("Custom width");
     const h = screen.getByLabelText("Custom height");
     expect(w).toHaveValue("1920");
 
     fireEvent.change(w, { target: { value: "1280" } });
-    expect(last().aspect).toMatchObject({ preset: "custom", customWidth: 1280, customHeight: 1080 });
+    expect(last().aspect).toMatchObject({
+      preset: "custom",
+      customWidth: 1280,
+      customHeight: 1080,
+    });
 
     onChange.mockClear();
     fireEvent.change(h, { target: { value: "abc" } });
@@ -311,9 +362,17 @@ describe("FrameInspector — aspect ratio", () => {
 
   it("custom inputs resync when value changes externally", () => {
     const { rerender } = render(
-      <FrameInspector value={{ ...base(), aspect: { preset: "custom", customWidth: 1920, customHeight: 1080 } }} onChange={() => {}} />,
+      <FrameInspector
+        value={{ ...base(), aspect: { preset: "custom", customWidth: 1920, customHeight: 1080 } }}
+        onChange={() => {}}
+      />,
     );
-    rerender(<FrameInspector value={{ ...base(), aspect: { preset: "custom", customWidth: 800, customHeight: 600 } }} onChange={() => {}} />);
+    rerender(
+      <FrameInspector
+        value={{ ...base(), aspect: { preset: "custom", customWidth: 800, customHeight: 600 } }}
+        onChange={() => {}}
+      />,
+    );
     expect(screen.getByLabelText("Custom width")).toHaveValue("800");
     expect(screen.getByTestId("output-size")).toHaveTextContent("800 × 600");
   });

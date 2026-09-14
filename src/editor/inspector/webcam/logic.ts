@@ -1,5 +1,5 @@
 import { anchorToPoint, clamp } from "../controls";
-import { WEBCAM_LIMITS, type CropRect, type WebcamSettings, type WebcamShape } from "./types";
+import { type CropRect, WEBCAM_LIMITS, type WebcamSettings, type WebcamShape } from "./types";
 
 /**
  * Pure webcam math (design guide S16, ENGINEERING_SPEC §6.5 / §9.4). Deterministic
@@ -44,7 +44,11 @@ export function bubbleRect(
   const W = Math.max(0, finiteOr(frame.width, 0));
   const H = Math.max(0, finiteOr(frame.height, 0));
   const aspect = shapeAspect(s.shape);
-  const pct = clamp(finiteOr(s.sizePct, WEBCAM_LIMITS.sizePct.min), WEBCAM_LIMITS.sizePct.min, WEBCAM_LIMITS.sizePct.max);
+  const pct = clamp(
+    finiteOr(s.sizePct, WEBCAM_LIMITS.sizePct.min),
+    WEBCAM_LIMITS.sizePct.min,
+    WEBCAM_LIMITS.sizePct.max,
+  );
 
   let h = (H * pct) / 100;
   let w = h * aspect;
@@ -71,7 +75,11 @@ export function bubbleRect(
 }
 
 /** Corner radius (px) the bubble mask should use for a given rect. */
-export function bubbleCornerRadius(shape: WebcamShape, radius: number, rect: Pick<Rect, "w" | "h">): number {
+export function bubbleCornerRadius(
+  shape: WebcamShape,
+  radius: number,
+  rect: Pick<Rect, "w" | "h">,
+): number {
   const half = Math.min(rect.w, rect.h) / 2;
   switch (shape) {
     case "circle":
@@ -121,7 +129,12 @@ export function clampCrop(rect: CropRect, source: Size): CropRect {
  * Crop for a zoom level (1 = largest fit) centered on a normalized point. The
  * center is pushed inward so the crop never leaves the source.
  */
-export function cropFromZoom(source: Size, aspect: number, zoom: number, center: { x: number; y: number }): CropRect {
+export function cropFromZoom(
+  source: Size,
+  aspect: number,
+  zoom: number,
+  center: { x: number; y: number },
+): CropRect {
   const W = Math.max(1, finiteOr(source.width, 1));
   const H = Math.max(1, finiteOr(source.height, 1));
   const { min, max } = WEBCAM_LIMITS.cropZoom;

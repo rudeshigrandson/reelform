@@ -2,15 +2,21 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
   AudioInspector,
+  type AudioInspectorProps,
+  type AudioSettings,
   DEFAULT_AUDIO_SETTINGS,
   WAVEFORM_BARS,
   addRegion,
   updateTrack,
-  type AudioInspectorProps,
-  type AudioSettings,
 } from "./index";
 
-const music = { id: "r1", fileName: "lofi-beat.mp3", path: "audio/lofi-beat.mp3", startMs: 0, endMs: 2000 };
+const music = {
+  id: "r1",
+  fileName: "lofi-beat.mp3",
+  path: "audio/lofi-beat.mp3",
+  startMs: 0,
+  endMs: 2000,
+};
 
 function setup(overrides: Partial<AudioInspectorProps> = {}) {
   const onChange = vi.fn<(next: AudioSettings) => void>();
@@ -89,7 +95,10 @@ describe("AudioInspector states", () => {
     expect(within(system).getByText(/another track is soloed/)).toBeInTheDocument();
     const mic = screen.getByRole("group", { name: "Microphone" });
     expect(within(mic).queryByText(/another track is soloed/)).toBeNull();
-    expect(within(mic).getByRole("button", { name: "Solo Microphone" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(mic).getByRole("button", { name: "Solo Microphone" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 });
 
@@ -110,13 +119,15 @@ describe("AudioInspector callbacks", () => {
   });
 
   it("volume slider maps position to dB, bottom is −∞", () => {
-    const { last } = setup({ value: updateTrack(DEFAULT_AUDIO_SETTINGS, "system", { volumeDb: 6 }) });
+    const { last } = setup({
+      value: updateTrack(DEFAULT_AUDIO_SETTINGS, "system", { volumeDb: 6 }),
+    });
     const system = screen.getByRole("group", { name: "System audio" });
     expect(within(system).getByText("+6.0 dB")).toBeInTheDocument();
     const slider = within(system).getByLabelText("Volume");
     expect(slider).toHaveAttribute("aria-valuetext", "+6.0 dB");
     fireEvent.change(slider, { target: { value: "0" } });
-    expect(last().tracks.system.volumeDb).toBe(-Infinity);
+    expect(last().tracks.system.volumeDb).toBe(Number.NEGATIVE_INFINITY);
     fireEvent.change(slider, { target: { value: "600" } });
     expect(last().tracks.system.volumeDb).toBe(0);
   });
@@ -147,7 +158,10 @@ describe("AudioInspector callbacks", () => {
 
   it("duck amount is disabled when ducking is off", () => {
     const value = addRegion(DEFAULT_AUDIO_SETTINGS, music);
-    const off = { ...value, regions: [{ ...value.regions[0]!, duck: { enabled: false, amountDb: 12 } }] };
+    const off = {
+      ...value,
+      regions: [{ ...value.regions[0]!, duck: { enabled: false, amountDb: 12 } }],
+    };
     setup({ value: off });
     expect(screen.getByLabelText("Duck amount")).toBeDisabled();
   });
@@ -155,7 +169,7 @@ describe("AudioInspector callbacks", () => {
   it("master volume, mute all, click volume", () => {
     const { last } = setup();
     fireEvent.change(screen.getByLabelText("Output volume"), { target: { value: "0" } });
-    expect(last().master.volumeDb).toBe(-Infinity);
+    expect(last().master.volumeDb).toBe(Number.NEGATIVE_INFINITY);
     fireEvent.click(screen.getByRole("switch", { name: "Mute all" }));
     expect(last().master.muteAll).toBe(true);
     fireEvent.change(screen.getByLabelText("Cursor click sounds"), { target: { value: "25" } });

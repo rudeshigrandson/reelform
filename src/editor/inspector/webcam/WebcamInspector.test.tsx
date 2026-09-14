@@ -1,6 +1,12 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { CropModal, DEFAULT_WEBCAM_SETTINGS, WebcamInspector, type WebcamInspectorProps, type WebcamSettings } from "./index";
+import {
+  CropModal,
+  DEFAULT_WEBCAM_SETTINGS,
+  WebcamInspector,
+  type WebcamInspectorProps,
+  type WebcamSettings,
+} from "./index";
 
 const recorded = { kind: "recorded", durationMs: 42_000 } as const;
 
@@ -19,7 +25,8 @@ function setup(overrides: Partial<WebcamInspectorProps> = {}) {
   return { ...utils, props, onChange: props.onChange as ReturnType<typeof vi.fn> };
 }
 
-const lastValue = (fn: ReturnType<typeof vi.fn>): WebcamSettings => fn.mock.calls.at(-1)?.[0] as WebcamSettings;
+const lastValue = (fn: ReturnType<typeof vi.fn>): WebcamSettings =>
+  fn.mock.calls.at(-1)?.[0] as WebcamSettings;
 
 describe("WebcamInspector — no webcam", () => {
   it("shows the empty state and uploads", () => {
@@ -86,7 +93,9 @@ describe("WebcamInspector — enabled", () => {
   it("only shows corner radius for the rounded shape", () => {
     const { rerender, props } = setup();
     expect(screen.queryByLabelText("Corner radius")).toBeNull();
-    rerender(<WebcamInspector {...props} value={{ ...DEFAULT_WEBCAM_SETTINGS, shape: "rounded" }} />);
+    rerender(
+      <WebcamInspector {...props} value={{ ...DEFAULT_WEBCAM_SETTINGS, shape: "rounded" }} />,
+    );
     fireEvent.change(screen.getByLabelText("Corner radius"), { target: { value: "12" } });
     expect(lastValue(props.onChange as ReturnType<typeof vi.fn>).radius).toBe(12);
   });
@@ -94,7 +103,10 @@ describe("WebcamInspector — enabled", () => {
   it("selects an anchor; custom X/Y switch to custom position", () => {
     const { onChange } = setup();
     const grid = screen.getByRole("radiogroup", { name: "Position" });
-    expect(within(grid).getByRole("radio", { name: "bottom-left" })).toHaveAttribute("aria-checked", "true");
+    expect(within(grid).getByRole("radio", { name: "bottom-left" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
     fireEvent.click(within(grid).getByRole("radio", { name: "top-right" }));
     expect(lastValue(onChange).anchor).toBe("top-right");
 
@@ -111,7 +123,9 @@ describe("WebcamInspector — enabled", () => {
     setup({ value: { ...DEFAULT_WEBCAM_SETTINGS, anchor: null, customX: 0.25, customY: 0.4 } });
     expect(screen.getByLabelText("X")).toHaveValue(25);
     expect(screen.getByLabelText("Y")).toHaveValue(40);
-    const checked = screen.queryAllByRole("radio").filter((r) => r.getAttribute("aria-checked") === "true");
+    const checked = screen
+      .queryAllByRole("radio")
+      .filter((r) => r.getAttribute("aria-checked") === "true");
     expect(checked.filter((r) => r.closest("[aria-label='Position']"))).toHaveLength(0);
   });
 
@@ -128,7 +142,12 @@ describe("WebcamInspector — enabled", () => {
   it("offers reset only when a crop exists", () => {
     const { rerender, props } = setup();
     expect(screen.queryByRole("button", { name: "Reset crop" })).toBeNull();
-    rerender(<WebcamInspector {...props} value={{ ...DEFAULT_WEBCAM_SETTINGS, crop: { x: 0, y: 0, w: 100, h: 100 } }} />);
+    rerender(
+      <WebcamInspector
+        {...props}
+        value={{ ...DEFAULT_WEBCAM_SETTINGS, crop: { x: 0, y: 0, w: 100, h: 100 } }}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Reset crop" }));
     expect(lastValue(props.onChange as ReturnType<typeof vi.fn>).crop).toBeNull();
   });
@@ -158,7 +177,10 @@ describe("WebcamInspector — crop modal", () => {
   });
 
   it("uses the pill aspect and a given source size", () => {
-    setup({ value: { ...DEFAULT_WEBCAM_SETTINGS, shape: "pill" }, sourceSize: { width: 1920, height: 1080 } });
+    setup({
+      value: { ...DEFAULT_WEBCAM_SETTINGS, shape: "pill" },
+      sourceSize: { width: 1920, height: 1080 },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Crop / reframe" }));
     expect(screen.getByText("1920×1080")).toBeInTheDocument();
     expect(screen.getByTestId("crop-overlay")).toHaveAttribute("data-shape", "pill");
@@ -167,7 +189,14 @@ describe("WebcamInspector — crop modal", () => {
 
 describe("CropModal", () => {
   const SRC = { width: 1280, height: 720 };
-  const base = { open: true, shape: "circle" as const, sourceSize: SRC, value: null, onApply: vi.fn(), onClose: vi.fn() };
+  const base = {
+    open: true,
+    shape: "circle" as const,
+    sourceSize: SRC,
+    value: null,
+    onApply: vi.fn(),
+    onClose: vi.fn(),
+  };
 
   it("renders nothing when closed", () => {
     render(<CropModal {...base} open={false} />);
@@ -188,7 +217,14 @@ describe("CropModal", () => {
   it("center on face uses the detector result", async () => {
     const onApply = vi.fn();
     const detect = vi.fn().mockResolvedValue({ x: 0, y: 0 });
-    render(<CropModal {...base} value={{ x: 460, y: 180, w: 360, h: 360 }} onApply={onApply} onCenterOnFace={detect} />);
+    render(
+      <CropModal
+        {...base}
+        value={{ x: 460, y: 180, w: 360, h: 360 }}
+        onApply={onApply}
+        onCenterOnFace={detect}
+      />,
+    );
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Center on face" }));
     });
@@ -200,7 +236,14 @@ describe("CropModal", () => {
   it("center on face falls back to center on failure (null or throw)", async () => {
     const onApply = vi.fn();
     const detect = vi.fn().mockRejectedValue(new Error("no wasm"));
-    render(<CropModal {...base} value={{ x: 0, y: 0, w: 360, h: 360 }} onApply={onApply} onCenterOnFace={detect} />);
+    render(
+      <CropModal
+        {...base}
+        value={{ x: 0, y: 0, w: 360, h: 360 }}
+        onApply={onApply}
+        onCenterOnFace={detect}
+      />,
+    );
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Center on face" }));
     });
@@ -220,7 +263,17 @@ describe("CropModal", () => {
     const onApply = vi.fn();
     render(<CropModal {...base} value={{ x: 460, y: 180, w: 360, h: 360 }} onApply={onApply} />);
     const frame = screen.getByTestId("crop-frame");
-    frame.getBoundingClientRect = () => ({ width: 640, height: 360, x: 0, y: 0, top: 0, left: 0, right: 640, bottom: 360, toJSON: () => ({}) });
+    frame.getBoundingClientRect = () => ({
+      width: 640,
+      height: 360,
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 640,
+      bottom: 360,
+      toJSON: () => ({}),
+    });
     fireEvent.mouseDown(screen.getByTestId("crop-overlay"), { clientX: 100, clientY: 100 });
     fireEvent.mouseMove(frame, { clientX: 150, clientY: 100 }); // +50px of 640 → +100 source px
     fireEvent.mouseUp(frame);

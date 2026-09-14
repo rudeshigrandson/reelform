@@ -1,14 +1,14 @@
-import { useState, type CSSProperties, type ReactElement } from "react";
 import { Button, Input, Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
+import { type CSSProperties, type ReactElement, useState } from "react";
 import { ColorField, EmptyState, NumberField, Section, Slider, Switch } from "../controls";
-import { detectIdleSections, maxRampMs, suggestIdleSpeedRegions, updateSpeedRegion } from "./logic";
 import { RemoveSilenceDialog } from "./RemoveSilenceDialog";
+import { detectIdleSections, maxRampMs, suggestIdleSpeedRegions, updateSpeedRegion } from "./logic";
 import {
-  DEFAULT_TITLE_CARD,
-  EFFECTS_LIMITS,
   type AudioEnvelope,
   type CursorSample,
+  DEFAULT_TITLE_CARD,
+  EFFECTS_LIMITS,
   type EffectsSettings,
   type SilenceParams,
   type SpeedRegionEdit,
@@ -65,9 +65,12 @@ export function EffectsInspector({
   const [silenceOpen, setSilenceOpen] = useState(initialRemoveSilenceOpen);
   const [idleNotice, setIdleNotice] = useState<string | null>(null);
   const L = EFFECTS_LIMITS;
-  const set = <K extends keyof EffectsSettings>(key: K, v: EffectsSettings[K]) => onChange({ ...value, [key]: v });
-  const setColor = (patch: Partial<EffectsSettings["color"]>) => set("color", { ...value.color, ...patch });
-  const setMotion = (patch: Partial<EffectsSettings["motion"]>) => set("motion", { ...value.motion, ...patch });
+  const set = <K extends keyof EffectsSettings>(key: K, v: EffectsSettings[K]) =>
+    onChange({ ...value, [key]: v });
+  const setColor = (patch: Partial<EffectsSettings["color"]>) =>
+    set("color", { ...value.color, ...patch });
+  const setMotion = (patch: Partial<EffectsSettings["motion"]>) =>
+    set("motion", { ...value.motion, ...patch });
   const hasCursor = cursorSamples !== null && cursorSamples.length > 1;
 
   const runAutoIdle = () => {
@@ -101,7 +104,9 @@ export function EffectsInspector({
             <Switch
               label="Keep pitch"
               checked={region.keepPitch}
-              onChange={(keepPitch) => onSpeedRegionChange(updateSpeedRegion(region, { keepPitch }))}
+              onChange={(keepPitch) =>
+                onSpeedRegionChange(updateSpeedRegion(region, { keepPitch }))
+              }
             />
             <NumberField
               label="Ramp in"
@@ -119,11 +124,15 @@ export function EffectsInspector({
               max={rampMax}
               step={50}
               unit="ms"
-              onChange={(rampOutMs) => onSpeedRegionChange(updateSpeedRegion(region, { rampOutMs }))}
+              onChange={(rampOutMs) =>
+                onSpeedRegionChange(updateSpeedRegion(region, { rampOutMs }))
+              }
             />
           </>
         ) : (
-          <EmptyState title="No speed region selected">Select a speed region on the timeline to edit it.</EmptyState>
+          <EmptyState title="No speed region selected">
+            Select a speed region on the timeline to edit it.
+          </EmptyState>
         )}
         <div style={toolRowStyle}>
           <Button onClick={() => setSilenceOpen(true)} disabled={envelope === null}>
@@ -160,8 +169,16 @@ export function EffectsInspector({
       </Section>
 
       <Section title="Intro / Outro">
-        <TitleCardEditor label="Intro" card={value.intro} onChange={(intro) => set("intro", intro)} />
-        <TitleCardEditor label="Outro" card={value.outro} onChange={(outro) => set("outro", outro)} />
+        <TitleCardEditor
+          label="Intro"
+          card={value.intro}
+          onChange={(intro) => set("intro", intro)}
+        />
+        <TitleCardEditor
+          label="Outro"
+          card={value.outro}
+          onChange={(outro) => set("outro", outro)}
+        />
       </Section>
 
       <Section title="Color">
@@ -186,7 +203,12 @@ export function EffectsInspector({
           max={L.colorAdjust.max}
           onChange={(saturation) => setColor({ saturation })}
         />
-        <Switch label="Grain" hint="Subtle" checked={value.color.grain} onChange={(grain) => setColor({ grain })} />
+        <Switch
+          label="Grain"
+          hint="Subtle"
+          checked={value.color.grain}
+          onChange={(grain) => setColor({ grain })}
+        />
         <Slider
           label="Vignette"
           value={value.color.vignette}
@@ -232,7 +254,10 @@ function TitleCardEditor({ label, card, onChange }: TitleCardEditorProps): React
   const L = EFFECTS_LIMITS;
   if (!card) {
     return (
-      <Button onClick={() => onChange({ ...DEFAULT_TITLE_CARD })} aria-label={`Add ${label.toLowerCase()} title card`}>
+      <Button
+        onClick={() => onChange({ ...DEFAULT_TITLE_CARD })}
+        aria-label={`Add ${label.toLowerCase()} title card`}
+      >
         + Add {label.toLowerCase()} title card
       </Button>
     );
@@ -252,7 +277,11 @@ function TitleCardEditor({ label, card, onChange }: TitleCardEditorProps): React
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={subheadStyle}>{label}</span>
-        <Button variant="ghost" onClick={() => onChange(null)} aria-label={`Remove ${label.toLowerCase()} title card`}>
+        <Button
+          variant="ghost"
+          onClick={() => onChange(null)}
+          aria-label={`Remove ${label.toLowerCase()} title card`}
+        >
           Remove
         </Button>
       </div>
@@ -261,7 +290,11 @@ function TitleCardEditor({ label, card, onChange }: TitleCardEditorProps): React
         value={card.text}
         onChange={(e) => onChange({ ...card, text: e.target.value })}
       />
-      <ColorField label={`${label} background`} value={card.bg} onChange={(bg) => onChange({ ...card, bg })} />
+      <ColorField
+        label={`${label} background`}
+        value={card.bg}
+        onChange={(bg) => onChange({ ...card, bg })}
+      />
       <NumberField
         label={`${label} duration`}
         value={card.durationMs}

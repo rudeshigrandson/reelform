@@ -1,5 +1,5 @@
-import { ANCHORS, anchorToPoint, clamp, type Anchor } from "../controls";
 import type { Focus, FocusMode } from "../../autozoom";
+import { ANCHORS, type Anchor, anchorToPoint, clamp } from "../controls";
 import {
   EASE_MS_MAX,
   MIN_ZOOM_REGION_MS,
@@ -45,14 +45,22 @@ export function setStartMs(region: ZoomRegion, startMs: number): ZoomRegion {
  * End clamped to `[startMs + MIN_ZOOM_REGION_MS, timelineDurationMs]`. The
  * minimum length wins if the region already starts too close to the end.
  */
-export function setEndMs(region: ZoomRegion, endMs: number, timelineDurationMs: number): ZoomRegion {
+export function setEndMs(
+  region: ZoomRegion,
+  endMs: number,
+  timelineDurationMs: number,
+): ZoomRegion {
   if (!Number.isFinite(endMs)) return region;
   const min = region.startMs + MIN_ZOOM_REGION_MS;
   const max = Math.max(min, timelineDurationMs);
   return edited(region, { endMs: Math.round(clamp(endMs, min, max)) });
 }
 
-export function setEaseMs(region: ZoomRegion, which: "easeInMs" | "easeOutMs", ms: number): ZoomRegion {
+export function setEaseMs(
+  region: ZoomRegion,
+  which: "easeInMs" | "easeOutMs",
+  ms: number,
+): ZoomRegion {
   if (!Number.isFinite(ms)) return region;
   return edited(region, { [which]: Math.round(clamp(ms, 0, EASE_MS_MAX)) });
 }
@@ -156,7 +164,12 @@ export function sampleCurve(curve: ZoomCurve, count = 24): CurveSample[] {
 }
 
 /** SVG path for samples in a `width`×`height` box; y range widens for overshoot. */
-export function curvePath(samples: readonly CurveSample[], width: number, height: number, pad = 2): string {
+export function curvePath(
+  samples: readonly CurveSample[],
+  width: number,
+  height: number,
+  pad = 2,
+): string {
   const lo = Math.min(0, ...samples.map((s) => s.v));
   const hi = Math.max(1, ...samples.map((s) => s.v));
   const w = width - pad * 2;

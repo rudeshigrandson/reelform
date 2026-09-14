@@ -12,7 +12,12 @@ import {
   summarizeGaps,
   updateSpeedRegion,
 } from "./logic";
-import { DEFAULT_EFFECTS_SETTINGS, effectsSettingsSchema, type SpeedRegionEdit, type TimeRange } from "./types";
+import {
+  DEFAULT_EFFECTS_SETTINGS,
+  type SpeedRegionEdit,
+  type TimeRange,
+  effectsSettingsSchema,
+} from "./types";
 
 const region = (over: Partial<SpeedRegionEdit> = {}): SpeedRegionEdit => ({
   id: "s1",
@@ -44,7 +49,7 @@ describe("amplitudeToDb", () => {
   it("maps 1 → 0 dB, 0.1 → -20 dB, 0 → -Infinity", () => {
     expect(amplitudeToDb(1)).toBe(0);
     expect(amplitudeToDb(0.1)).toBeCloseTo(-20);
-    expect(amplitudeToDb(0)).toBe(-Infinity);
+    expect(amplitudeToDb(0)).toBe(Number.NEGATIVE_INFINITY);
   });
 });
 
@@ -60,7 +65,7 @@ describe("detectSilentGaps", () => {
       ...Array(3).fill(-10),
       ...Array(3).fill(-60),
       -10,
-      ...Array(9).fill(-Infinity),
+      ...Array(9).fill(Number.NEGATIVE_INFINITY),
     ];
     const gaps = detectSilentGaps(env, 10, params);
     expect(gaps).toHaveLength(2);
@@ -73,7 +78,9 @@ describe("detectSilentGaps", () => {
     expect(detectSilentGaps([-40, -40], 1, { thresholdDb: -40, minSilenceMs: 2000 })).toEqual([
       { startMs: 0, endMs: 2000 },
     ]);
-    expect(detectSilentGaps([-60, Number.NaN, -60], 1, { thresholdDb: -40, minSilenceMs: 1500 })).toEqual([]);
+    expect(
+      detectSilentGaps([-60, Number.NaN, -60], 1, { thresholdDb: -40, minSilenceMs: 1500 }),
+    ).toEqual([]);
   });
 
   it("returns [] for empty input or bad sample rate", () => {
@@ -85,7 +92,13 @@ describe("detectSilentGaps", () => {
   it("property: gaps sorted, non-overlapping, each ≥ minSilenceMs, and fully silent", () => {
     fc.assert(
       fc.property(
-        fc.array(fc.oneof(fc.double({ min: -100, max: 0, noNaN: true }), fc.constant(-Infinity)), { maxLength: 300 }),
+        fc.array(
+          fc.oneof(
+            fc.double({ min: -100, max: 0, noNaN: true }),
+            fc.constant(Number.NEGATIVE_INFINITY),
+          ),
+          { maxLength: 300 },
+        ),
         fc.integer({ min: 1, max: 200 }),
         fc.integer({ min: -80, max: -10 }),
         fc.integer({ min: 0, max: 3000 }),
@@ -108,26 +121,37 @@ describe("detectSilentGaps", () => {
 
   it("property: raising minSilenceMs never adds gaps", () => {
     fc.assert(
-      fc.property(fc.array(fc.integer({ min: -90, max: 0 }), { maxLength: 200 }), fc.nat(2000), fc.nat(2000), (env, m1, m2) => {
-        const lo = Math.min(m1, m2);
-        const hi = Math.max(m1, m2);
-        const p = (m: number) => detectSilentGaps(env, 50, { thresholdDb: -40, minSilenceMs: m }).length;
-        expect(p(hi)).toBeLessThanOrEqual(p(lo));
-      }),
+      fc.property(
+        fc.array(fc.integer({ min: -90, max: 0 }), { maxLength: 200 }),
+        fc.nat(2000),
+        fc.nat(2000),
+        (env, m1, m2) => {
+          const lo = Math.min(m1, m2);
+          const hi = Math.max(m1, m2);
+          const p = (m: number) =>
+            detectSilentGaps(env, 50, { thresholdDb: -40, minSilenceMs: m }).length;
+          expect(p(hi)).toBeLessThanOrEqual(p(lo));
+        },
+      ),
     );
   });
 });
 
 describe("silence preview", () => {
   it("summarizes and formats like the spec copy", () => {
-    const gaps = Array.from({ length: 12 }, (_, i) => ({ startMs: i * 5000, endMs: i * 5000 + 1500 }));
+    const gaps = Array.from({ length: 12 }, (_, i) => ({
+      startMs: i * 5000,
+      endMs: i * 5000 + 1500,
+    }));
     const s = summarizeGaps(gaps);
     expect(s).toEqual({ count: 12, totalMs: 18000 });
     expect(formatSilencePreview(s)).toBe("Would remove 12 gaps (00:18 total)");
   });
 
   it("singular, empty, and long totals", () => {
-    expect(formatSilencePreview({ count: 1, totalMs: 900 })).toBe("Would remove 1 gap (00:01 total)");
+    expect(formatSilencePreview({ count: 1, totalMs: 900 })).toBe(
+      "Would remove 1 gap (00:01 total)",
+    );
     expect(formatSilencePreview({ count: 0, totalMs: 0 })).toBe("No silent gaps found");
     expect(formatMmSs(125_400)).toBe("02:05");
     expect(formatMmSs(-5)).toBe("00:00");
@@ -138,7 +162,11 @@ describe("silence preview", () => {
 describe("detectIdleSections", () => {
   const params = { minIdleMs: 3000, epsilon: 0.002 };
   const still = (from: number, to: number, x: number, step = 100) =>
-    Array.from({ length: Math.floor((to - from) / step) + 1 }, (_, i) => ({ tMs: from + i * step, x, y: 0.5 }));
+    Array.from({ length: Math.floor((to - from) / step) + 1 }, (_, i) => ({
+      tMs: from + i * step,
+      x,
+      y: 0.5,
+    }));
 
   it("finds stillness ≥ minIdleMs and ignores shorter pauses", () => {
     const samples = [...still(0, 4000, 0.1), ...still(4100, 5000, 0.3), ...still(5100, 9000, 0.6)];
@@ -187,7 +215,15 @@ describe("suggestIdleSpeedRegions", () => {
   it("produces 3× regions with 300ms ramps and stable ids", () => {
     const regions = suggestIdleSpeedRegions([{ startMs: 1000, endMs: 5000 }]);
     expect(regions).toEqual([
-      { id: "idle-0-1000", startMs: 1000, endMs: 5000, rate: 3, keepPitch: true, rampInMs: 300, rampOutMs: 300 },
+      {
+        id: "idle-0-1000",
+        startMs: 1000,
+        endMs: 5000,
+        rate: 3,
+        keepPitch: true,
+        rampInMs: 300,
+        rampOutMs: 300,
+      },
     ]);
   });
 
@@ -209,7 +245,7 @@ describe("speed region edits", () => {
     expect(clampRate(20)).toBe(8);
     expect(clampRate(1.5)).toBe(1.5);
     expect(clampRate(Number.NaN)).toBe(1);
-    expect(clampRate(Infinity)).toBe(1);
+    expect(clampRate(Number.POSITIVE_INFINITY)).toBe(1);
   });
 
   it("ramps are capped at half the region and non-negative", () => {
@@ -228,7 +264,9 @@ describe("speed region edits", () => {
         fc.double(),
         fc.double(),
         (start, len, rate, rin, rout) => {
-          const r = normalizeSpeedRegion(region({ startMs: start, endMs: start + len, rate, rampInMs: rin, rampOutMs: rout }));
+          const r = normalizeSpeedRegion(
+            region({ startMs: start, endMs: start + len, rate, rampInMs: rin, rampOutMs: rout }),
+          );
           expect(r.rate).toBeGreaterThanOrEqual(0.25);
           expect(r.rate).toBeLessThanOrEqual(8);
           for (const ramp of [r.rampInMs, r.rampOutMs]) {

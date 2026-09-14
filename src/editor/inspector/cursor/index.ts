@@ -8,7 +8,14 @@ export {
   DEFAULT_CURSOR_SETTINGS,
   cursorSettingsSchema,
 } from "./types";
-export type { ClickEffect, ClickSound, CursorSettings, CursorStyle, CustomAsset, CustomCursor } from "./types";
+export type {
+  ClickEffect,
+  ClickSound,
+  CursorSettings,
+  CursorStyle,
+  CustomAsset,
+  CustomCursor,
+} from "./types";
 export {
   MAX_CUSTOM_CURSOR_BYTES,
   formatPointCount,

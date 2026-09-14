@@ -1,4 +1,4 @@
-import { useId, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
+import { type CSSProperties, type ReactElement, type ReactNode, useId, useState } from "react";
 
 /**
  * Shared inspector controls (design guide S13–S21). Every tab builds from these
@@ -35,7 +35,9 @@ export function Section({ title, defaultOpen = true, children }: SectionProps): 
   const [open, setOpen] = useState(defaultOpen);
   const bodyId = useId();
   return (
-    <section style={{ borderBottom: "1px solid var(--color-neutral-800)", paddingBlock: "var(--space-2)" }}>
+    <section
+      style={{ borderBottom: "1px solid var(--color-neutral-800)", paddingBlock: "var(--space-2)" }}
+    >
       <button
         type="button"
         aria-expanded={open}
@@ -62,7 +64,12 @@ export function Section({ title, defaultOpen = true, children }: SectionProps): 
       {open && (
         <div
           id={bodyId}
-          style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", marginTop: "var(--space-2)" }}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--space-2)",
+            marginTop: "var(--space-2)",
+          }}
         >
           {children}
         </div>
@@ -84,7 +91,16 @@ export interface SliderProps {
 }
 
 /** Labeled range slider with a mono value readout. Clamps to [min, max]. */
-export function Slider({ label, value, min, max, step = 1, unit = "", disabled, onChange }: SliderProps): ReactElement {
+export function Slider({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  unit = "",
+  disabled,
+  onChange,
+}: SliderProps): ReactElement {
   const id = useId();
   return (
     <div style={rowStyle}>
@@ -125,7 +141,9 @@ export function Switch({ label, checked, disabled, hint, onChange }: SwitchProps
     <div style={{ ...rowStyle, justifyContent: "space-between" }}>
       <span style={{ display: "flex", flexDirection: "column" }}>
         <span>{label}</span>
-        {hint && <span style={{ fontSize: "11px", color: "var(--color-neutral-500)" }}>{hint}</span>}
+        {hint && (
+          <span style={{ fontSize: "11px", color: "var(--color-neutral-500)" }}>{hint}</span>
+        )}
       </span>
       <button
         type="button"
@@ -149,7 +167,14 @@ export function Switch({ label, checked, disabled, hint, onChange }: SwitchProps
           justifyContent: checked ? "flex-end" : "flex-start",
         }}
       >
-        <span style={{ width: "14px", height: "14px", borderRadius: "999px", background: "var(--color-neutral-100)" }} />
+        <span
+          style={{
+            width: "14px",
+            height: "14px",
+            borderRadius: "999px",
+            background: "var(--color-neutral-100)",
+          }}
+        />
       </button>
     </div>
   );
@@ -167,7 +192,16 @@ export interface NumberFieldProps {
 }
 
 /** Compact numeric stepper. Ignores non-finite input; clamps when bounds given. */
-export function NumberField({ label, value, min, max, step = 1, unit, disabled, onChange }: NumberFieldProps): ReactElement {
+export function NumberField({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  unit,
+  disabled,
+  onChange,
+}: NumberFieldProps): ReactElement {
   const id = useId();
   return (
     <div style={rowStyle}>
@@ -185,7 +219,7 @@ export function NumberField({ label, value, min, max, step = 1, unit, disabled, 
         onChange={(e) => {
           const n = Number(e.target.value);
           if (e.target.value === "" || !Number.isFinite(n)) return;
-          onChange(clamp(n, min ?? -Infinity, max ?? Infinity));
+          onChange(clamp(n, min ?? Number.NEGATIVE_INFINITY, max ?? Number.POSITIVE_INFINITY));
         }}
         style={{
           width: "72px",
@@ -232,14 +266,26 @@ export function ColorField({ label, value, disabled, onChange }: ColorFieldProps
 }
 
 export type Anchor =
-  | "top-left" | "top" | "top-right"
-  | "left" | "center" | "right"
-  | "bottom-left" | "bottom" | "bottom-right";
+  | "top-left"
+  | "top"
+  | "top-right"
+  | "left"
+  | "center"
+  | "right"
+  | "bottom-left"
+  | "bottom"
+  | "bottom-right";
 
 export const ANCHORS: readonly Anchor[] = [
-  "top-left", "top", "top-right",
-  "left", "center", "right",
-  "bottom-left", "bottom", "bottom-right",
+  "top-left",
+  "top",
+  "top-right",
+  "left",
+  "center",
+  "right",
+  "bottom-left",
+  "bottom",
+  "bottom-right",
 ] as const;
 
 /** Normalized (0–1) coordinates for each anchor cell. */

@@ -1,5 +1,5 @@
-import { useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import { Button, Segmented, type SegmentedOption } from "@design/components";
+import { type CSSProperties, type ReactElement, type ReactNode, useState } from "react";
 import {
   AnchorGrid,
   ColorField,
@@ -12,11 +12,11 @@ import {
   clamp,
 } from "../controls";
 import { CropModal } from "./CropModal";
-import { clampSyncOffset, formatDuration, type Size } from "./logic";
+import { type Size, clampSyncOffset, formatDuration } from "./logic";
 import {
+  type CropRect,
   DEFAULT_WEBCAM_SOURCE_SIZE,
   WEBCAM_LIMITS,
-  type CropRect,
   type WebcamSettings,
   type WebcamShape,
   type WebcamSource,
@@ -86,12 +86,14 @@ export function WebcamInspector(props: WebcamInspectorProps): ReactElement {
     );
   }
 
-  const set = <K extends keyof WebcamSettings>(key: K, v: WebcamSettings[K]) => onChange({ ...value, [key]: v });
+  const set = <K extends keyof WebcamSettings>(key: K, v: WebcamSettings[K]) =>
+    onChange({ ...value, [key]: v });
   const off = !value.enabled;
   const sourceSize = props.sourceSize ?? DEFAULT_WEBCAM_SOURCE_SIZE;
 
   // With an anchor selected, X/Y mirror that anchor's point; editing them switches to custom.
-  const point = value.anchor !== null ? anchorToPoint(value.anchor) : { x: value.customX, y: value.customY };
+  const point =
+    value.anchor !== null ? anchorToPoint(value.anchor) : { x: value.customX, y: value.customY };
   const setCustom = (axis: "x" | "y", pct: number) => {
     const n = clamp(pct, 0, 100) / 100;
     onChange({
@@ -103,7 +105,9 @@ export function WebcamInspector(props: WebcamInspectorProps): ReactElement {
   };
 
   const sourceLabel =
-    source.kind === "recorded" ? `Recorded webcam (${formatDuration(source.durationMs)})` : source.name;
+    source.kind === "recorded"
+      ? `Recorded webcam (${formatDuration(source.durationMs)})`
+      : source.name;
 
   return (
     <div style={panelStyle} aria-label="Webcam inspector">
@@ -112,7 +116,13 @@ export function WebcamInspector(props: WebcamInspectorProps): ReactElement {
         <div style={rowStyle}>
           <span
             title={sourceLabel}
-            style={{ flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            style={{
+              flex: "1 1 auto",
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
           >
             {sourceLabel}
           </span>
@@ -125,9 +135,18 @@ export function WebcamInspector(props: WebcamInspectorProps): ReactElement {
         </div>
       </Section>
 
-      <fieldset disabled={off} style={{ ...fieldsetStyle, opacity: off ? 0.5 : 1 }} aria-label="Webcam settings">
+      <fieldset
+        disabled={off}
+        style={{ ...fieldsetStyle, opacity: off ? 0.5 : 1 }}
+        aria-label="Webcam settings"
+      >
         <Section title="Shape">
-          <Segmented name="webcam-shape" value={value.shape} options={SHAPE_OPTIONS} onChange={(v) => set("shape", v)} />
+          <Segmented
+            name="webcam-shape"
+            value={value.shape}
+            options={SHAPE_OPTIONS}
+            onChange={(v) => set("shape", v)}
+          />
           <Slider
             label="Size"
             value={value.sizePct}
@@ -140,7 +159,12 @@ export function WebcamInspector(props: WebcamInspectorProps): ReactElement {
         </Section>
 
         <Section title="Position">
-          <AnchorGrid label="Position" value={value.anchor} disabled={off} onChange={(a) => set("anchor", a)} />
+          <AnchorGrid
+            label="Position"
+            value={value.anchor}
+            disabled={off}
+            onChange={(a) => set("anchor", a)}
+          />
           <NumberField
             label="X"
             value={Math.round(point.x * 100)}
@@ -171,7 +195,12 @@ export function WebcamInspector(props: WebcamInspectorProps): ReactElement {
         </Section>
 
         <Section title="Style">
-          <Switch label="Mirror" checked={value.mirror} disabled={off} onChange={(v) => set("mirror", v)} />
+          <Switch
+            label="Mirror"
+            checked={value.mirror}
+            disabled={off}
+            onChange={(v) => set("mirror", v)}
+          />
           <Slider
             label="Border"
             value={value.borderWidth}

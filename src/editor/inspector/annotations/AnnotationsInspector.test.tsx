@@ -1,11 +1,11 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
-  AnnotationsInspector,
-  createAnnotation,
   type Annotation,
   type AnnotationOf,
+  AnnotationsInspector,
   type AnnotationsInspectorProps,
+  createAnnotation,
 } from "./index";
 
 function setup(overrides: Partial<AnnotationsInspectorProps> = {}) {
@@ -26,7 +26,11 @@ function setup(overrides: Partial<AnnotationsInspectorProps> = {}) {
 }
 
 const create = <K extends Annotation["kind"]>(kind: K) =>
-  createAnnotation(kind, { id: `sel-${kind}`, playheadMs: 1000, timelineDurationMs: 10_000 }) as AnnotationOf<K>;
+  createAnnotation(kind, {
+    id: `sel-${kind}`,
+    playheadMs: 1000,
+    timelineDurationMs: 10_000,
+  }) as AnnotationOf<K>;
 
 const lastChange = (fn: AnnotationsInspectorProps["onChange"]) =>
   (fn as ReturnType<typeof vi.fn>).mock.lastCall?.[0] as Annotation;
@@ -36,7 +40,19 @@ describe("AnnotationsInspector — no selection", () => {
     setup();
     const toolbar = screen.getByRole("toolbar", { name: "Annotation tools" });
     expect(within(toolbar).getAllByRole("button")).toHaveLength(11);
-    for (const name of ["Text", "Arrow", "Line", "Rectangle", "Ellipse", "Highlight", "Blur region", "Image", "Emoji", "Number badge", "Keystroke badge"]) {
+    for (const name of [
+      "Text",
+      "Arrow",
+      "Line",
+      "Rectangle",
+      "Ellipse",
+      "Highlight",
+      "Blur region",
+      "Image",
+      "Emoji",
+      "Number badge",
+      "Keystroke badge",
+    ]) {
       expect(within(toolbar).getByRole("button", { name })).toBeInTheDocument();
     }
     expect(screen.getByText("No annotation selected")).toBeInTheDocument();
@@ -92,7 +108,11 @@ describe("AnnotationsInspector — text selected", () => {
     const { props } = setup({ selected: text });
     expect(screen.queryByText("No annotation selected")).toBeNull();
     fireEvent.change(screen.getByLabelText("Content"), { target: { value: "Hello\nworld" } });
-    expect(lastChange(props.onChange)).toMatchObject({ kind: "text", text: "Hello\nworld", id: text.id });
+    expect(lastChange(props.onChange)).toMatchObject({
+      kind: "text",
+      text: "Hello\nworld",
+      id: text.id,
+    });
     fireEvent.change(screen.getByLabelText("Font"), { target: { value: "Mono" } });
     expect(lastChange(props.onChange)).toMatchObject({ font: "Mono" });
     fireEvent.change(screen.getByLabelText("Size"), { target: { value: "48" } });
@@ -187,9 +207,16 @@ describe("AnnotationsInspector — common controls", () => {
     expect(changed.animIn.type).toBe("slide");
     expect(changed.animOut).toEqual(sel.animOut);
     rerender(<AnnotationsInspector {...props} selected={changed} />);
-    fireEvent.click(within(screen.getByRole("group", { name: "Animation in" })).getByLabelText("▸"));
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Animation in" })).getByLabelText("▸"),
+    );
     expect(lastChange(props.onChange).animIn.direction).toBe("right");
-    rerender(<AnnotationsInspector {...props} selected={{ ...sel, animOut: { ...sel.animOut, type: "none" } }} />);
+    rerender(
+      <AnnotationsInspector
+        {...props}
+        selected={{ ...sel, animOut: { ...sel.animOut, type: "none" } }}
+      />,
+    );
     expect(screen.getByLabelText("Out duration")).toBeDisabled();
   });
 

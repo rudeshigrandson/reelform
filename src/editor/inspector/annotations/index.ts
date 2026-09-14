@@ -24,7 +24,12 @@ export {
   keystrokeBadgesFromCandidates,
   summarizeShortcuts,
 } from "./keystrokes";
-export type { KeyPlatform, KeyTelemetryEvent, KeystrokeCandidate, ShortcutSummary } from "./keystrokes";
+export type {
+  KeyPlatform,
+  KeyTelemetryEvent,
+  KeystrokeCandidate,
+  ShortcutSummary,
+} from "./keystrokes";
 export {
   ANNOTATION_KINDS,
   DEFAULT_BASE,

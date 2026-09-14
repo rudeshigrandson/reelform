@@ -138,12 +138,15 @@ export function formatShortcut(modifiers: number, code: string, platform: KeyPla
  * modifier count; plain keys and Shift+typing are dropped (privacy). Held-key
  * repeats of the same shortcut collapse into one.
  */
-export function detectKeystrokes(keys: readonly KeyTelemetryEvent[], platform: KeyPlatform): KeystrokeCandidate[] {
+export function detectKeystrokes(
+  keys: readonly KeyTelemetryEvent[],
+  platform: KeyPlatform,
+): KeystrokeCandidate[] {
   const sorted = [...keys].sort((a, b) => a[0] - b[0]);
   const out: KeystrokeCandidate[] = [];
   let pending: { mask: number; tMs: number } | null = null;
   let lastLabel = "";
-  let lastMs = -Infinity;
+  let lastMs = Number.NEGATIVE_INFINITY;
 
   for (const [tMs, code, rawMods] of sorted) {
     const modBit = MODIFIER_CODES[code];
@@ -196,7 +199,8 @@ export function keystrokeBadgesFromCandidates(
 ): KeystrokeBadgeAnnotation[] {
   const seen = new Set<string>();
   for (const a of opts.existing ?? []) {
-    if (a.kind === "keystrokeBadge" && a.label !== undefined) seen.add(`${a.label}@${Math.round(a.startMs)}`);
+    if (a.kind === "keystrokeBadge" && a.label !== undefined)
+      seen.add(`${a.label}@${Math.round(a.startMs)}`);
   }
   const base = { ...DEFAULT_BASE, ...DEFAULT_BASE_OVERRIDES.keystrokeBadge };
   const out: KeystrokeBadgeAnnotation[] = [];

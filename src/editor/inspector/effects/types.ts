@@ -120,4 +120,9 @@ export interface IdleParams {
   rampMs: number;
 }
 
-export const DEFAULT_IDLE_PARAMS: IdleParams = { minIdleMs: 3000, epsilon: 0.002, rate: 3, rampMs: 300 };
+export const DEFAULT_IDLE_PARAMS: IdleParams = {
+  minIdleMs: 3000,
+  epsilon: 0.002,
+  rate: 3,
+  rampMs: 300,
+};

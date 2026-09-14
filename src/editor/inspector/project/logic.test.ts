@@ -15,7 +15,12 @@ const KB = 1024;
 const MB = KB * 1024;
 const GB = MB * 1024;
 
-const clip = (id: string, s: number, e: number): Clip => ({ id, sourceStartMs: s, sourceEndMs: e, timelineStartMs: 0 });
+const clip = (id: string, s: number, e: number): Clip => ({
+  id,
+  sourceStartMs: s,
+  sourceEndMs: e,
+  timelineStartMs: 0,
+});
 
 describe("formatBytes", () => {
   it("handles zero and sub-KB values", () => {
@@ -56,7 +61,10 @@ describe("formatDateTime", () => {
   });
 
   it("honours the timezone", () => {
-    const out = formatDateTime("2026-09-14T23:30:00.000Z", { locale: "en-US", timeZone: "Asia/Tokyo" });
+    const out = formatDateTime("2026-09-14T23:30:00.000Z", {
+      locale: "en-US",
+      timeZone: "Asia/Tokyo",
+    });
     expect(out).toMatch(/^Sep 15, 2026/);
   });
 

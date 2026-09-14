@@ -40,7 +40,9 @@ export const webcamSettingsSchema = z.object({
   shape: z.enum(WEBCAM_SHAPES),
   sizePct: z.number().min(L.sizePct.min).max(L.sizePct.max),
   /** 3×3 anchor, or `null` for a custom position given by `customX`/`customY`. */
-  anchor: z.custom<Anchor>((v) => typeof v === "string" && (ANCHORS as readonly string[]).includes(v)).nullable(),
+  anchor: z
+    .custom<Anchor>((v) => typeof v === "string" && (ANCHORS as readonly string[]).includes(v))
+    .nullable(),
   /** Bubble center, normalized 0–1 of the frame. Used when `anchor` is null. */
   customX: z.number().min(0).max(1),
   customY: z.number().min(0).max(1),

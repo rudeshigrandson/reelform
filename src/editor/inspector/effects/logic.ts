@@ -1,8 +1,8 @@
 import { clamp } from "../controls";
 import {
+  type CursorSample,
   DEFAULT_IDLE_PARAMS,
   EFFECTS_LIMITS,
-  type CursorSample,
   type IdleParams,
   type SilenceParams,
   type SilencePreview,
@@ -17,7 +17,7 @@ import {
 
 /** Linear RMS amplitude (0..1) → dBFS. Zero/negative maps to -Infinity. */
 export function amplitudeToDb(rms: number): number {
-  return rms > 0 ? 20 * Math.log10(rms) : -Infinity;
+  return rms > 0 ? 20 * Math.log10(rms) : Number.NEGATIVE_INFINITY;
 }
 
 /**
@@ -107,7 +107,8 @@ export function detectIdleSections(
 export function suggestIdleSpeedRegions(
   sections: readonly TimeRange[],
   params: IdleParams = DEFAULT_IDLE_PARAMS,
-  makeId: (index: number, range: TimeRange) => string = (i, r) => `idle-${i}-${Math.round(r.startMs)}`,
+  makeId: (index: number, range: TimeRange) => string = (i, r) =>
+    `idle-${i}-${Math.round(r.startMs)}`,
 ): SpeedRegionEdit[] {
   return sections.map((r, i) =>
     normalizeSpeedRegion({

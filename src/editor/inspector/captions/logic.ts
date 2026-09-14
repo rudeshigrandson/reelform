@@ -13,7 +13,7 @@ const tokens = (text: string): string[] => text.split(/\s+/u).filter((t) => t.le
 /** True when the list is sorted, non-overlapping, positive-duration, with unique ids. */
 export function isValidCaptionList(captions: readonly Caption[]): boolean {
   const ids = new Set<string>();
-  let prevEnd = -Infinity;
+  let prevEnd = Number.NEGATIVE_INFINITY;
   for (const c of captions) {
     if (ids.has(c.id)) return false;
     ids.add(c.id);
@@ -45,7 +45,11 @@ export interface SplitResult {
  * align with the text. Returns null when the split would leave an empty half
  * or a zero-length caption.
  */
-export function splitCaption(captions: readonly Caption[], id: string, cursor: number): SplitResult | null {
+export function splitCaption(
+  captions: readonly Caption[],
+  id: string,
+  cursor: number,
+): SplitResult | null {
   const index = captions.findIndex((c) => c.id === id);
   const cap = captions[index];
   if (!cap) return null;
@@ -76,8 +80,20 @@ export function splitCaption(captions: readonly Caption[], id: string, cursor: n
   splitMs = Math.min(Math.max(splitMs, cap.startMs + 1), cap.endMs - 1);
 
   const newId = uniqueId(captions, `${cap.id}-split`);
-  const left: Caption = { id: cap.id, startMs: cap.startMs, endMs: splitMs, text: leftText, words: leftWords };
-  const right: Caption = { id: newId, startMs: splitMs, endMs: cap.endMs, text: rightText, words: rightWords };
+  const left: Caption = {
+    id: cap.id,
+    startMs: cap.startMs,
+    endMs: splitMs,
+    text: leftText,
+    words: leftWords,
+  };
+  const right: Caption = {
+    id: newId,
+    startMs: splitMs,
+    endMs: cap.endMs,
+    text: rightText,
+    words: rightWords,
+  };
   const next = [...captions];
   next.splice(index, 1, left, right);
   return { captions: next, newId };
@@ -128,14 +144,22 @@ export interface AddResult {
  * Insert an empty caption starting at the playhead without overlapping
  * neighbors. Null when the playhead is inside a caption or the gap is too small.
  */
-export function addCaptionAt(captions: readonly Caption[], atMs: number, options: AddCaptionOptions = {}): AddResult | null {
+export function addCaptionAt(
+  captions: readonly Caption[],
+  atMs: number,
+  options: AddCaptionOptions = {},
+): AddResult | null {
   const duration = options.durationMs ?? 2000;
   const minDuration = Math.max(1, options.minDurationMs ?? 100);
   const start = Math.max(0, Math.round(atMs));
   if (captions.some((c) => start >= c.startMs && start < c.endMs)) return null;
   const nextIndex = captions.findIndex((c) => c.startMs > start);
   const nextCap = nextIndex === -1 ? undefined : captions[nextIndex];
-  const end = Math.min(start + duration, nextCap?.startMs ?? Infinity, options.maxMs ?? Infinity);
+  const end = Math.min(
+    start + duration,
+    nextCap?.startMs ?? Number.POSITIVE_INFINITY,
+    options.maxMs ?? Number.POSITIVE_INFINITY,
+  );
   if (end - start < minDuration) return null;
   const id = uniqueId(captions, `cap-${start}`);
   const added: Caption = { id, startMs: start, endMs: end, text: "", words: [] };
@@ -148,7 +172,11 @@ export function addCaptionAt(captions: readonly Caption[], atMs: number, options
  * Replace a caption's text. Word timings are kept (re-texted in place) when the
  * token count is unchanged, otherwise dropped — word retiming is v1.1.
  */
-export function updateCaptionText(captions: readonly Caption[], id: string, text: string): Caption[] {
+export function updateCaptionText(
+  captions: readonly Caption[],
+  id: string,
+  text: string,
+): Caption[] {
   return captions.map((c) => {
     if (c.id !== id) return c;
     const toks = tokens(text);
@@ -230,13 +258,16 @@ const exportable = (captions: readonly Caption[]): Caption[] =>
 export function toSrt(captions: readonly Caption[]): string {
   return exportable(captions)
     .map((c, i) => {
-      const body = cueLines(c.text).map((l) => l.replaceAll("-->", "->")).join("\n");
+      const body = cueLines(c.text)
+        .map((l) => l.replaceAll("-->", "->"))
+        .join("\n");
       return `${i + 1}\n${formatSrtTimestamp(c.startMs)} --> ${formatSrtTimestamp(c.endMs)}\n${body}\n`;
     })
     .join("\n");
 }
 
-const escapeVtt = (line: string): string => line.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+const escapeVtt = (line: string): string =>
+  line.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
 /** WebVTT: `WEBVTT` header, numbered cues, `& < >` escaped, blank captions skipped. */
 export function toVtt(captions: readonly Caption[]): string {

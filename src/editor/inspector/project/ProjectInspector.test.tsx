@@ -44,7 +44,15 @@ describe("ProjectInspector", () => {
   it("renders unknown recording metadata gracefully", () => {
     const base = makeInfo();
     setup({
-      info: { ...base, recording: { ...base.recording, captureBackend: null, cursorPointCount: null, audioTracks: [] } },
+      info: {
+        ...base,
+        recording: {
+          ...base.recording,
+          captureBackend: null,
+          cursorPointCount: null,
+          audioTracks: [],
+        },
+      },
     });
     expect(screen.getByText("Unknown")).toBeInTheDocument();
     expect(screen.getAllByText("None")).toHaveLength(2);
@@ -72,7 +80,9 @@ describe("ProjectInspector", () => {
   it("reveals the project location and the source file", () => {
     const { props } = setup();
     fireEvent.click(screen.getByRole("button", { name: "Reveal" }));
-    expect(props.onReveal).toHaveBeenCalledWith("/Users/me/Movies/Reelform/Onboarding flow walkthrough.reelform");
+    expect(props.onReveal).toHaveBeenCalledWith(
+      "/Users/me/Movies/Reelform/Onboarding flow walkthrough.reelform",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Reveal recording/screen.mp4" }));
     expect(props.onReveal).toHaveBeenLastCalledWith(
       "/Users/me/Movies/Reelform/Onboarding flow walkthrough.reelform/recording/screen.mp4",
@@ -88,7 +98,9 @@ describe("ProjectInspector", () => {
   it("shows missing-media state with relink emphasis", () => {
     const base = makeInfo();
     const src = base.sources[0]!;
-    const { props } = setup({ info: { ...base, sources: [{ ...src, missing: true, sizeBytes: null }] } });
+    const { props } = setup({
+      info: { ...base, sources: [{ ...src, missing: true, sizeBytes: null }] },
+    });
     expect(screen.getByText("Media offline")).toBeInTheDocument();
     const row = screen.getByTestId("source-recording/screen.mp4");
     expect(within(row).getByText("Missing")).toBeInTheDocument();

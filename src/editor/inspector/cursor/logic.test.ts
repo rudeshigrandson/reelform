@@ -53,18 +53,34 @@ describe("hasTelemetry", () => {
 
 describe("validateCustomCursorFile", () => {
   it("accepts PNG and SVG by MIME", () => {
-    expect(validateCustomCursorFile({ name: "a.png", type: "image/png", size: 100 })).toEqual({ ok: true, kind: "png" });
-    expect(validateCustomCursorFile({ name: "a.svg", type: "image/svg+xml", size: 100 })).toEqual({ ok: true, kind: "svg" });
+    expect(validateCustomCursorFile({ name: "a.png", type: "image/png", size: 100 })).toEqual({
+      ok: true,
+      kind: "png",
+    });
+    expect(validateCustomCursorFile({ name: "a.svg", type: "image/svg+xml", size: 100 })).toEqual({
+      ok: true,
+      kind: "svg",
+    });
   });
 
   it("falls back to extension when MIME is empty (case-insensitive)", () => {
-    expect(validateCustomCursorFile({ name: "Arrow.PNG", type: "", size: 10 })).toEqual({ ok: true, kind: "png" });
-    expect(validateCustomCursorFile({ name: "x.svg", type: "", size: 10 })).toEqual({ ok: true, kind: "svg" });
+    expect(validateCustomCursorFile({ name: "Arrow.PNG", type: "", size: 10 })).toEqual({
+      ok: true,
+      kind: "png",
+    });
+    expect(validateCustomCursorFile({ name: "x.svg", type: "", size: 10 })).toEqual({
+      ok: true,
+      kind: "svg",
+    });
   });
 
   it("rejects other types, even with a spoofed extension", () => {
-    expect(validateCustomCursorFile({ name: "a.jpg", type: "image/jpeg", size: 10 }).ok).toBe(false);
-    expect(validateCustomCursorFile({ name: "a.png", type: "image/jpeg", size: 10 }).ok).toBe(false);
+    expect(validateCustomCursorFile({ name: "a.jpg", type: "image/jpeg", size: 10 }).ok).toBe(
+      false,
+    );
+    expect(validateCustomCursorFile({ name: "a.png", type: "image/jpeg", size: 10 }).ok).toBe(
+      false,
+    );
     expect(validateCustomCursorFile({ name: "noext", type: "", size: 10 }).ok).toBe(false);
   });
 
@@ -73,8 +89,17 @@ describe("validateCustomCursorFile", () => {
       ok: false,
       error: "That file is empty.",
     });
-    expect(validateCustomCursorFile({ name: "a.png", type: "image/png", size: MAX_CUSTOM_CURSOR_BYTES }).ok).toBe(true);
-    expect(validateCustomCursorFile({ name: "a.png", type: "image/png", size: MAX_CUSTOM_CURSOR_BYTES + 1 }).ok).toBe(false);
+    expect(
+      validateCustomCursorFile({ name: "a.png", type: "image/png", size: MAX_CUSTOM_CURSOR_BYTES })
+        .ok,
+    ).toBe(true);
+    expect(
+      validateCustomCursorFile({
+        name: "a.png",
+        type: "image/png",
+        size: MAX_CUSTOM_CURSOR_BYTES + 1,
+      }).ok,
+    ).toBe(false);
   });
 });
 
@@ -90,10 +115,15 @@ describe("settings schema", () => {
       customCursor: { fileName: "a.svg", path: "/p/a.svg", kind: "svg" },
     };
     expect(parseCursorSettings(custom)).toEqual(custom);
-    expect(parseCursorSettings({ ...DEFAULT_CURSOR_SETTINGS, size: 400 })).toBe(DEFAULT_CURSOR_SETTINGS);
-    expect(parseCursorSettings({ ...DEFAULT_CURSOR_SETTINGS, clickEffect: { type: "ripple", color: "red", size: 100 } })).toBe(
+    expect(parseCursorSettings({ ...DEFAULT_CURSOR_SETTINGS, size: 400 })).toBe(
       DEFAULT_CURSOR_SETTINGS,
     );
+    expect(
+      parseCursorSettings({
+        ...DEFAULT_CURSOR_SETTINGS,
+        clickEffect: { type: "ripple", color: "red", size: 100 },
+      }),
+    ).toBe(DEFAULT_CURSOR_SETTINGS);
     expect(parseCursorSettings(null)).toBe(DEFAULT_CURSOR_SETTINGS);
   });
 });

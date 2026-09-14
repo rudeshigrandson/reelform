@@ -230,11 +230,12 @@ export const DEFAULT_PROPS: { readonly [K in AnnotationKind]: AnnotationProps<K>
 };
 
 /** Base overrides applied on creation for specific kinds. */
-export const DEFAULT_BASE_OVERRIDES: { readonly [K in AnnotationKind]?: Partial<AnnotationBase> } = {
-  highlight: { opacity: 0.35, h: 0.05 },
-  arrow: { h: 0.15 },
-  line: { h: 0.01 },
-  emoji: { w: 0.06, h: 0.1 },
-  numberBadge: { w: 0.05, h: 0.08, animIn: { type: "pop", direction: "up", ms: 200 } },
-  keystrokeBadge: { w: 0.12, h: 0.06, x: 0.44, y: 0.85, followZoom: false },
-};
+export const DEFAULT_BASE_OVERRIDES: { readonly [K in AnnotationKind]?: Partial<AnnotationBase> } =
+  {
+    highlight: { opacity: 0.35, h: 0.05 },
+    arrow: { h: 0.15 },
+    line: { h: 0.01 },
+    emoji: { w: 0.06, h: 0.1 },
+    numberBadge: { w: 0.05, h: 0.08, animIn: { type: "pop", direction: "up", ms: 200 } },
+    keystrokeBadge: { w: 0.12, h: 0.06, x: 0.44, y: 0.85, followZoom: false },
+  };

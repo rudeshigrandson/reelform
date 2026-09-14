@@ -58,7 +58,10 @@ describe("AnchorGrid", () => {
   it("marks the selected cell and reports clicks", () => {
     const onChange = vi.fn();
     render(<AnchorGrid label="Position" value="bottom-right" onChange={onChange} />);
-    expect(screen.getByRole("radio", { name: "bottom-right" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "bottom-right" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
     fireEvent.click(screen.getByRole("radio", { name: "top-left" }));
     expect(onChange).toHaveBeenCalledWith("top-left");
   });

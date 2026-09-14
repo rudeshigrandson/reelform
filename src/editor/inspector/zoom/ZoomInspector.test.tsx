@@ -1,6 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_ZOOM_SETTINGS, ZoomInspector, type ZoomInspectorProps, type ZoomRegion } from "./index";
+import {
+  DEFAULT_ZOOM_SETTINGS,
+  ZoomInspector,
+  type ZoomInspectorProps,
+  type ZoomRegion,
+} from "./index";
 
 const region = (over: Partial<ZoomRegion> = {}): ZoomRegion => ({
   id: "z1",
@@ -41,7 +46,9 @@ const lastRegion = (fn: ZoomInspectorProps["onRegionChange"]): ZoomRegion =>
 describe("ZoomInspector — no selection", () => {
   it("shows the helper and global sections", () => {
     setup();
-    expect(screen.getByText("Select a zoom on the timeline or add one at the playhead (+)")).toBeInTheDocument();
+    expect(
+      screen.getByText("Select a zoom on the timeline or add one at the playhead (+)"),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Generate suggestions" })).toBeEnabled();
     expect(screen.getByLabelText("Camera smoothing")).toBeInTheDocument();
     expect(screen.queryByLabelText("Zoom level")).toBeNull();
@@ -62,15 +69,22 @@ describe("ZoomInspector — no selection", () => {
       autoZoom: { ...DEFAULT_ZOOM_SETTINGS.autoZoom, sensitivity: 0.8 },
     });
     fireEvent.click(screen.getByRole("switch", { name: "Zoom on typing" }));
-    expect(vi.mocked(props.onSettingsChange).mock.calls.at(-1)![0].autoZoom.zoomOnTyping).toBe(false);
+    expect(vi.mocked(props.onSettingsChange).mock.calls.at(-1)![0].autoZoom.zoomOnTyping).toBe(
+      false,
+    );
     fireEvent.click(screen.getByRole("switch", { name: "Follow cursor while zoomed" }));
-    expect(vi.mocked(props.onSettingsChange).mock.calls.at(-1)![0].autoZoom.followCursor).toBe(false);
+    expect(vi.mocked(props.onSettingsChange).mock.calls.at(-1)![0].autoZoom.followCursor).toBe(
+      false,
+    );
   });
 
   it("updates motion settings", () => {
     const { props } = setup();
     fireEvent.change(screen.getByLabelText("Max zoom speed"), { target: { value: "6.5" } });
-    expect(vi.mocked(props.onSettingsChange).mock.calls.at(-1)![0].camera).toEqual({ smoothing: 0.5, maxZoomSpeed: 6.5 });
+    expect(vi.mocked(props.onSettingsChange).mock.calls.at(-1)![0].camera).toEqual({
+      smoothing: 0.5,
+      maxZoomSpeed: 6.5,
+    });
     fireEvent.change(screen.getByLabelText("Camera smoothing"), { target: { value: "20" } });
     expect(vi.mocked(props.onSettingsChange).mock.calls.at(-1)![0].camera.smoothing).toBe(0.2);
   });
@@ -120,7 +134,9 @@ describe("ZoomInspector — region selected", () => {
     expect(screen.getByLabelText("Ease")).toBeChecked();
     expect(screen.getByRole("img", { name: "Ease curve preview" })).toBeInTheDocument();
     expect(screen.getByText(/Set from canvas/)).toBeInTheDocument();
-    expect(screen.queryByText("Select a zoom on the timeline or add one at the playhead (+)")).toBeNull();
+    expect(
+      screen.queryByText("Select a zoom on the timeline or add one at the playhead (+)"),
+    ).toBeNull();
   });
 
   it("clamps level edits and marks manual", () => {
@@ -145,7 +161,10 @@ describe("ZoomInspector — region selected", () => {
     setup({ selectedRegion: region({ focus: { mode: "follow", x: 0.3, y: 0.3 } }) });
     expect(screen.getByLabelText("X")).toBeDisabled();
     expect(screen.getByRole("radio", { name: "center" })).toBeDisabled();
-    expect(screen.getByRole("switch", { name: "Follow cursor" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("switch", { name: "Follow cursor" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
   });
 
   it("marks no anchor for a custom focus point", () => {
@@ -208,7 +227,12 @@ describe("ZoomInspector — region selected", () => {
 
   it("resyncs timing fields when the region changes externally", () => {
     const { rerender, props } = setup({ selectedRegion: region() });
-    rerender(<ZoomInspector {...props} selectedRegion={region({ id: "z9", startMs: 4000, endMs: 6500 })} />);
+    rerender(
+      <ZoomInspector
+        {...props}
+        selectedRegion={region({ id: "z9", startMs: 4000, endMs: 6500 })}
+      />,
+    );
     expect(screen.getByLabelText("Start")).toHaveValue("00:04.00");
     expect(screen.getByTestId("zoom-duration")).toHaveTextContent("00:02.50");
   });
