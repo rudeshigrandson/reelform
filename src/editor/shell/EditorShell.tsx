@@ -167,6 +167,7 @@ export function EditorShell(props: EditorShellProps): ReactElement {
     onTogglePlay,
     onQualityChange,
     onRename,
+    renderInspector,
   } = props;
 
   const [activeTab, setActiveTab] = useState<InspectorTab>("Frame");
@@ -287,7 +288,7 @@ export function EditorShell(props: EditorShellProps): ReactElement {
             {activeTab}
           </h2>
           <div style={{ marginTop: "var(--space-3)", color: "var(--color-neutral-400)" }}>
-            {activeTab} inspector
+            {renderInspector ? renderInspector(activeTab) : `${activeTab} inspector`}
           </div>
         </div>
       </aside>

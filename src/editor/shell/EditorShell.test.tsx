@@ -39,6 +39,19 @@ describe("EditorShell", () => {
     expect(within(panel).getByRole("heading")).toHaveTextContent("Zoom");
   });
 
+  it("renders the active tab body through renderInspector", async () => {
+    const renderInspector = vi.fn((tab: string) => <p>body:{tab}</p>);
+    render(<EditorShell {...sampleEditorShellProps} renderInspector={renderInspector} />);
+    const panel = screen.getByRole("tabpanel");
+
+    expect(within(panel).getByText("body:Frame")).toBeInTheDocument();
+    expect(within(panel).queryByText("Frame inspector")).toBeNull();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Audio" }));
+    expect(within(panel).getByText("body:Audio")).toBeInTheDocument();
+    expect(renderInspector).toHaveBeenLastCalledWith("Audio");
+  });
+
   it("shows the 5 timeline track lane labels", () => {
     render(<EditorShell {...sampleEditorShellProps} />);
     const timeline = screen.getByRole("region", { name: "Timeline" });
