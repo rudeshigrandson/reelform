@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { composeScene } from "../../editor/preview/compose";
 import { initialEditorData } from "../../editor/store";
 import { initialProjectSession } from "../project/session";
-import { type ExportStoreSnapshot, clipsFor, timelineFromSnapshot } from "./defaultDeps";
+import {
+  type ExportStoreSnapshot,
+  clipsFor,
+  timelineFromSnapshot,
+  webcamTrackFor,
+} from "./defaultDeps";
 
 function snapshot(patch: Partial<ExportStoreSnapshot["editor"]> = {}): ExportStoreSnapshot {
   const editor = { ...initialEditorData(), durationMs: 4000, ...patch };
@@ -44,10 +49,55 @@ describe("timelineFromSnapshot", () => {
     expect(plain.composition?.captions.visible).toBe(false);
   });
 
-  it("hides the webcam bubble (no webcam frames are fed to the export renderer)", () => {
+  it("without a webcam track the bubble is off and no webcam is decoded", () => {
     const t = timelineFromSnapshot(snapshot());
     const input = t.sceneInput({ width: 640, height: 360 }, { fps: 60, burnInCaptions: false });
     expect(input.webcam?.hasWebcam).toBe(false);
+    expect(t.webcam).toBeNull();
+  });
+
+  it("a webcam track composes the bubble with its regions, source size and sync offset", () => {
+    const base = snapshot({ webcam: { ...initialEditorData().webcam, syncOffsetMs: -120 } });
+    const video = {
+      path: "media/screen.mp4",
+      width: 1920,
+      height: 1080,
+      fps: 60,
+      durationMs: 4000,
+    };
+    const snap: ExportStoreSnapshot = {
+      ...base,
+      session: {
+        ...base.session,
+        webcamUrl: "reelform-media://root/webcam.webm",
+        meta: {
+          sources: {
+            video,
+            webcam: { ...video, path: "media/webcam.webm", width: 640, height: 480 },
+          },
+          webcamRegions: [{ startMs: 1000, endMs: 2000 }],
+        } as never,
+      },
+    };
+    const t = timelineFromSnapshot(snap);
+    expect(t.webcam).toEqual({ url: "reelform-media://root/webcam.webm", syncOffsetMs: -120 });
+    const input = t.sceneInput({ width: 1280, height: 720 }, { fps: 30, burnInCaptions: false });
+    expect(input.webcam).toMatchObject({
+      hasWebcam: true,
+      sourceSize: { width: 640, height: 480 },
+      regions: [{ startMs: 1000, endMs: 2000 }],
+    });
+    expect(composeScene(input, 1500).composition?.webcam.visible).toBe(true);
+    expect(composeScene(input, 2500).composition?.webcam.visible).toBe(false);
+  });
+
+  it("a disabled webcam or offline media exports no bubble", () => {
+    const base = snapshot();
+    const withUrl = { ...base.session, webcamUrl: "reelform-media://root/webcam.webm" };
+    const disabled = snapshot({ webcam: { ...initialEditorData().webcam, enabled: false } });
+    expect(webcamTrackFor({ ...disabled, session: withUrl })).toBeNull();
+    expect(webcamTrackFor({ ...base, session: { ...withUrl, mediaOffline: true } })).toBeNull();
+    expect(webcamTrackFor({ ...base, session: withUrl })).not.toBeNull();
   });
 
   it("prepare loads the wallpaper manifest once and exposes it to later scene inputs", async () => {

@@ -5,12 +5,21 @@ import { ExportConfigError } from "../../export/engine/encoderConfig";
 import { createFramePlan } from "../../export/engine/framePlan";
 import type { FrameRenderer } from "../../export/engine/frameRenderer";
 import { ProgressTracker } from "../../export/engine/progress";
-import type { FrameSource } from "../../export/engine/streamingDecoder";
+import {
+  type FrameSource,
+  WEBCAM_DECODER_WINDOW,
+  screenDecoderWindow,
+} from "../../export/engine/streamingDecoder";
+import {
+  WEBCAM_UNAVAILABLE_NOTICE,
+  WebcamFeed,
+  withoutWebcam,
+} from "../../export/engine/webcamFeed";
 import { type GifWorkerLike, createGifEncoderClient } from "../../export/gif/client";
 import { sampleFrameIndices } from "../../export/gif/palette";
 import type { RgbaFrame } from "../../export/gif/types";
 import type { GifRouteArgs, GifRouteResult } from "./runner";
-import type { TimelineSnapshot } from "./videoRoute";
+import type { FrameSourceOptions, TimelineSnapshot, WebcamTrack } from "./videoRoute";
 
 /**
  * GIF route (§10.6): render each output frame with the export renderer, read
@@ -21,7 +30,11 @@ import type { TimelineSnapshot } from "./videoRoute";
 export interface GifRouteDeps {
   timeline: TimelineSnapshot;
   createWorker: () => GifWorkerLike;
-  openFrameSource: () => Promise<FrameSource>;
+  openFrameSource: (options: FrameSourceOptions) => Promise<FrameSource>;
+  /** Webcam decoder for `timeline.webcam` (window from the options); omitted → no bubble. */
+  openWebcamSource?:
+    | ((track: WebcamTrack, options: FrameSourceOptions) => Promise<FrameSource>)
+    | undefined;
   createRenderer: (size: { width: number; height: number }) => Promise<FrameRenderer>;
   /** Pixels of a rendered image at the output size (the caller closes the image). */
   readPixels: (
@@ -94,21 +107,40 @@ export function createGifRoute(deps: GifRouteDeps) {
       if (signal.aborted) throw new ExportCancelledError();
     };
 
+    const track = timeline.webcam ?? null;
+    const openWebcam = deps.openWebcamSource;
+    let webcam: WebcamFeed | null = null;
     const renderAt = async (index: number): Promise<RgbaFrame> => {
       const pf = plan.frameAt(index);
-      const state = sceneAt(pf.timelineMs);
+      const scene = sceneAt(pf.timelineMs);
+      const r = renderer as FrameRenderer;
       let source: VideoFrame | null = null;
+      let cam: VideoFrame | null = null;
       let image: VideoFrame | ImageBitmap;
       try {
-        if (pf.sourceMs !== null && state.video.visible) {
-          frames ??= await deps.openFrameSource();
+        if (pf.sourceMs !== null && scene.video.visible) {
+          frames ??= await deps.openFrameSource({ maxWindow: screenDecoderWindow(track !== null) });
           check();
           source = await frames.frameAt(pf.sourceMs);
         }
         check();
-        image = await (renderer as FrameRenderer).render(state, source);
+        let state = withoutWebcam(scene);
+        if (track) {
+          webcam ??= new WebcamFeed({
+            open: openWebcam ? () => openWebcam(track, { maxWindow: WEBCAM_DECODER_WINDOW }) : null,
+            syncOffsetMs: track.syncOffsetMs,
+            renderer: r,
+            onUnavailable: () => args.onWarning?.(WEBCAM_UNAVAILABLE_NOTICE),
+          });
+          const prepared = await webcam.prepare(scene, pf.sourceMs, () => signal.aborted);
+          state = prepared.state;
+          cam = prepared.frame;
+          check();
+        }
+        image = await r.render(state, source);
       } finally {
         source?.close();
+        cam?.close();
       }
       try {
         return await deps.readPixels(image, size.width, size.height);
@@ -154,6 +186,7 @@ export function createGifRoute(deps: GifRouteDeps) {
     } finally {
       signal.removeEventListener("abort", onAbort);
       (frames as FrameSource | null)?.close();
+      (webcam as WebcamFeed | null)?.release();
       renderer?.destroy();
     }
   };

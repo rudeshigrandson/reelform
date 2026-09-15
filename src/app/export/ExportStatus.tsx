@@ -204,6 +204,11 @@ export function ExportProblemView(props: {
           </div>
         ) : null}
       </div>
+      {phase.kind === "failed" && phase.notice ? (
+        <div role="note" style={{ ...muted, color: "var(--warning)", marginTop: "var(--space-2)" }}>
+          {phase.notice}
+        </div>
+      ) : null}
       {props.diagnosticsCopied ? (
         <output style={{ ...muted, display: "block", marginTop: "var(--space-2)" }}>
           Diagnostics copied

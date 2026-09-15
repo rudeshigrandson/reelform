@@ -19,6 +19,7 @@ import type { FrameRenderer } from "./frameRenderer";
 import type { CreateExportMuxer, ExportMuxer, ExportSink } from "./muxer";
 import { type EncoderKind, type ExportProgress, ProgressTracker } from "./progress";
 import type { FrameSource } from "./streamingDecoder";
+import { WEBCAM_UNAVAILABLE_NOTICE, WebcamFeed, withoutWebcam } from "./webcamFeed";
 
 /**
  * WebCodecs export engine (ENGINEERING_SPEC §10.1 routes 1 & 3, §10.3, §10.7).
@@ -66,12 +67,23 @@ export interface ExportJob {
   audio?: AudioBufferLike | null | undefined;
   /** False when `selectRoute` chose `software-fallback`. */
   preferHardware: boolean;
+  /**
+   * Webcam track to composite into the bubble (§6.4, §9.4); null/omitted when
+   * the project has none or it is disabled. The scene decides visibility.
+   */
+  webcam?: { syncOffsetMs: number } | null | undefined;
 }
 
 export interface ExportEngineDeps {
   webcodecs: WebCodecsApi;
   /** Opens a fresh decoder for the source (called at most once per attempt). */
   openFrameSource(): Promise<FrameSource>;
+  /**
+   * Opens the webcam decoder (lazily, at most once per attempt). Its window
+   * plus the screen decoder's must fit the §10.8 budget
+   * (`WEBCAM_DECODER_WINDOW` + `SCREEN_DECODER_WINDOW_WITH_WEBCAM`).
+   */
+  openWebcamSource?: (() => Promise<FrameSource>) | undefined;
   renderer: FrameRenderer;
   createMuxer: CreateExportMuxer;
   sink: ExportSink;
@@ -82,6 +94,8 @@ export interface ExportEngineDeps {
 export interface RunExportOptions {
   signal?: AbortSignal | undefined;
   onProgress?: ((progress: ExportProgress) => void) | undefined;
+  /** Non-fatal problems (e.g. `WEBCAM_UNAVAILABLE_NOTICE`), each reported once. */
+  onWarning?: ((message: string) => void) | undefined;
 }
 
 export interface ExportResult {
@@ -119,14 +133,25 @@ export async function runExport(
   const plan = createFramePlan({ ...job.timeline, fps: job.config.fps });
   if (plan.totalFrames === 0) throw new ExportConfigError("export range is empty");
   throwIfAborted(options.signal);
+  // One feed across attempts: an unreadable webcam is not retried on restart.
+  const webcam = job.webcam
+    ? new WebcamFeed({
+        open: deps.openWebcamSource ?? null,
+        syncOffsetMs: job.webcam.syncOffsetMs,
+        renderer: deps.renderer,
+        onUnavailable: () => options.onWarning?.(WEBCAM_UNAVAILABLE_NOTICE),
+      })
+    : null;
   try {
-    return await attemptExport(job, deps, plan, options, job.preferHardware, 1);
+    return await attemptExport(job, deps, plan, options, job.preferHardware, 1, webcam);
   } catch (e) {
     if (options.signal?.aborted) throw new ExportCancelledError();
     if (e instanceof EncoderFailure && e.encoder === "hardware") {
-      return attemptExport(job, deps, plan, options, false, 2);
+      return attemptExport(job, deps, plan, options, false, 2, webcam);
     }
     throw e;
+  } finally {
+    webcam?.release();
   }
 }
 
@@ -137,6 +162,7 @@ async function attemptExport(
   options: RunExportOptions,
   allowHardware: boolean,
   attempt: number,
+  webcam: WebcamFeed | null,
 ): Promise<ExportResult> {
   const { webcodecs: wc, sink, renderer } = deps;
   const { signal } = options;
@@ -172,6 +198,7 @@ async function attemptExport(
   const closeFrames = (): void => {
     frames?.close();
     frames = null;
+    webcam?.release();
   };
   const onAbort = (): void => {
     closeFrames();
@@ -298,19 +325,28 @@ async function attemptExport(
         check();
       }
       const pf = plan.frameAt(i);
-      const state = job.sceneAt(pf.timelineMs);
+      const scene = job.sceneAt(pf.timelineMs);
       let source: VideoFrame | null = null;
+      let cam: VideoFrame | null = null;
       let rendered: VideoFrame | ImageBitmap;
       try {
-        if (pf.sourceMs !== null && state.video.visible) {
+        if (pf.sourceMs !== null && scene.video.visible) {
           frames ??= await deps.openFrameSource();
           check();
           source = await frames.frameAt(pf.sourceMs);
         }
         check();
+        let state = withoutWebcam(scene);
+        if (webcam) {
+          const prepared = await webcam.prepare(scene, pf.sourceMs, () => signal?.aborted === true);
+          state = prepared.state;
+          cam = prepared.frame;
+          check();
+        }
         rendered = await renderer.render(state, source);
       } finally {
         source?.close();
+        cam?.close();
       }
       let out: VideoFrame;
       try {

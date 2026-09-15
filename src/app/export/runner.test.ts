@@ -393,3 +393,51 @@ describe("helpers", () => {
     expect(progressRingValue({ activity: "running", fraction: Number.NaN })).toBe(0);
   });
 });
+
+describe("export runner — non-fatal warnings (webcam)", () => {
+  const WARN = "Webcam footage couldn't be read — exported without the webcam bubble";
+
+  it("a route warning shows while running and on done, once, after the request notice", async () => {
+    const t = setup({
+      runVideo: vi.fn(async (args: VideoRouteArgs) => {
+        args.onWarning?.(WARN);
+        args.onWarning?.(WARN);
+        return fakeVideo(args);
+      }),
+    });
+    const end = await t.runner.start(request({}, { notice: "Using the software encoder" }));
+    expect(t.phases.some((p) => p.kind === "running" && p.notice?.includes(WARN))).toBe(true);
+    expect(end).toMatchObject({ kind: "done", notice: `Using the software encoder · ${WARN}` });
+  });
+
+  it("GIF exports surface the warning on done", async () => {
+    const t = setup({
+      runGif: vi.fn(async (args: GifRouteArgs) => {
+        await args.sink.begin({ container: "gif" });
+        args.onWarning?.(WARN);
+        const { path } = await args.sink.finish();
+        return { path, bytes: 10, frames: 1 };
+      }),
+    });
+    const end = await t.runner.start(request({ format: "gif" }));
+    expect(end).toMatchObject({ kind: "done", notice: WARN });
+  });
+
+  it("a failure after the warning keeps it on the failed phase; a clean retry drops it", async () => {
+    let calls = 0;
+    const t = setup({
+      runVideo: vi.fn(async (args: VideoRouteArgs) => {
+        calls++;
+        if (calls === 1) {
+          args.onWarning?.(WARN);
+          throw new Error("muxer exploded");
+        }
+        return fakeVideo(args);
+      }),
+    });
+    const failed = await t.runner.start(request());
+    expect(failed).toMatchObject({ kind: "failed", message: "muxer exploded", notice: WARN });
+    const done = await t.runner.retrySoftware();
+    expect(done).toMatchObject({ kind: "done", notice: "Using the software encoder" });
+  });
+});

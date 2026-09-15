@@ -15,7 +15,12 @@ import { openVideoSource } from "../../export/engine/mediabunnySource";
 import { type CreateExportMuxer, createMediabunnyMuxer } from "../../export/engine/muxer";
 // Owned by the preview workstream (being refactored); only its exported factory is used.
 import { createPixiFrameRenderer } from "../../export/engine/pixiFrameRenderer";
-import { type FrameSource, StreamingDecoder } from "../../export/engine/streamingDecoder";
+import {
+  type FrameSource,
+  StreamingDecoder,
+  WEBCAM_DECODER_WINDOW,
+  screenDecoderWindow,
+} from "../../export/engine/streamingDecoder";
 import { browserVideoDecoder, browserWebCodecs } from "../../export/engine/webcodecsGlobals";
 import type { TimeRange } from "./config";
 import type { VideoRouteArgs, VideoRouteResult } from "./runner";
@@ -39,6 +44,22 @@ export interface TimelineSnapshot {
   sceneInput(size: { width: number; height: number }, options: SceneOptions): ComposeInput;
   /** Async inputs (e.g. the wallpaper manifest) to settle before the first frame. */
   prepare?: ((signal: AbortSignal) => Promise<void>) | undefined;
+  /**
+   * Webcam track composited into the bubble; null/omitted when the project has
+   * no webcam or it is disabled (the scene input then has `hasWebcam: false`).
+   */
+  webcam?: WebcamTrack | null | undefined;
+}
+
+export interface WebcamTrack {
+  url: string;
+  /** `WebcamSettings.syncOffsetMs`, added to the webcam source time. */
+  syncOffsetMs: number;
+}
+
+/** Decoder window for a frame source (§10.8 budget shared by screen + webcam). */
+export interface FrameSourceOptions {
+  maxWindow: number;
 }
 
 export interface SceneOptions {
@@ -63,7 +84,11 @@ export interface VideoRouteDeps {
   /** `reelform-media://` base for the renderer's default assets (images, cursor packs). */
   mediaBaseUrl?: string | null | undefined;
   webcodecs?: (() => WebCodecsApi) | undefined;
-  openFrameSource?: (() => Promise<FrameSource>) | undefined;
+  openFrameSource?: ((options: FrameSourceOptions) => Promise<FrameSource>) | undefined;
+  /** Webcam decoder for `timeline.webcam`; defaults to a URL StreamingDecoder. */
+  openWebcamSource?:
+    | ((track: WebcamTrack, options: FrameSourceOptions) => Promise<FrameSource>)
+    | undefined;
   createRenderer?:
     | ((size: { width: number; height: number }) => Promise<FrameRenderer>)
     | undefined;
@@ -72,11 +97,15 @@ export interface VideoRouteDeps {
 }
 
 /** StreamingDecoder over a mediabunny URL input; `close` also disposes the demuxer. */
-export async function openUrlFrameSource(url: string): Promise<FrameSource> {
+export async function openUrlFrameSource(
+  url: string,
+  options?: FrameSourceOptions | undefined,
+): Promise<FrameSource> {
   const opened = await openVideoSource(new UrlSource(url));
   const decoder = new StreamingDecoder({
     source: opened.packets,
     createDecoder: browserVideoDecoder,
+    maxWindow: options?.maxWindow,
   });
   return {
     frameAt: (ms) => decoder.frameAt(ms),
@@ -91,6 +120,7 @@ export function createVideoRoute(deps: VideoRouteDeps) {
   return async (args: VideoRouteArgs): Promise<VideoRouteResult> => {
     const { config, range, signal } = args;
     const { timeline } = deps;
+    const webcam = timeline.webcam ?? null;
     const plan = createFramePlan({
       clips: timeline.clips,
       speeds: timeline.speeds,
@@ -124,10 +154,17 @@ export function createVideoRoute(deps: VideoRouteDeps) {
         ),
         audio,
         preferHardware: args.preferHardware,
+        webcam: webcam ? { syncOffsetMs: webcam.syncOffsetMs } : null,
       };
+      const screenWindow = { maxWindow: screenDecoderWindow(webcam !== null) };
+      const openWebcam = deps.openWebcamSource ?? ((t, o) => openUrlFrameSource(t.url, o));
       const engineDeps: ExportEngineDeps = {
         webcodecs: (deps.webcodecs ?? browserWebCodecs)(),
-        openFrameSource: deps.openFrameSource ?? (() => openUrlFrameSource(deps.videoUrl)),
+        openFrameSource: () =>
+          (deps.openFrameSource ?? ((o) => openUrlFrameSource(deps.videoUrl, o)))(screenWindow),
+        openWebcamSource: webcam
+          ? () => openWebcam(webcam, { maxWindow: WEBCAM_DECODER_WINDOW })
+          : undefined,
         renderer,
         createMuxer: deps.createMuxer ?? createMediabunnyMuxer,
         sink: args.sink,
@@ -136,6 +173,7 @@ export function createVideoRoute(deps: VideoRouteDeps) {
       const result = await (deps.runExport ?? defaultRunExport)(job, engineDeps, {
         signal,
         onProgress: args.onProgress,
+        onWarning: args.onWarning,
       });
       return {
         path: result.path,

@@ -83,10 +83,6 @@ export function exportBitrate(
   quality: Quality,
 ): number {
   const base = BASE_1080P60[quality];
-  const bits =
-    base *
-    CODEC_MULTIPLIER[codec] *
-    resolutionFactor(width, height) *
-    fpsFactor(fps);
+  const bits = base * CODEC_MULTIPLIER[codec] * resolutionFactor(width, height) * fpsFactor(fps);
   return Math.round(bits);
 }

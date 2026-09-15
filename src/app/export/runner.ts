@@ -56,6 +56,8 @@ export type ExportFlowPhase =
       message: string;
       canRetrySoftware: boolean;
       diagnostics: string;
+      /** Non-fatal warnings raised before the failure (e.g. unreadable webcam). */
+      notice?: string | null | undefined;
     }
   | { kind: "low-disk"; message: string; diagnostics: string }
   | { kind: "codec-unsupported"; codec: string; message: string; diagnostics: string }
@@ -83,6 +85,8 @@ export interface VideoRouteArgs {
   sink: ExportSink;
   signal: AbortSignal;
   onProgress(progress: ExportProgress): void;
+  /** Non-fatal problems (e.g. unreadable webcam) surfaced on running/done/failed. */
+  onWarning?: ((message: string) => void) | undefined;
 }
 
 export interface VideoRouteResult {
@@ -108,6 +112,8 @@ export interface GifRouteArgs {
   sink: FlowSink;
   signal: AbortSignal;
   onProgress(progress: ExportProgress, estimatedBytes: number | null): void;
+  /** Non-fatal problems (e.g. unreadable webcam) surfaced on running/done/failed. */
+  onWarning?: ((message: string) => void) | undefined;
 }
 
 export interface GifRouteResult {
@@ -262,12 +268,28 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
       destinationDir: config.destinationDir,
       finalName: fileName,
     };
-    const notice = req.notice ?? null;
+    const warnings: string[] = [];
+    const joined = (extra: readonly string[]): string | null => {
+      const all = [...(req.notice ? [req.notice] : []), ...warnings, ...extra];
+      return all.length > 0 ? all.join(" · ") : null;
+    };
     attemptEncoder = config.format === "gif" ? null : req.preferHardware ? "hardware" : "software";
     const running = (progress: ExportProgress, estimatedBytes: number | null = null): void => {
       if (abort !== controller) return;
       const cancelling = phase.kind === "running" && phase.cancelling;
-      set({ kind: "running", fileName, progress, estimatedBytes, notice, cancelling });
+      set({
+        kind: "running",
+        fileName,
+        progress,
+        estimatedBytes,
+        notice: joined([]),
+        cancelling,
+      });
+    };
+    const onWarning = (message: string): void => {
+      if (abort !== controller || warnings.includes(message)) return;
+      warnings.push(message);
+      if (phase.kind === "running") running(phase.progress, phase.estimatedBytes);
     };
     running(preparing(attemptEncoder ?? "software"));
 
@@ -293,6 +315,7 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
           sink,
           signal: controller.signal,
           onProgress: (p, est) => running(p, est),
+          onWarning,
         });
         path = res.path;
         bytes = res.bytes;
@@ -309,6 +332,7 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
             attemptEncoder = p.encoder;
             running(p);
           },
+          onWarning,
         });
         attemptEncoder = res.encoder;
         path = res.path;
@@ -318,7 +342,7 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
       if (controller.signal.aborted) throw new DOMException("Export cancelled", "AbortError");
 
       const sidecars: string[] = [];
-      const notices: string[] = notice ? [notice] : [];
+      const notices: string[] = [];
       const sideTarget = (ext: string): SinkTarget => ({
         ...target,
         finalName: sidecarName(path, ext),
@@ -369,7 +393,7 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
         bytes,
         sidecars,
         encoder: attemptEncoder,
-        notice: notices.length > 0 ? notices.join(" · ") : null,
+        notice: joined(notices),
       });
     } catch (e) {
       await sink.cancel().catch(() => undefined);
@@ -402,6 +426,7 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
           message: messageOf(e),
           canRetrySoftware: config.format !== "gif",
           diagnostics: diagnostics(),
+          notice: warnings.length > 0 ? warnings.join(" · ") : null,
         });
       }
     }

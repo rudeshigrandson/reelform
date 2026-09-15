@@ -442,13 +442,35 @@ export class FakeMuxer implements ExportMuxer {
 }
 
 export class FakeRenderer implements FrameRenderer {
-  calls: { tMs: number; sourceTimestamp: number | null }[] = [];
+  calls: {
+    tMs: number;
+    sourceTimestamp: number | null;
+    /** Timestamp of the attached webcam frame when the bubble is visible, else null. */
+    webcamTimestamp: number | null;
+    webcamVisible: boolean;
+  }[] = [];
+  /** `setWebcamFrame` history: frame timestamps, null for detach. */
+  webcamSets: (number | null)[] = [];
   onRender: ((callIndex: number) => void) | null = null;
+  private webcam: FakeVideoFrame | null = null;
   constructor(private readonly ledger: FrameLedger) {}
+  setWebcamFrame(frame: VideoFrame | null): void {
+    this.webcam = frame ? asFake(frame) : null;
+    this.webcamSets.push(this.webcam ? this.webcam.timestamp : null);
+  }
   async render(state: SceneState, frame: VideoFrame | null): Promise<VideoFrame> {
     const src = frame ? asFake(frame) : null;
     if (src?.closed) throw new Error("render of closed source frame");
-    this.calls.push({ tMs: state.tMs, sourceTimestamp: src ? src.timestamp : null });
+    const webcamVisible = state.composition?.webcam.visible === true;
+    if (webcamVisible && (this.webcam === null || this.webcam.closed)) {
+      throw new Error("visible webcam bubble without a live webcam frame");
+    }
+    this.calls.push({
+      tMs: state.tMs,
+      sourceTimestamp: src ? src.timestamp : null,
+      webcamTimestamp: webcamVisible && this.webcam ? this.webcam.timestamp : null,
+      webcamVisible,
+    });
     this.onRender?.(this.calls.length);
     return asVideoFrame(new FakeVideoFrame(this.ledger, 0));
   }

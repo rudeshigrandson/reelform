@@ -15,7 +15,12 @@ import { createGifRoute, readPixelsOffscreen } from "./gifRoute";
 import { createGifWorker } from "./gifWorker";
 import type { ExportFlowPhase, ExportRunnerDeps } from "./runner";
 import type { SystemPort } from "./systemPort";
-import { type TimelineSnapshot, createVideoRoute, openUrlFrameSource } from "./videoRoute";
+import {
+  type TimelineSnapshot,
+  type WebcamTrack,
+  createVideoRoute,
+  openUrlFrameSource,
+} from "./videoRoute";
 
 /**
  * Real export deps from a snapshot of the editor document + project session,
@@ -42,6 +47,16 @@ export function clipsFor(snapshot: ExportStoreSnapshot): Clip[] {
     : [];
 }
 
+/**
+ * Webcam track to composite, or null when there is none, it is disabled, or the
+ * media is offline (the preview hides the bubble in those cases too).
+ */
+export function webcamTrackFor(snapshot: ExportStoreSnapshot): WebcamTrack | null {
+  const { editor, session } = snapshot;
+  if (session.webcamUrl === null || session.mediaOffline || !editor.webcam.enabled) return null;
+  return { url: session.webcamUrl, syncOffsetMs: editor.webcam.syncOffsetMs };
+}
+
 export interface TimelineSnapshotOptions {
   /** Wallpaper manifest loader (tests); defaults to fetch. */
   fetchJson?: FetchJson | undefined;
@@ -66,10 +81,16 @@ export function timelineFromSnapshot(
     : null;
   let wallpapers: WallpaperRegistry | null = null;
   let loading: Promise<void> | null = null;
+  const webcam = webcamTrackFor(snapshot);
+  const webcamSource = session.meta?.sources.webcam;
+  const webcamSourceSize = webcamSource
+    ? { width: webcamSource.width, height: webcamSource.height }
+    : null;
   return {
     clips,
     speeds: editor.speedRegions,
     sourceFps: session.meta?.sources.video.fps,
+    webcam,
     prepare: () => {
       loading ??= loadWallpaperRegistry(options.fetchJson ?? fetchJsonViaFetch).then((reg) => {
         wallpapers = reg.size > 0 ? reg : null;
@@ -96,13 +117,13 @@ export function timelineFromSnapshot(
         style: editor.captionStyle,
         enabled: scene.burnInCaptions,
       },
-      // The export engine does not decode/feed webcam frames yet
-      // (PixiFrameRenderer.setWebcamFrame is never called), so the bubble is
-      // hidden rather than drawn empty.
+      // The route decodes `webcam` and feeds PixiFrameRenderer.setWebcamFrame;
+      // an unreadable webcam file hides the bubble at render time.
       webcam: {
         settings: editor.webcam,
-        hasWebcam: false,
+        hasWebcam: webcam !== null,
         regions: session.meta?.webcamRegions,
+        sourceSize: webcamSourceSize,
       },
     }),
   };
@@ -135,7 +156,8 @@ export function createDefaultExportDeps(
     runGif: createGifRoute({
       timeline,
       createWorker: createGifWorker,
-      openFrameSource: () => openUrlFrameSource(videoUrl),
+      openFrameSource: (options) => openUrlFrameSource(videoUrl, options),
+      openWebcamSource: (track, options) => openUrlFrameSource(track.url, options),
       createRenderer: (size) => createPixiFrameRenderer({ ...size, mediaBaseUrl }),
       readPixels: readPixelsOffscreen,
       now: base.now,

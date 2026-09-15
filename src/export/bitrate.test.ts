@@ -27,12 +27,8 @@ describe("exportBitrate — 1080p60 reference table", () => {
   });
 
   it("HEVC/AV1 High exact values at 1080p60", () => {
-    expect(exportBitrate(1920, 1080, 60, "hevc", "High")).toBe(
-      Math.round(16_000_000 * 0.65),
-    );
-    expect(exportBitrate(1920, 1080, 60, "av1", "High")).toBe(
-      Math.round(16_000_000 * 0.5),
-    );
+    expect(exportBitrate(1920, 1080, 60, "hevc", "High")).toBe(Math.round(16_000_000 * 0.65));
+    expect(exportBitrate(1920, 1080, 60, "av1", "High")).toBe(Math.round(16_000_000 * 0.5));
   });
 });
 
