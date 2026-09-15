@@ -1,4 +1,5 @@
 import { Button } from "@design/components";
+import { useThemePreference } from "@design/theme";
 import { useEffect, useState } from "react";
 import { getAppVersion } from "./app/ipc";
 import { useAppStore } from "./app/store";
@@ -17,6 +18,8 @@ import { Settings } from "./settings/Settings";
  */
 export function App() {
   const s = useAppStore();
+  // Light/dark follows the OS unless overridden in Settings → General → Theme.
+  useThemePreference(s.settings.theme);
   const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {
@@ -45,8 +48,16 @@ export function App() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--color-bg)" }}>
+    <div
+      style={{
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        background: "var(--color-bg)",
+      }}
+    >
       <DevNav version={version} />
+      <div style={{ flex: "1 1 auto", minHeight: 0, overflow: "auto" }}>
 
       {s.view === "projects" && (
         <ProjectBrowser
@@ -77,6 +88,7 @@ export function App() {
       )}
 
       {s.view === "settings" && <Settings settings={s.settings} onChange={s.updateSettings} />}
+      </div>
 
       {s.recording && (
         <div

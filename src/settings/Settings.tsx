@@ -1,73 +1,29 @@
-import { useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
-import { Button, Input, Segmented } from "@design/components";
-import type { SegmentedOption } from "@design/components";
-import type {
-  CaptureBackend,
-  Countdown,
-  Fps,
-  SettingsProps,
-  Theme,
-} from "./types";
+import { type CSSProperties, useState } from "react";
+import { AboutPage } from "./pages/AboutPage";
+import { AdvancedPage } from "./pages/AdvancedPage";
+import { AppearancePage } from "./pages/AppearancePage";
+import { EditorPage } from "./pages/EditorPage";
+import { ExtensionsPage } from "./pages/ExtensionsPage";
+import { GeneralPage } from "./pages/GeneralPage";
+import { RecordingPage } from "./pages/RecordingPage";
+import { ShortcutsPage } from "./pages/ShortcutsPage";
+import { UpdatesPage } from "./pages/UpdatesPage";
+import { SETTINGS_SECTIONS, type SectionId } from "./sections";
+import type { SettingsProps } from "./types";
 
 export { sampleSettings } from "./types";
 export type { SettingsProps, SettingsState, SettingsPatch } from "./types";
-
-type SectionId =
-  | "general"
-  | "recording"
-  | "audio"
-  | "captions"
-  | "shortcuts"
-  | "advanced"
-  | "about";
-
-interface SectionDef {
-  id: SectionId;
-  label: string;
-}
-
-const SECTIONS: ReadonlyArray<SectionDef> = [
-  { id: "general", label: "General" },
-  { id: "recording", label: "Recording" },
-  { id: "audio", label: "Audio" },
-  { id: "captions", label: "Captions" },
-  { id: "shortcuts", label: "Shortcuts" },
-  { id: "advanced", label: "Advanced" },
-  { id: "about", label: "About" },
-];
-
-const THEME_OPTIONS: ReadonlyArray<SegmentedOption<Theme>> = [
-  { value: "system", label: "System" },
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-];
-
-const FPS_OPTIONS: ReadonlyArray<SegmentedOption<`${Fps}`>> = [
-  { value: "30", label: "30" },
-  { value: "60", label: "60" },
-];
-
-const COUNTDOWN_OPTIONS: ReadonlyArray<SegmentedOption<`${Countdown}`>> = [
-  { value: "0", label: "Off" },
-  { value: "3", label: "3s" },
-  { value: "5", label: "5s" },
-  { value: "10", label: "10s" },
-];
-
-const BACKEND_OPTIONS: ReadonlyArray<SegmentedOption<CaptureBackend>> = [
-  { value: "auto", label: "Auto" },
-  { value: "native", label: "Native" },
-  { value: "electron", label: "Electron" },
-];
+export { SETTINGS_SECTIONS } from "./sections";
+export type { SectionId } from "./sections";
+export type { SettingsServices, SystemPort, DeviceOption, UpdaterControls } from "./services";
 
 const shellStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "220px 1fr",
-  width: "860px",
-  height: "620px",
-  background: "var(--color-bg)",
-  color: "var(--color-text)",
+  gridTemplateColumns: "200px 1fr",
+  width: "100%",
+  height: "100%",
+  background: "var(--bg-app)",
+  color: "var(--text-1)",
   fontFamily: "var(--font-body)",
   overflow: "hidden",
 };
@@ -77,38 +33,13 @@ const navStyle: CSSProperties = {
   flexDirection: "column",
   gap: "var(--space-1)",
   padding: "var(--space-4)",
-  background: "var(--color-surface)",
-  borderRight: "1px solid var(--color-neutral-200)",
+  background: "var(--bg-panel)",
+  borderRight: "1px solid var(--border)",
 };
 
 const panelStyle: CSSProperties = {
   padding: "var(--space-6)",
   overflowY: "auto",
-};
-
-const fieldRowStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-2)",
-  marginBottom: "var(--space-5)",
-};
-
-const inlineRowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "flex-end",
-  gap: "var(--space-2)",
-};
-
-const labelStyle: CSSProperties = {
-  fontSize: "0.85rem",
-  fontWeight: 600,
-  color: "var(--color-neutral-700)",
-};
-
-const headingStyle: CSSProperties = {
-  fontFamily: "var(--font-heading)",
-  fontSize: "1.4rem",
-  margin: "0 0 var(--space-5)",
 };
 
 function navItemStyle(active: boolean): CSSProperties {
@@ -120,173 +51,19 @@ function navItemStyle(active: boolean): CSSProperties {
     cursor: "pointer",
     font: "inherit",
     fontWeight: active ? 600 : 400,
-    background: active ? "var(--color-accent)" : "transparent",
-    color: active ? "#fff" : "var(--color-text)",
+    background: active ? "var(--bg-active)" : "transparent",
+    color: active ? "var(--text-1)" : "var(--text-2)",
   };
 }
 
-function Toggle({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  label: ReactNode;
-}) {
-  return (
-    <label
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "var(--space-2)",
-        cursor: "pointer",
-      }}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-      <span>{label}</span>
-    </label>
-  );
-}
-
-function Stub({ title }: { title: string }) {
-  return (
-    <div>
-      <h2 style={headingStyle}>{title}</h2>
-      <p style={{ color: "var(--color-neutral-600)" }}>Coming soon.</p>
-    </div>
-  );
-}
-
-function GeneralPanel({ settings, onChange, onChangeRecordingsFolder }: SettingsProps) {
-  return (
-    <div>
-      <h2 style={headingStyle}>General</h2>
-
-      <div style={fieldRowStyle}>
-        <span style={labelStyle}>Theme</span>
-        <Segmented<Theme>
-          name="settings-theme"
-          value={settings.theme}
-          options={THEME_OPTIONS}
-          onChange={(theme) => onChange({ theme })}
-        />
-      </div>
-
-      <div style={fieldRowStyle}>
-        <div style={inlineRowStyle}>
-          <div style={{ flex: 1 }}>
-            <Input
-              label="Recordings folder"
-              value={settings.recordingsFolder}
-              readOnly
-            />
-          </div>
-          <Button onClick={onChangeRecordingsFolder}>Change…</Button>
-        </div>
-      </div>
-
-      <div style={fieldRowStyle}>
-        <Toggle
-          checked={settings.autoPrune}
-          onChange={(autoPrune) => onChange({ autoPrune })}
-          label="Auto-prune old recordings"
-        />
-        <div style={{ maxWidth: "160px" }}>
-          <Input
-            label="Prune after (days)"
-            type="number"
-            min={1}
-            value={settings.autoPruneDays}
-            disabled={!settings.autoPrune}
-            onChange={(e) =>
-              onChange({ autoPruneDays: Number(e.target.value) })
-            }
-          />
-        </div>
-      </div>
-
-      <div style={fieldRowStyle}>
-        <Toggle
-          checked={settings.checkUpdates}
-          onChange={(checkUpdates) => onChange({ checkUpdates })}
-          label="Check for updates on launch"
-        />
-      </div>
-    </div>
-  );
-}
-
-function RecordingPanel({ settings, onChange }: SettingsProps) {
-  return (
-    <div>
-      <h2 style={headingStyle}>Recording</h2>
-
-      <div style={fieldRowStyle}>
-        <span style={labelStyle}>Default frame rate</span>
-        <Segmented<`${Fps}`>
-          name="settings-fps"
-          value={`${settings.defaultFps}`}
-          options={FPS_OPTIONS}
-          onChange={(v) => onChange({ defaultFps: Number(v) as Fps })}
-        />
-      </div>
-
-      <div style={fieldRowStyle}>
-        <span style={labelStyle}>Default countdown</span>
-        <Segmented<`${Countdown}`>
-          name="settings-countdown"
-          value={`${settings.defaultCountdown}`}
-          options={COUNTDOWN_OPTIONS}
-          onChange={(v) =>
-            onChange({ defaultCountdown: Number(v) as Countdown })
-          }
-        />
-      </div>
-
-      <div style={fieldRowStyle}>
-        <span style={labelStyle}>Capture backend</span>
-        <Segmented<CaptureBackend>
-          name="settings-backend"
-          value={settings.captureBackend}
-          options={BACKEND_OPTIONS}
-          onChange={(captureBackend) => onChange({ captureBackend })}
-        />
-      </div>
-
-      <div style={fieldRowStyle}>
-        <Toggle
-          checked={settings.hideCursorByDefault}
-          onChange={(hideCursorByDefault) => onChange({ hideCursorByDefault })}
-          label="Hide cursor by default"
-        />
-      </div>
-
-      <div style={{ ...fieldRowStyle, maxWidth: "160px" }}>
-        <Input
-          label="Max length (hours)"
-          type="number"
-          min={0}
-          step={0.5}
-          value={settings.maxLengthHours}
-          onChange={(e) => onChange({ maxLengthHours: Number(e.target.value) })}
-        />
-      </div>
-    </div>
-  );
-}
-
+/** S24 Settings window: left nav + one page. Presentational; see `src/app/settings` for wiring. */
 export function Settings(props: SettingsProps) {
-  const [active, setActive] = useState<SectionId>("general");
+  const [active, setActive] = useState<SectionId>(props.initialSection ?? "general");
 
   return (
     <div style={shellStyle}>
       <nav style={navStyle} aria-label="Settings sections">
-        {SECTIONS.map((s) => (
+        {SETTINGS_SECTIONS.map((s) => (
           <button
             key={s.id}
             type="button"
@@ -300,13 +77,15 @@ export function Settings(props: SettingsProps) {
       </nav>
 
       <section style={panelStyle}>
-        {active === "general" && <GeneralPanel {...props} />}
-        {active === "recording" && <RecordingPanel {...props} />}
-        {active === "audio" && <Stub title="Audio" />}
-        {active === "captions" && <Stub title="Captions" />}
-        {active === "shortcuts" && <Stub title="Shortcuts" />}
-        {active === "advanced" && <Stub title="Advanced" />}
-        {active === "about" && <Stub title="About" />}
+        {active === "general" && <GeneralPage {...props} />}
+        {active === "recording" && <RecordingPage {...props} />}
+        {active === "editor" && <EditorPage {...props} />}
+        {active === "shortcuts" && <ShortcutsPage {...props} />}
+        {active === "appearance" && <AppearancePage {...props} />}
+        {active === "updates" && <UpdatesPage {...props} />}
+        {active === "extensions" && <ExtensionsPage />}
+        {active === "advanced" && <AdvancedPage {...props} />}
+        {active === "about" && <AboutPage {...props} />}
       </section>
     </div>
   );

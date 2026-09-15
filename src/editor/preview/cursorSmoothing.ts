@@ -281,8 +281,7 @@ export function buildSmoothedCursorTrack(
     const y = clamp(fy.filter(tSec, raw.y), 0, 1);
 
     const cursorType = nearestCursorType(pts, tMs);
-    out[k] =
-      cursorType !== undefined ? { tMs, x, y, cursorType } : { tMs, x, y };
+    out[k] = cursorType !== undefined ? { tMs, x, y, cursorType } : { tMs, x, y };
   }
 
   return new SmoothedCursorTrack(out);

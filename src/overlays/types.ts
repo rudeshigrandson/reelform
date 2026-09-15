@@ -18,11 +18,15 @@ export interface RegionSelectorProps {
   onCancel: () => void;
   /** Minimum rect size in px (both axes). Defaults to 32. */
   minSize?: number;
+  /** Guidance above the selection (guide S07). */
+  hint?: string | undefined;
 }
 
 export interface CountdownProps {
-  /** Current number to show, e.g. 3 → 2 → 1. */
+  /** Current number to show, e.g. 3 → 2 → 1; 0 draws the "Go" frame. */
   count: number;
+  /** Total seconds, for the ring progress; omitted → full ring. */
+  total?: number | undefined;
   /** Dismissed the countdown — fired by Escape. */
   onCancel: () => void;
 }
@@ -34,6 +38,8 @@ export interface WebcamBubbleProps {
   shape: BubbleShape;
   /** Initial top-left position within the parent. Defaults to {0,0}. */
   initialPosition?: { x: number; y: number };
+  /** Live feed / state content; defaults to a camera glyph placeholder. */
+  children?: import("react").ReactNode;
 }
 
 /** Fixture props for RegionSelector previews/tests. */

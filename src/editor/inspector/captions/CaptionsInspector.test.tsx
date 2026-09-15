@@ -82,7 +82,7 @@ describe("CaptionsInspector — states", () => {
     const props = baseProps({ modelDownloaded: false, model: "accurate" });
     render(<CaptionsInspector {...props} />);
     expect(screen.queryByRole("button", { name: "Generate captions" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Download (1.5 GB)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Download (540 MB)" }));
     expect(props.onDownloadModel).toHaveBeenCalledTimes(1);
   });
 
@@ -278,8 +278,8 @@ describe("CaptionsInspector — generate controls, style, export", () => {
   it("reports language and model changes", () => {
     const props = baseProps();
     render(<CaptionsInspector {...props} />);
-    expect(screen.getByRole("option", { name: "Balanced · 466 MB" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Fast · 75 MB" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Balanced · 190 MB" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Fast · 32 MB" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Model"), { target: { value: "fast" } });
     expect(props.onModelChange).toHaveBeenCalledWith("fast");
     fireEvent.change(screen.getByLabelText("Language"), { target: { value: "ja" } });

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the Reelform app bundle (SPEC §13).
+  Screen Recording and Input Monitoring / Accessibility have no entitlement:
+  they are TCC grants requested at runtime; usage strings live in
+  electron-builder.json5 mac.extendInfo.
+-->
+<plist version="1.0">
+<dict>
+  <!-- V8 JIT (Electron) -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Webcam bubble + mic narration -->
+  <key>com.apple.security.device.camera</key>
+  <true/>
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+</dict>
+</plist>

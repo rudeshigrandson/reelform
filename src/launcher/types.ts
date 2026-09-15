@@ -36,12 +36,35 @@ export interface RecordOptions {
   hideCursor: boolean;
 }
 
+/** Banner above the form: permission denied, fallback backend, disk low… */
+export interface LauncherNotice {
+  id: string;
+  tone: "info" | "warning" | "danger";
+  message: string;
+  action?: { label: string; onClick: () => void } | undefined;
+  onDismiss?: (() => void) | undefined;
+}
+
+/** Initial choices (e.g. from Settings defaults). */
+export type LauncherDefaults = Partial<Omit<RecordOptions, "sourceId">>;
+
 export interface LauncherProps {
   sources: ReadonlyArray<SourceItem>;
   micDevices: ReadonlyArray<DeviceInfo>;
   webcamDevices: ReadonlyArray<DeviceInfo>;
   /** System audio capture is unavailable on the macOS Electron backend. */
   systemAudioSupported: boolean;
+  /** Why system audio is unavailable; defaults to "Unavailable on macOS". */
+  systemAudioNote?: string | undefined;
   onStart: (options: RecordOptions) => void;
-  onOpenSettings?: () => void;
+  onOpenSettings?: (() => void) | undefined;
+  /** Source list state; `ready` by default. */
+  sourcesStatus?: "loading" | "ready" | "error" | undefined;
+  sourcesError?: string | undefined;
+  onRetrySources?: (() => void) | undefined;
+  notices?: ReadonlyArray<LauncherNotice> | undefined;
+  /** A start is in progress: Record is disabled and shows `busyLabel`. */
+  busy?: boolean | undefined;
+  busyLabel?: string | undefined;
+  defaults?: LauncherDefaults | undefined;
 }

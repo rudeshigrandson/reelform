@@ -1,5 +1,3 @@
-import { useMemo, useState } from "react";
-import type { CSSProperties } from "react";
 import {
   Button,
   Card,
@@ -11,6 +9,8 @@ import {
   Tag,
 } from "@design/components";
 import type { SegmentedOption, TagProps } from "@design/components";
+import { useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import type {
   CardAction,
   ProjectBrowserProps,
@@ -28,6 +28,8 @@ const STATE_TAG: Record<ProjectState, { label: string; variant: TagProps["varian
   ready: { label: "Ready", variant: "neutral" },
   recording: { label: "Recording", variant: "accent" },
   interrupted: { label: "Interrupted", variant: "outline" },
+  missing: { label: "Missing", variant: "outline" },
+  corrupt: { label: "Damaged", variant: "outline" },
 };
 
 function formatDuration(ms: number): string {
@@ -62,8 +64,7 @@ const thumbStyle: CSSProperties = {
   position: "relative",
   aspectRatio: "16 / 9",
   borderRadius: "var(--radius-md)",
-  background:
-    "linear-gradient(135deg, var(--color-neutral-200), var(--color-neutral-300))",
+  background: "linear-gradient(135deg, var(--bg-panel-raised), var(--bg-sunken))",
   marginBottom: "var(--space-3)",
   overflow: "hidden",
 };
@@ -153,8 +154,8 @@ function ProjectCard({ project, now, onOpen, onCardAction, onRequestDelete }: Pr
                 right: 0,
                 top: "calc(100% + var(--space-1))",
                 zIndex: 1,
-                background: "var(--color-surface)",
-                border: "1px solid var(--color-neutral-300)",
+                background: "var(--bg-panel-raised)",
+                border: "1px solid var(--border)",
                 borderRadius: "var(--radius-sm)",
                 boxShadow: "var(--shadow-md)",
                 padding: "var(--space-1)",
@@ -228,9 +229,7 @@ export function ProjectBrowser({
     if (sort === "name") {
       sorted.sort((a, b) => a.name.localeCompare(b.name));
     } else {
-      sorted.sort(
-        (a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime(),
-      );
+      sorted.sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime());
     }
     return sorted;
   }, [projects, query, sort]);
@@ -246,9 +245,9 @@ export function ProjectBrowser({
     <div
       style={{
         padding: "var(--space-6)",
-        background: "var(--color-bg)",
+        background: "var(--bg-app)",
         minHeight: "100%",
-        color: "var(--color-text)",
+        color: "var(--text-1)",
         fontFamily: "var(--font-body)",
       }}
     >
@@ -271,12 +270,7 @@ export function ProjectBrowser({
           value={query}
           onChange={(e) => setQuery(e.currentTarget.value)}
         />
-        <Segmented
-          name="project-sort"
-          value={sort}
-          options={SORT_OPTIONS}
-          onChange={setSort}
-        />
+        <Segmented name="project-sort" value={sort} options={SORT_OPTIONS} onChange={setSort} />
         <Button variant="primary" onClick={onNew}>
           New recording
         </Button>
@@ -297,7 +291,7 @@ export function ProjectBrowser({
             textAlign: "center",
             gap: "var(--space-4)",
             padding: "var(--space-8) var(--space-4)",
-            color: "var(--color-neutral-700)",
+            color: "var(--text-2)",
           }}
         >
           <div
@@ -307,7 +301,7 @@ export function ProjectBrowser({
               height: "120px",
               borderRadius: "var(--radius-lg)",
               background:
-                "linear-gradient(135deg, var(--color-accent-100), var(--color-accent-200))",
+                "linear-gradient(135deg, var(--accent-soft), color-mix(in srgb, var(--accent) 28%, transparent))",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -321,7 +315,7 @@ export function ProjectBrowser({
               fontFamily: "var(--font-heading)",
               fontWeight: 400,
               margin: 0,
-              color: "var(--color-text)",
+              color: "var(--text-1)",
             }}
           >
             Nothing recorded yet
@@ -334,9 +328,7 @@ export function ProjectBrowser({
           </Button>
         </div>
       ) : visible.length === 0 ? (
-        <p style={{ color: "var(--color-neutral-700)" }}>
-          No projects match “{query}”.
-        </p>
+        <p style={{ color: "var(--text-2)" }}>No projects match “{query}”.</p>
       ) : (
         <div style={gridStyle}>
           {visible.map((project) => (
@@ -369,7 +361,7 @@ export function ProjectBrowser({
       >
         {pendingDelete ? (
           <p style={{ margin: 0 }}>
-            “{pendingDelete.name}” will be permanently removed. This can’t be undone.
+            “{pendingDelete.name}” will be moved to the Trash. You can restore it from Trash.
           </p>
         ) : null}
       </Dialog>

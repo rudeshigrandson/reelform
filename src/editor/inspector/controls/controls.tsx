@@ -11,15 +11,15 @@ const rowStyle: CSSProperties = {
   gap: "var(--space-2)",
   minHeight: "28px",
   fontSize: "13px",
-  color: "var(--color-neutral-200)",
+  color: "var(--text-1)",
 };
 
-const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--color-neutral-400)" };
+const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--text-2)" };
 
 const monoStyle: CSSProperties = {
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
   fontSize: "12px",
-  color: "var(--color-neutral-300)",
+  color: "var(--text-2)",
   minWidth: "44px",
   textAlign: "right",
 };
@@ -35,9 +35,7 @@ export function Section({ title, defaultOpen = true, children }: SectionProps): 
   const [open, setOpen] = useState(defaultOpen);
   const bodyId = useId();
   return (
-    <section
-      style={{ borderBottom: "1px solid var(--color-neutral-800)", paddingBlock: "var(--space-2)" }}
-    >
+    <section style={{ borderBottom: "1px solid var(--border)", paddingBlock: "var(--space-2)" }}>
       <button
         type="button"
         aria-expanded={open}
@@ -56,7 +54,7 @@ export function Section({ title, defaultOpen = true, children }: SectionProps): 
           fontWeight: 600,
           letterSpacing: "0.04em",
           textTransform: "uppercase",
-          color: "var(--color-neutral-300)",
+          color: "var(--text-2)",
         }}
       >
         {open ? "▾" : "▸"} {title}
@@ -116,7 +114,7 @@ export function Slider({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(clamp(Number(e.target.value), min, max))}
-        style={{ flex: "1 1 auto", accentColor: "var(--color-accent)" }}
+        style={{ flex: "1 1 auto", accentColor: "var(--accent)" }}
       />
       <span style={monoStyle}>
         {value}
@@ -141,9 +139,7 @@ export function Switch({ label, checked, disabled, hint, onChange }: SwitchProps
     <div style={{ ...rowStyle, justifyContent: "space-between" }}>
       <span style={{ display: "flex", flexDirection: "column" }}>
         <span>{label}</span>
-        {hint && (
-          <span style={{ fontSize: "11px", color: "var(--color-neutral-500)" }}>{hint}</span>
-        )}
+        {hint && <span style={{ fontSize: "11px", color: "var(--text-3)" }}>{hint}</span>}
       </span>
       <button
         type="button"
@@ -162,7 +158,7 @@ export function Switch({ label, checked, disabled, hint, onChange }: SwitchProps
           padding: "2px",
           cursor: disabled ? "default" : "pointer",
           opacity: disabled ? 0.5 : 1,
-          background: checked ? "var(--color-accent)" : "var(--color-neutral-700)",
+          background: checked ? "var(--accent)" : "var(--text-3)",
           display: "flex",
           justifyContent: checked ? "flex-end" : "flex-start",
         }}
@@ -172,7 +168,7 @@ export function Switch({ label, checked, disabled, hint, onChange }: SwitchProps
             width: "14px",
             height: "14px",
             borderRadius: "999px",
-            background: "var(--color-neutral-100)",
+            background: "var(--on-accent)",
           }}
         />
       </button>
@@ -223,16 +219,16 @@ export function NumberField({
         }}
         style={{
           width: "72px",
-          background: "var(--color-neutral-800)",
-          color: "var(--color-neutral-100)",
-          border: "1px solid var(--color-neutral-700)",
+          background: "var(--bg-sunken)",
+          color: "var(--text-1)",
+          border: "1px solid var(--border-strong)",
           borderRadius: "var(--radius-sm)",
           padding: "2px var(--space-1)",
           fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
           fontSize: "12px",
         }}
       />
-      {unit && <span style={{ color: "var(--color-neutral-500)", fontSize: "12px" }}>{unit}</span>}
+      {unit && <span style={{ color: "var(--text-3)", fontSize: "12px" }}>{unit}</span>}
     </div>
   );
 }
@@ -325,9 +321,9 @@ export function AnchorGrid({ label, value, disabled, onChange }: AnchorGridProps
               width: "18px",
               height: "18px",
               borderRadius: "4px",
-              border: "1px solid var(--color-neutral-700)",
+              border: "1px solid var(--border-strong)",
               cursor: disabled ? "default" : "pointer",
-              background: value === a ? "var(--color-accent)" : "var(--color-neutral-800)",
+              background: value === a ? "var(--accent)" : "var(--bg-sunken)",
             }}
           />
         ))}
@@ -349,12 +345,12 @@ export function EmptyState({ title, children }: EmptyStateProps): ReactElement {
       style={{
         padding: "var(--space-3)",
         borderRadius: "var(--radius-md)",
-        border: "1px dashed var(--color-neutral-700)",
-        color: "var(--color-neutral-400)",
+        border: "1px dashed var(--border-strong)",
+        color: "var(--text-2)",
         fontSize: "13px",
       }}
     >
-      <div style={{ color: "var(--color-neutral-200)", fontWeight: 600 }}>{title}</div>
+      <div style={{ color: "var(--text-1)", fontWeight: 600 }}>{title}</div>
       {children && <div style={{ marginTop: "var(--space-1)" }}>{children}</div>}
     </div>
   );

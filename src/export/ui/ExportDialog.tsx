@@ -14,10 +14,10 @@
  * sibling `../bitrate` module.
  */
 
-import { useMemo, useState } from "react";
-import type { ReactNode } from "react";
 import { Button, Dialog, Input, Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
+import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { exportBitrate } from "../bitrate";
 import type {
   ExportCodec,
@@ -42,6 +42,19 @@ export interface ExportDialogProps {
   onCancelExport?: () => void;
   onReveal?: () => void;
   onClose: () => void;
+  /** Codecs this device cannot encode, with the reason shown ("Not supported on this device"). */
+  unsupportedCodecs?: Partial<Record<ExportCodec, string>> | undefined;
+  /** Controlled destination shown/emitted instead of the draft value (folder picked by the parent). */
+  destinationPath?: string | undefined;
+  /** Size estimate text replacing the built-in readout size (e.g. the GIF estimate). */
+  sizeEstimate?: string | undefined;
+  /** Validation messages; shown above the footer. */
+  issues?: readonly string[] | undefined;
+  exportDisabled?: boolean | undefined;
+  /** Called whenever the draft config changes (live estimates in the parent). */
+  onConfigChange?: ((config: ExportUiConfig) => void) | undefined;
+  /** Extra option sections (range, captions, audio, GIF options, filename…). */
+  children?: ReactNode;
 }
 
 /** A named resolution option; "Original" keeps the source dimensions. */
@@ -82,9 +95,7 @@ const MP4_CODECS: ReadonlyArray<SegmentedOption<ExportCodec>> = [
   { value: "av1", label: "AV1" },
 ];
 
-const WEBM_CODECS: ReadonlyArray<SegmentedOption<ExportCodec>> = [
-  { value: "vp9", label: "VP9" },
-];
+const WEBM_CODECS: ReadonlyArray<SegmentedOption<ExportCodec>> = [{ value: "vp9", label: "VP9" }];
 
 /** Progress phases in order, mapped to a human label. */
 const PHASE_LABEL: Record<Exclude<ExportPhase, "idle" | "done">, string> = {
@@ -127,24 +138,24 @@ const tokenStyles = {
     display: "block",
     marginBottom: "var(--space-2)",
     fontFamily: "var(--font-body)",
-    color: "var(--color-neutral-700)",
+    color: "var(--text-2)",
     fontSize: "0.85rem",
   } as const,
   select: {
     width: "100%",
     padding: "var(--space-2)",
     borderRadius: "var(--radius-md)",
-    background: "var(--color-surface)",
-    color: "var(--color-text)",
-    border: "1px solid var(--color-neutral-300)",
+    background: "var(--bg-sunken)",
+    color: "var(--text-1)",
+    border: "1px solid var(--border-strong)",
   } as const,
   readout: {
     display: "flex",
     justifyContent: "space-between",
     padding: "var(--space-3)",
     borderRadius: "var(--radius-md)",
-    background: "var(--color-neutral-100)",
-    color: "var(--color-text)",
+    background: "var(--bg-sunken)",
+    color: "var(--text-1)",
     fontFamily: "var(--font-body)",
     marginBottom: "var(--space-4)",
   } as const,
@@ -157,7 +168,7 @@ const tokenStyles = {
     height: "8px",
     width: "100%",
     borderRadius: "var(--radius-full)",
-    background: "var(--color-neutral-200)",
+    background: "var(--bg-active)",
     overflow: "hidden",
     marginBottom: "var(--space-3)",
   } as const,
@@ -194,6 +205,13 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
     onCancelExport,
     onReveal,
     onClose,
+    unsupportedCodecs,
+    destinationPath,
+    sizeEstimate,
+    issues,
+    exportDisabled,
+    onConfigChange,
+    children,
   } = props;
 
   const [config, setConfig] = useState<ExportUiConfig>(initialConfig ?? DEFAULT_CONFIG);
@@ -215,15 +233,20 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
   }, [config, durationSeconds]);
 
   function patch(partial: Partial<ExportUiConfig>): void {
-    setConfig((prev) => ({ ...prev, ...partial }));
+    const next = { ...config, ...partial };
+    setConfig(next);
+    onConfigChange?.(next);
   }
+
+  const isUnsupported = (codec: ExportCodec): boolean => unsupportedCodecs?.[codec] !== undefined;
 
   function onFormatChange(format: ExportFormat): void {
     const codecs = codecsFor(format);
     // Keep codec valid for the new format (GIF has none — leave as-is, hidden).
-    const first = codecs[0];
+    const first = codecs.find((c) => !isUnsupported(c.value)) ?? codecs[0];
     const nextCodec =
-      codecs.some((c) => c.value === config.codec) || first === undefined
+      (codecs.some((c) => c.value === config.codec) && !isUnsupported(config.codec)) ||
+      first === undefined
         ? config.codec
         : first.value;
     patch({ format, codec: nextCodec });
@@ -262,6 +285,7 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
           <div style={tokenStyles.label} data-testid="progress-phase">
             {PHASE_LABEL[phase]}
           </div>
+          {/* biome-ignore lint/a11y/useFocusableInteractive: read-only progress indicator */}
           <div
             style={tokenStyles.progressTrack}
             role="progressbar"
@@ -273,13 +297,11 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
               style={{
                 height: "100%",
                 width: `${pct}%`,
-                background: "var(--color-accent)",
+                background: "var(--accent)",
               }}
             />
           </div>
-          <div style={{ fontFamily: "var(--font-body)", color: "var(--color-text)" }}>
-            {pct}%
-          </div>
+          <div style={{ fontFamily: "var(--font-body)", color: "var(--text-1)" }}>{pct}%</div>
         </div>
       </Dialog>
     );
@@ -294,7 +316,7 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
             style={{
               fontFamily: "var(--font-heading)",
               fontSize: "1.1rem",
-              color: "var(--color-text)",
+              color: "var(--text-1)",
               marginBottom: "var(--space-4)",
             }}
           >
@@ -303,7 +325,7 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
           <div
             style={{
               fontFamily: "var(--font-body)",
-              color: "var(--color-neutral-700)",
+              color: "var(--text-2)",
               marginBottom: "var(--space-4)",
               wordBreak: "break-all",
             }}
@@ -333,7 +355,28 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
 
   // --- Configuration form (idle) ------------------------------------------
   const showCodec = config.format !== "gif";
-  const codecOptions = codecsFor(config.format);
+  const codecOptions = codecsFor(config.format).map((opt) => {
+    const reason = unsupportedCodecs?.[opt.value];
+    return reason === undefined
+      ? opt
+      : {
+          value: opt.value,
+          label: (
+            <span
+              aria-disabled="true"
+              title={reason}
+              style={{ color: "var(--text-3)", textDecoration: "line-through" }}
+            >
+              {opt.label}
+            </span>
+          ),
+        };
+  });
+  const unsupportedNote = codecsFor(config.format)
+    .filter((c) => isUnsupported(c.value))
+    .map((c) => c.label)
+    .join(", ");
+  const shownDestination = destinationPath ?? config.destinationPath;
 
   return (
     <Dialog
@@ -345,7 +388,11 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
           <Button variant="secondary" onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={() => onExport(config)}>
+          <Button
+            variant="primary"
+            disabled={exportDisabled}
+            onClick={() => onExport({ ...config, destinationPath: shownDestination })}
+          >
             Export
           </Button>
         </>
@@ -390,8 +437,18 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
             name="export-codec"
             value={config.codec}
             options={codecOptions}
-            onChange={(codec) => patch({ codec })}
+            onChange={(codec) => {
+              if (!isUnsupported(codec)) patch({ codec });
+            }}
           />
+          {unsupportedNote ? (
+            <div
+              data-testid="codec-unsupported-note"
+              style={{ ...tokenStyles.label, color: "var(--text-3)", marginTop: "var(--space-2)" }}
+            >
+              {unsupportedNote}: Not supported on this device
+            </div>
+          ) : null}
         </Labelled>
       ) : null}
 
@@ -408,26 +465,39 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
         {readout ? (
           <>
             <span data-testid="bitrate-value">{readout.bitrate}</span>
-            <span data-testid="size-value">~{readout.size}</span>
+            <span data-testid="size-value">~{sizeEstimate ?? readout.size}</span>
           </>
         ) : (
-          <span data-testid="size-value">size varies</span>
+          <span data-testid="size-value">{sizeEstimate ? `~${sizeEstimate}` : "size varies"}</span>
         )}
       </div>
 
+      {children}
+
       <div style={tokenStyles.destinationRow}>
         <div style={{ flex: 1 }}>
-          <Input
-            label="Destination"
-            readOnly
-            value={config.destinationPath}
-            aria-label="Destination"
-          />
+          <Input label="Destination" readOnly value={shownDestination} aria-label="Destination" />
         </div>
         <Button variant="secondary" onClick={onChangeDestination}>
           Change…
         </Button>
       </div>
+
+      {issues && issues.length > 0 ? (
+        <ul
+          role="alert"
+          style={{
+            margin: "var(--space-3) 0 0",
+            paddingLeft: "var(--space-4)",
+            color: "var(--danger)",
+            fontFamily: "var(--font-body)",
+          }}
+        >
+          {issues.map((msg) => (
+            <li key={msg}>{msg}</li>
+          ))}
+        </ul>
+      ) : null}
     </Dialog>
   );
 }

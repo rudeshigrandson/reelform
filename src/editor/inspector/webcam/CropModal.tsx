@@ -105,7 +105,7 @@ export function CropModal(props: CropModalProps): ReactElement | null {
     width: "100%",
     aspectRatio: `${sourceSize.width} / ${sourceSize.height}`,
     maxWidth: "100%",
-    background: "var(--color-neutral-900)",
+    background: "var(--bg-sunken)",
     borderRadius: "var(--radius-md)",
     overflow: "hidden",
     userSelect: "none",
@@ -118,7 +118,7 @@ export function CropModal(props: CropModalProps): ReactElement | null {
     width: pct(crop.w, sourceSize.width),
     height: pct(crop.h, sourceSize.height),
     borderRadius: shape === "square" ? 0 : shape === "rounded" ? "18%" : "999px",
-    border: "2px solid var(--color-accent)",
+    border: "2px solid var(--accent)",
     // Dim everything outside the crop.
     boxShadow: "0 0 0 9999px color-mix(in srgb, var(--color-neutral-900) 60%, transparent)",
     cursor: "move",
@@ -189,7 +189,7 @@ export function CropModal(props: CropModalProps): ReactElement | null {
             style={{
               fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
               fontSize: "12px",
-              color: "var(--color-neutral-400)",
+              color: "var(--text-2)",
             }}
           >
             {Math.round(crop.w)}×{Math.round(crop.h)}

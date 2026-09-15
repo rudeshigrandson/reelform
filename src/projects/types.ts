@@ -1,4 +1,5 @@
-export type ProjectState = "ready" | "recording" | "interrupted";
+/** `missing`: in recents but the folder is gone; `corrupt`: project.json unreadable. */
+export type ProjectState = "ready" | "recording" | "interrupted" | "missing" | "corrupt";
 
 export interface ProjectSummary {
   id: string;
@@ -18,7 +19,7 @@ export interface ProjectBrowserProps {
   projects: ReadonlyArray<ProjectSummary>;
   onOpen: (id: string) => void;
   onNew: () => void;
-  onImport?: () => void;
+  onImport?: (() => void) | undefined;
   onCardAction: (id: string, action: CardAction) => void;
 }
 

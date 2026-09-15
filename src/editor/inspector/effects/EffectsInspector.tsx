@@ -43,12 +43,12 @@ const rootStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   padding: "0 var(--space-3)",
-  color: "var(--color-neutral-100)",
+  color: "var(--text-1)",
   fontFamily: "var(--font-body)",
 };
 
 const toolRowStyle: CSSProperties = { display: "flex", gap: "var(--space-2)", flexWrap: "wrap" };
-const subheadStyle: CSSProperties = { fontSize: "12px", color: "var(--color-neutral-400)" };
+const subheadStyle: CSSProperties = { fontSize: "12px", color: "var(--text-2)" };
 
 /** Inspector tab S20 — speed, transitions, intro/outro, color, motion. */
 export function EffectsInspector({
@@ -272,7 +272,7 @@ function TitleCardEditor({ label, card, onChange }: TitleCardEditorProps): React
         gap: "var(--space-2)",
         padding: "var(--space-2)",
         borderRadius: "var(--radius-md)",
-        border: "1px solid var(--color-neutral-800)",
+        border: "1px solid var(--border)",
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>

@@ -11,6 +11,8 @@ export interface SegmentedProps<T extends string | number> {
   value: T;
   options: ReadonlyArray<SegmentedOption<T>>;
   onChange: (value: T) => void;
+  /** "sm" is the dense variant for 13px inspector rows. */
+  size?: "md" | "sm";
   className?: string;
 }
 
@@ -20,10 +22,14 @@ export function Segmented<T extends string | number>({
   value,
   options,
   onChange,
+  size = "md",
   className,
 }: SegmentedProps<T>) {
   return (
-    <div className={["seg", className].filter(Boolean).join(" ")} role="radiogroup">
+    <div
+      className={["seg", size === "sm" ? "seg-sm" : null, className].filter(Boolean).join(" ")}
+      role="radiogroup"
+    >
       {options.map((opt) => (
         <label key={opt.value} className="seg-opt">
           <input

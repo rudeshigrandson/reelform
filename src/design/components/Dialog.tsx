@@ -26,12 +26,7 @@ export function Dialog({ open, onClose, title, children, actions }: DialogProps)
   return (
     <div className="dialog-backdrop" onClick={onClose}>
       {/* biome-ignore lint/a11y/useKeyWithClickEvents: backdrop handles keys; stopPropagation keeps clicks inside the panel from closing */}
-      <div
-        className="dialog"
-        role="dialog"
-        aria-modal="true"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="dialog" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         {title ? <div className="dialog-title">{title}</div> : null}
         <div className="dialog-body">{children}</div>
         {actions ? <div className="dialog-actions">{actions}</div> : null}

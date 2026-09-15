@@ -1,0 +1,158 @@
+[
+  { "helper": "sck", "direction": "in", "line": "{\"t\":\"ping\",\"id\":1}" },
+  {
+    "helper": "sck",
+    "direction": "in",
+    "line": "{\"t\":\"start\",\"id\":2,\"outputDir\":\"/tmp/rec\",\"source\":{\"kind\":\"display\",\"displayId\":69734208,\"excludePids\":[123,456]},\"region\":{\"x\":10,\"y\":20.5,\"width\":800,\"height\":600},\"fps\":60,\"audio\":{\"system\":true,\"mic\":\"BuiltInMicrophoneDevice\"}}"
+  },
+  {
+    "helper": "sck",
+    "direction": "in",
+    "line": "{\"t\":\"start\",\"outputDir\":\"/r\",\"source\":{\"kind\":\"window\",\"windowId\":99},\"fps\":30,\"audio\":{\"system\":false}}"
+  },
+  { "helper": "sck", "direction": "in", "line": "{\"t\":\"pause\",\"id\":3}" },
+  { "helper": "sck", "direction": "in", "line": "{\"t\":\"resume\",\"id\":4}" },
+  { "helper": "sck", "direction": "in", "line": "{\"t\":\"stop\",\"id\":5}" },
+  { "helper": "sck", "direction": "in", "line": "{\"t\":\"discard\"}" },
+  {
+    "helper": "sck",
+    "direction": "in",
+    "line": "{\"t\":\"listSources\",\"id\":6,\"thumbnailWidth\":320}"
+  },
+  {
+    "helper": "sck",
+    "direction": "in",
+    "line": "{\"t\":\"listSources\",\"id\":7,\"thumbnails\":false}"
+  },
+  {
+    "helper": "sck",
+    "direction": "inHost",
+    "line": "{\"t\":\"start\",\"id\":2,\"sessionId\":\"s1\",\"outDir\":\"/tmp/rec\",\"source\":{\"kind\":\"display\",\"id\":\"69734208\"},\"region\":{\"x\":10,\"y\":20.5,\"width\":800,\"height\":600},\"audio\":{\"system\":true,\"mic\":\"default\"},\"fps\":60,\"hideCursor\":true}"
+  },
+  {
+    "helper": "sck",
+    "direction": "inHost",
+    "line": "{\"t\":\"start\",\"id\":3,\"sessionId\":\"s2\",\"outDir\":\"/r\",\"source\":{\"kind\":\"window\",\"id\":\"99\"},\"audio\":{\"system\":false},\"fps\":30,\"hideCursor\":false}"
+  },
+  {
+    "helper": "sck",
+    "direction": "inHost",
+    "line": "{\"t\":\"start\",\"id\":4,\"sessionId\":\"s3\",\"outDir\":\"/r\",\"source\":{\"kind\":\"display\",\"id\":\"1\"},\"audio\":{\"system\":false,\"mic\":\"9f86d081884c7d65\",\"micLabel\":\"Default - MacBook Pro Microphone\"},\"fps\":30,\"hideCursor\":false}"
+  },
+  {
+    "helper": "sck",
+    "direction": "out",
+    "line": "{\"t\":\"pong\",\"id\":1,\"version\":\"1.0.0\",\"caps\":[\"capture\",\"listSources\",\"display\",\"window\",\"excludePids\",\"region\",\"systemAudio\",\"mic\",\"pause\",\"fragmentedMp4\",\"h264\"]}"
+  },
+  { "helper": "sck", "direction": "out", "line": "{\"t\":\"ready\"}" },
+  { "helper": "sck", "direction": "out", "line": "{\"t\":\"ready\",\"id\":2}" },
+  { "helper": "sck", "direction": "out", "line": "{\"t\":\"paused\",\"id\":3}" },
+  { "helper": "sck", "direction": "out", "line": "{\"t\":\"resumed\",\"id\":4}" },
+  {
+    "helper": "sck",
+    "direction": "out",
+    "line": "{\"t\":\"deviceLost\",\"device\":\"BuiltInMicrophoneDevice\",\"message\":\"microphone disconnected\"}"
+  },
+  {
+    "helper": "sck",
+    "direction": "out",
+    "line": "{\"t\":\"interrupted\",\"reason\":\"diskLow\",\"message\":\"less than 500 MB free on the recording volume\"}"
+  },
+  {
+    "helper": "sck",
+    "direction": "out",
+    "line": "{\"t\":\"sources\",\"id\":6,\"displays\":[{\"id\":\"1\",\"name\":\"Built-in Retina Display\",\"bounds\":{\"x\":0,\"y\":0,\"width\":1512,\"height\":982},\"scaleFactor\":2,\"thumbnail\":\"data:image/png;base64,iVBORw0KGgo=\"},{\"id\":\"3\",\"name\":\"DELL U2723QE\",\"bounds\":{\"x\":-2560,\"y\":-300,\"width\":2560,\"height\":1440},\"scaleFactor\":1}],\"windows\":[{\"id\":\"4242\",\"title\":\"README.md\",\"appName\":\"Xcode\",\"bundleId\":\"com.apple.dt.Xcode\",\"pid\":501,\"bounds\":{\"x\":40,\"y\":60,\"width\":1200,\"height\":800.5},\"displayId\":\"1\",\"thumbnail\":\"data:image/png;base64,iVBORw0KGgo=\"},{\"id\":\"7\",\"title\":\"Untitled window\",\"bounds\":{\"x\":-2000,\"y\":0,\"width\":640,\"height\":480},\"displayId\":\"3\"}]}"
+  },
+  {
+    "helper": "sck",
+    "direction": "out",
+    "line": "{\"t\":\"started\",\"id\":2,\"firstFramePtsNs\":123456789012345,\"startHostTimeNs\":123456700000000,\"width\":2940,\"height\":1912,\"scaleFactor\":2}"
+  },
+  {
+    "helper": "sck",
+    "direction": "out",
+    "line": "{\"t\":\"stats\",\"fps\":59.94,\"droppedFrames\":3,\"fileBytes\":10485760}"
+  },
+  {
+    "helper": "sck",
+    "direction": "out",
+    "line": "{\"t\":\"interrupted\",\"reason\":\"sourceLost\",\"message\":\"display disconnected\"}"
+  },
+  {
+    "helper": "sck",
+    "direction": "out",
+    "line": "{\"t\":\"stopped\",\"id\":5,\"durationMs\":12345,\"paths\":{\"screen\":\"/tmp/rec/screen.mp4\",\"system\":\"/tmp/rec/system.m4a\",\"mic\":\"/tmp/rec/mic.m4a\"},\"pausedRanges\":[{\"startNs\":1000,\"endNs\":3000}],\"discarded\":false}"
+  },
+  {
+    "helper": "sck",
+    "direction": "out",
+    "line": "{\"t\":\"stopped\",\"durationMs\":0,\"paths\":{},\"pausedRanges\":[],\"discarded\":true}"
+  },
+  {
+    "helper": "sck",
+    "direction": "out",
+    "line": "{\"t\":\"error\",\"id\":2,\"code\":\"permissionDenied\",\"message\":\"screen recording access not granted\"}"
+  },
+  {
+    "helper": "sck",
+    "direction": "out",
+    "line": "{\"t\":\"permissions\",\"screen\":\"granted\",\"microphone\":\"notDetermined\"}"
+  },
+  { "helper": "cursor", "direction": "in", "line": "{\"t\":\"start\",\"id\":1}" },
+  {
+    "helper": "cursor",
+    "direction": "in",
+    "line": "{\"t\":\"exportCursors\",\"id\":2,\"dir\":\"/tmp/cursors\"}"
+  },
+  {
+    "helper": "cursor",
+    "direction": "out",
+    "line": "{\"t\":\"pong\",\"version\":\"1.0.0\",\"caps\":[\"position\",\"clicks\",\"keys\",\"scroll\",\"cursorType\",\"cursorAssets\"]}"
+  },
+  { "helper": "cursor", "direction": "out", "line": "{\"t\":\"ready\"}" },
+  {
+    "helper": "cursor",
+    "direction": "out",
+    "line": "{\"t\":\"started\",\"id\":1,\"hostTimeNs\":123456000000000,\"sampleHz\":120,\"clickSource\":\"eventTap\",\"keys\":true}"
+  },
+  {
+    "helper": "cursor",
+    "direction": "out",
+    "line": "{\"t\":\"move\",\"tNs\":123456789000000,\"x\":812.5,\"y\":-40,\"cursor\":\"ibeam\"}"
+  },
+  {
+    "helper": "cursor",
+    "direction": "out",
+    "line": "{\"t\":\"click\",\"tNs\":123456790000000,\"x\":812.5,\"y\":300,\"button\":\"left\",\"phase\":\"down\"}"
+  },
+  {
+    "helper": "cursor",
+    "direction": "out",
+    "line": "{\"t\":\"key\",\"tNs\":123456791000000,\"keyCode\":36,\"modifiers\":9}"
+  },
+  {
+    "helper": "cursor",
+    "direction": "out",
+    "line": "{\"t\":\"scroll\",\"tNs\":123456792000000,\"dx\":0,\"dy\":-12}"
+  },
+  {
+    "helper": "cursor",
+    "direction": "out",
+    "line": "{\"t\":\"cursorsExported\",\"id\":2,\"dir\":\"/tmp/cursors\",\"files\":[{\"type\":\"arrow\",\"file\":\"arrow@2x.png\",\"hotspot\":[4,4],\"size\":[17,23]}]}"
+  },
+  {
+    "helper": "cursor",
+    "direction": "out",
+    "line": "{\"t\":\"stopped\",\"id\":3,\"samples\":7200}"
+  },
+  {
+    "helper": "cursor",
+    "direction": "out",
+    "line": "{\"t\":\"error\",\"code\":\"invalidState\",\"message\":\"stop while not running\"}"
+  },
+  {
+    "helper": "cursor",
+    "direction": "out",
+    "line": "{\"t\":\"permissions\",\"inputMonitoring\":\"denied\",\"accessibility\":\"granted\"}"
+  }
+]

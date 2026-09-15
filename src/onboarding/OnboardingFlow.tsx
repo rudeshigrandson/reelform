@@ -1,16 +1,60 @@
-import { useCallback, useState } from "react";
-import { Defaults } from "./steps/Defaults";
-import { Done } from "./steps/Done";
-import { Permissions } from "./steps/Permissions";
-import { Welcome } from "./steps/Welcome";
-import type { OnboardingProps } from "./types";
+import { useEffect, useReducer } from "react";
+import { OnboardingView } from "./OnboardingView";
+import { initialOnboardingState, reduceOnboarding } from "./machine";
+import type {
+  OnboardingDefaults,
+  OnboardingProps,
+  PermissionEntry,
+  PermissionKind,
+  PermissionsSnapshot,
+  PermissionsState,
+} from "./types";
 
 export { sampleOnboardingProps } from "./types";
 export type { OnboardingProps } from "./types";
+export { Onboarding } from "./Onboarding";
+export type { OnboardingContainerProps } from "./Onboarding";
 
-const STEPS = ["welcome", "permissions", "defaults", "done"] as const;
-type Step = (typeof STEPS)[number];
+const entry = (
+  kind: PermissionEntry["kind"],
+  status: PermissionEntry["status"],
+  required = false,
+): PermissionEntry => ({
+  kind,
+  status,
+  required,
+  canRequest: status === "not-determined",
+  canOpenSettings: false,
+});
 
+/** Legacy `PermissionsState` (dev shell) → a macOS-shaped snapshot. */
+export function legacySnapshot(p: PermissionsState): PermissionsSnapshot {
+  const s = (k: PermissionKind) => (p[k] === "granted" ? "granted" : "not-determined");
+  return {
+    platform: "darwin",
+    permissions: {
+      screen: entry("screen", s("screen"), true),
+      microphone: entry("microphone", s("microphone")),
+      camera: entry("camera", "not-applicable"),
+      accessibility: entry("accessibility", s("accessibility")),
+      notifications: entry("notifications", "not-applicable"),
+    },
+  };
+}
+
+const LEGACY_KINDS: readonly string[] = ["screen", "microphone", "accessibility"];
+
+const draftFrom = (d: OnboardingDefaults) => ({
+  recordingsFolder: d.recordingsFolder,
+  defaultFps: d.fps,
+  autoDeleteRawAfterExport: d.autoDeleteRawAfterExport ?? false,
+  openEditorAfterRecording: d.openEditorAfterRecording ?? true,
+});
+
+/**
+ * Prop-driven onboarding for the single-window dev shell (src/App.tsx). The
+ * real windows use {@link Onboarding} with an IPC port.
+ */
 export function OnboardingFlow({
   permissions,
   onRequestPermission,
@@ -18,102 +62,54 @@ export function OnboardingFlow({
   onDefaultsChange,
   onFinish,
 }: OnboardingProps) {
-  const [index, setIndex] = useState(0);
-  const step: Step = STEPS[index] ?? "welcome";
+  const [state, dispatch] = useReducer(reduceOnboarding, draftFrom(defaults), (d) => ({
+    ...initialOnboardingState(d),
+    snapshot: legacySnapshot(permissions),
+  }));
 
-  const goNext = useCallback(() => {
-    setIndex((i) => Math.min(i + 1, STEPS.length - 1));
-  }, []);
-  const goBack = useCallback(() => {
-    setIndex((i) => Math.max(i - 1, 0));
-  }, []);
+  useEffect(() => {
+    dispatch({ type: "SNAPSHOT", snapshot: legacySnapshot(permissions) });
+  }, [permissions]);
 
-  // No dedicated folder-picker prop in the contract; the picker is host-driven.
-  // Kept as a local no-op so the "Change…" affordance is present in the flow.
-  const handleChangeFolder = useCallback(() => {}, []);
+  const { recordingsFolder, fps, autoDeleteRawAfterExport, openEditorAfterRecording } = defaults;
+  useEffect(() => {
+    dispatch({
+      type: "DRAFT",
+      patch: draftFrom({
+        recordingsFolder,
+        fps,
+        countdown: 3,
+        autoDeleteRawAfterExport,
+        openEditorAfterRecording,
+      }),
+    });
+  }, [recordingsFolder, fps, autoDeleteRawAfterExport, openEditorAfterRecording]);
 
   return (
-    <section
-      aria-label="Onboarding"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-4)",
-        maxWidth: "560px",
-        margin: "0 auto",
-        padding: "var(--space-6)",
-        background: "var(--color-bg)",
-        color: "var(--color-text)",
-        fontFamily: "var(--font-body)",
+    <OnboardingView
+      state={state}
+      onNext={() => dispatch({ type: "NEXT" })}
+      onBack={() => dispatch({ type: "BACK" })}
+      onRequest={(kind) => {
+        if (LEGACY_KINDS.includes(kind)) onRequestPermission(kind as PermissionKind);
       }}
-    >
-      <div style={{ minHeight: "260px" }}>
-        {step === "welcome" ? <Welcome onNext={goNext} /> : null}
-        {step === "permissions" ? (
-          <Permissions
-            permissions={permissions}
-            onRequestPermission={onRequestPermission}
-            onContinue={goNext}
-          />
-        ) : null}
-        {step === "defaults" ? (
-          <Defaults
-            defaults={defaults}
-            onDefaultsChange={onDefaultsChange}
-            onChangeFolder={handleChangeFolder}
-            onContinue={goNext}
-          />
-        ) : null}
-        {step === "done" ? <Done onFinish={onFinish} /> : null}
-      </div>
-
-      <nav
-        aria-label="Onboarding navigation"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "var(--space-3)",
-        }}
-      >
-        <button type="button" className="btn btn-ghost" onClick={goBack} disabled={index === 0}>
-          Back
-        </button>
-
-        <ol
-          aria-label="Step indicator"
-          style={{
-            listStyle: "none",
-            display: "flex",
-            gap: "var(--space-2)",
-            margin: 0,
-            padding: 0,
-          }}
-        >
-          {STEPS.map((s, i) => (
-            <li
-              key={s}
-              aria-current={i === index ? "step" : undefined}
-              aria-label={`Step ${i + 1}: ${s}`}
-              style={{
-                width: "10px",
-                height: "10px",
-                borderRadius: "999px",
-                background: i === index ? "var(--color-accent)" : "var(--color-neutral-300)",
-              }}
-            />
-          ))}
-        </ol>
-
-        <button
-          type="button"
-          className="btn btn-ghost"
-          onClick={goNext}
-          disabled={index === STEPS.length - 1}
-        >
-          Next
-        </button>
-      </nav>
-    </section>
+      onOpenSettings={() => {}}
+      onDraft={(patch) => {
+        dispatch({ type: "DRAFT", patch });
+        const out: Partial<OnboardingDefaults> = {};
+        if (patch.defaultFps !== undefined) out.fps = patch.defaultFps;
+        if (patch.recordingsFolder !== undefined) out.recordingsFolder = patch.recordingsFolder;
+        if (patch.autoDeleteRawAfterExport !== undefined)
+          out.autoDeleteRawAfterExport = patch.autoDeleteRawAfterExport;
+        if (patch.openEditorAfterRecording !== undefined)
+          out.openEditorAfterRecording = patch.openEditorAfterRecording;
+        onDefaultsChange(out);
+      }}
+      onSaveDefaults={() => {
+        dispatch({ type: "SAVE_START" });
+        dispatch({ type: "SAVE_OK" });
+      }}
+      onFinish={onFinish}
+    />
   );
 }

@@ -1,4 +1,8 @@
-export type HudPhase = "countdown" | "recording" | "paused";
+/**
+ * `finalizing`: "Processing recording…" after stop. `interrupted`: warning pill
+ * "Recording saved up to 00:42" (guide S10/S11).
+ */
+export type HudPhase = "countdown" | "recording" | "paused" | "finalizing" | "interrupted";
 
 export interface RecordingHudProps {
   /** Current lifecycle phase of the HUD. */
@@ -9,6 +13,8 @@ export interface RecordingHudProps {
   micLevel?: number | undefined;
   /** Human label for the capture source, e.g. "Display 1". */
   sourceLabel: string;
+  /** `interrupted`: why capture stopped, e.g. "The display was disconnected". */
+  interruptedMessage?: string | undefined;
   /** Optional warning text, e.g. "Cursor can't be hidden". */
   warning?: string | undefined;
   /** Number shown during the countdown phase, e.g. 3, 2, 1. */

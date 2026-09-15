@@ -88,7 +88,7 @@ export function RemoveSilenceDialog({
           role="status"
           style={{
             fontSize: "13px",
-            color: summary.count > 0 ? "var(--color-neutral-100)" : "var(--color-neutral-400)",
+            color: summary.count > 0 ? "var(--text-1)" : "var(--text-2)",
             paddingTop: "var(--space-1)",
           }}
         >

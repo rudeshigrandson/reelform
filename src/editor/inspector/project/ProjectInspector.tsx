@@ -39,7 +39,7 @@ const rootStyle: CSSProperties = {
   padding: "0 var(--space-3)",
   fontFamily: "var(--font-body)",
   fontSize: "13px",
-  color: "var(--color-neutral-200)",
+  color: "var(--text-1)",
 };
 
 const rowStyle: CSSProperties = {
@@ -49,12 +49,12 @@ const rowStyle: CSSProperties = {
   minHeight: "24px",
 };
 
-const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--color-neutral-400)" };
+const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--text-2)" };
 
 const monoStyle: CSSProperties = {
   fontFamily: MONO,
   fontSize: "12px",
-  color: "var(--color-neutral-300)",
+  color: "var(--text-2)",
   fontVariantNumeric: "tabular-nums",
   overflowWrap: "anywhere",
   minWidth: 0,
@@ -119,7 +119,7 @@ function SourceRow({
         gap: "var(--space-1)",
         padding: "var(--space-2)",
         borderRadius: "var(--radius-md)",
-        border: `1px solid ${source.missing ? "var(--color-accent)" : "var(--color-neutral-800)"}`,
+        border: `1px solid ${source.missing ? "var(--warning)" : "var(--border)"}`,
       }}
     >
       <div
@@ -142,7 +142,7 @@ function SourceRow({
         )}
       </div>
       {source.missing && (
-        <span style={{ fontSize: "12px", color: "var(--color-neutral-400)" }}>
+        <span style={{ fontSize: "12px", color: "var(--text-2)" }}>
           File not found at <span style={monoStyle}>{source.absolutePath}</span>
         </span>
       )}
@@ -279,10 +279,7 @@ export function ProjectInspector({
 
       <Section title="Danger zone">
         <div>
-          <Button
-            onClick={() => setConfirmOpen(true)}
-            style={{ color: "var(--color-accent)", borderColor: "var(--color-accent)" }}
-          >
+          <Button variant="danger" onClick={() => setConfirmOpen(true)}>
             Delete project
           </Button>
         </div>
@@ -298,7 +295,7 @@ export function ProjectInspector({
               Cancel
             </Button>
             <Button
-              variant="primary"
+              variant="danger"
               onClick={() => {
                 onDelete({ alsoDeleteRecordings });
                 closeConfirm();

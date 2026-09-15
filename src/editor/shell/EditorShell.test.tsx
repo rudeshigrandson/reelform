@@ -122,4 +122,133 @@ describe("EditorShell", () => {
       );
     });
   });
+
+  describe("project chrome", () => {
+    it("Back calls onBack; dirty shows the unsaved dot", async () => {
+      const onBack = vi.fn();
+      const { rerender } = render(<EditorShell {...sampleEditorShellProps} onBack={onBack} />);
+      expect(screen.queryByLabelText("Unsaved changes")).toBeNull();
+      await userEvent.click(screen.getByRole("button", { name: "Back" }));
+      expect(onBack).toHaveBeenCalledTimes(1);
+      rerender(<EditorShell {...sampleEditorShellProps} onBack={onBack} dirty />);
+      expect(screen.getByLabelText("Unsaved changes")).toHaveTextContent("•");
+    });
+
+    it("undo/redo buttons carry the history labels as tooltips and disable when empty", async () => {
+      const onUndo = vi.fn();
+      const onRedo = vi.fn();
+      const { rerender } = render(
+        <EditorShell
+          {...sampleEditorShellProps}
+          history={{
+            canUndo: true,
+            canRedo: false,
+            undoLabel: "Undo: Move zoom",
+            redoLabel: null,
+            onUndo,
+            onRedo,
+          }}
+        />,
+      );
+      const undo = screen.getByRole("button", { name: "Undo" });
+      expect(undo).toHaveAttribute("title", "Undo: Move zoom");
+      expect(screen.getByRole("button", { name: "Redo" })).toBeDisabled();
+      await userEvent.click(undo);
+      expect(onUndo).toHaveBeenCalledTimes(1);
+      rerender(
+        <EditorShell
+          {...sampleEditorShellProps}
+          history={{
+            canUndo: false,
+            canRedo: true,
+            undoLabel: null,
+            redoLabel: "Redo: Split clip",
+            onUndo,
+            onRedo,
+          }}
+        />,
+      );
+      expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Undo" })).toHaveAttribute(
+        "title",
+        "Nothing to undo",
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Redo" }));
+      expect(onRedo).toHaveBeenCalledTimes(1);
+    });
+
+    it("hides undo/redo when no history is given", () => {
+      render(<EditorShell {...sampleEditorShellProps} />);
+      expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    });
+  });
+
+  describe("controlled tab", () => {
+    it("follows activeTab and reports clicks through onTabChange", async () => {
+      const onTabChange = vi.fn();
+      const { rerender } = render(
+        <EditorShell {...sampleEditorShellProps} activeTab="Zoom" onTabChange={onTabChange} />,
+      );
+      const panel = () => screen.getByRole("tabpanel");
+      expect(within(panel()).getByRole("heading")).toHaveTextContent("Zoom");
+      await userEvent.click(screen.getByRole("tab", { name: "Audio" }));
+      expect(onTabChange).toHaveBeenCalledWith("Audio");
+      // Still controlled: the parent has not changed activeTab yet.
+      expect(within(panel()).getByRole("heading")).toHaveTextContent("Zoom");
+      rerender(
+        <EditorShell {...sampleEditorShellProps} activeTab="Captions" onTabChange={onTabChange} />,
+      );
+      expect(within(panel()).getByRole("heading")).toHaveTextContent("Captions");
+    });
+  });
+
+  describe("narrow layout (guide S12 state 14)", () => {
+    it("collapses the inspector to a rail with a toggling popover and a 180px timeline", async () => {
+      render(
+        <EditorShell
+          {...sampleEditorShellProps}
+          narrow
+          renderPlaybackBar={() => <div />}
+          renderInspector={(tab) => <p>body:{tab}</p>}
+        />,
+      );
+      const shell = screen.getByTestId("editor-shell");
+      expect(shell.dataset.layout).toBe("narrow");
+      expect(shell.style.gridTemplateRows).toBe("56px 1fr 44px 180px");
+      expect(screen.queryByRole("tabpanel")).toBeNull();
+      expect(screen.getAllByRole("tab")).toHaveLength(9);
+
+      await userEvent.click(screen.getByRole("tab", { name: "Zoom" }));
+      expect(screen.getByRole("tabpanel", { name: "Zoom panel" })).toHaveTextContent("body:Zoom");
+      expect(screen.getByRole("tab", { name: "Zoom" })).toHaveAttribute("aria-expanded", "true");
+
+      await userEvent.click(screen.getByRole("tab", { name: "Audio" }));
+      expect(screen.getByRole("tabpanel", { name: "Audio panel" })).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("tab", { name: "Audio" }));
+      expect(screen.queryByRole("tabpanel")).toBeNull();
+
+      await userEvent.click(screen.getByRole("tab", { name: "Frame" }));
+      await userEvent.keyboard("{Escape}");
+      expect(screen.queryByRole("tabpanel")).toBeNull();
+    });
+
+    it("follows matchMedia when narrow is not given", () => {
+      const listeners = new Set<() => void>();
+      const mql = {
+        matches: true,
+        addEventListener: (_: string, l: () => void) => listeners.add(l),
+        removeEventListener: (_: string, l: () => void) => listeners.delete(l),
+      };
+      const original = window.matchMedia;
+      window.matchMedia = vi.fn(() => mql) as unknown as typeof window.matchMedia;
+      try {
+        render(<EditorShell {...sampleEditorShellProps} />);
+        expect(screen.getByTestId("editor-shell").dataset.layout).toBe("narrow");
+        expect(screen.getByTestId("editor-shell").style.gridTemplateRows).toBe("56px 1fr 180px");
+      } finally {
+        window.matchMedia = original;
+      }
+    });
+  });
 });

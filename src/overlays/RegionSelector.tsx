@@ -1,6 +1,6 @@
+import { Button } from "@design/components";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { Button } from "@design/components";
 import type { Bounds, RegionSelectorProps } from "./types";
 
 type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
@@ -37,6 +37,7 @@ export function RegionSelector({
   onConfirm,
   onCancel,
   minSize = 32,
+  hint = "Drag to select a region · Esc to cancel",
 }: RegionSelectorProps) {
   const [bounds, setBounds] = useState<Bounds>(initialBounds);
   const dragRef = useRef<Drag | null>(null);
@@ -130,11 +131,29 @@ export function RegionSelector({
         inset: 0,
         zIndex: 9999,
         // A single translucent scrim; the selection rect punches a bright ring.
-        background: "rgba(10, 10, 12, 0.45)",
+        background: "var(--scrim)",
         userSelect: "none",
         fontFamily: "var(--font-body)",
       }}
     >
+      <div
+        data-testid="region-hint"
+        style={{
+          position: "absolute",
+          top: "var(--space-6)",
+          left: "50%",
+          transform: "translateX(-50%)",
+          padding: "var(--space-1) var(--space-3)",
+          borderRadius: "var(--radius-full)",
+          background: "var(--bg-panel-raised)",
+          color: "var(--text-2)",
+          fontSize: 13,
+          pointerEvents: "none",
+        }}
+      >
+        {hint}
+      </div>
+
       {/* Selection rectangle */}
       <div
         data-testid="region-rect"
@@ -147,9 +166,9 @@ export function RegionSelector({
           height: bounds.height,
           cursor: "move",
           // Cut a hole in the scrim with a big surrounding shadow.
-          boxShadow: "0 0 0 100vmax rgba(10, 10, 12, 0.45)",
-          outline: "2px solid var(--color-accent)",
-          borderRadius: "var(--radius-sm, 4px)",
+          boxShadow: "0 0 0 100vmax var(--scrim)",
+          outline: "2px solid var(--accent)",
+          borderRadius: "var(--radius-sm)",
           background: "transparent",
         }}
       >
@@ -169,11 +188,11 @@ export function RegionSelector({
                 width: HANDLE_SIZE,
                 height: HANDLE_SIZE,
                 transform: "translate(-50%, -50%)",
-                background: "var(--color-accent)",
-                border: "2px solid var(--color-surface, #fff)",
+                background: "var(--accent)",
+                border: "2px solid var(--on-accent)",
                 borderRadius: "50%",
                 cursor: pos.cursor,
-                boxShadow: "var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.4))",
+                boxShadow: "var(--shadow-sm)",
               }}
             />
           );
@@ -187,10 +206,10 @@ export function RegionSelector({
           position: "absolute",
           left: bounds.x,
           top: Math.max(0, bounds.y - 28),
-          padding: "var(--space-1, 4px) var(--space-2, 8px)",
-          background: "rgba(10, 10, 12, 0.85)",
-          color: "var(--color-text, #fff)",
-          borderRadius: "var(--radius-sm, 4px)",
+          padding: "var(--space-1) var(--space-2)",
+          background: "var(--bg-panel-raised)",
+          color: "var(--text-1)",
+          borderRadius: "var(--radius-sm)",
           fontSize: 12,
           fontVariantNumeric: "tabular-nums",
           pointerEvents: "none",
@@ -205,14 +224,15 @@ export function RegionSelector({
         style={{
           position: "absolute",
           left: "50%",
-          bottom: "var(--space-6, 24px)",
+          bottom: "var(--space-6)",
           transform: "translateX(-50%)",
           display: "flex",
-          gap: "var(--space-2, 8px)",
-          padding: "var(--space-2, 8px)",
-          background: "rgba(20, 20, 24, 0.9)",
-          borderRadius: "var(--radius-lg, 12px)",
-          boxShadow: "var(--shadow-lg, 0 8px 24px rgba(0,0,0,0.5))",
+          gap: "var(--space-2)",
+          padding: "var(--space-2)",
+          background: "var(--bg-panel-raised)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-lg)",
+          boxShadow: "var(--shadow-lg)",
         }}
       >
         <Button variant="ghost" onClick={onCancel}>

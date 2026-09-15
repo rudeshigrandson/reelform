@@ -34,10 +34,10 @@ const barStyle: CSSProperties = {
   gap: "var(--space-2)",
   height: "44px",
   padding: "0 var(--space-3)",
-  background: "var(--color-neutral-900)",
-  borderTop: "1px solid var(--color-neutral-800)",
-  borderBottom: "1px solid var(--color-neutral-800)",
-  color: "var(--color-neutral-100)",
+  background: "var(--bg-panel)",
+  borderTop: "1px solid var(--border)",
+  borderBottom: "1px solid var(--border)",
+  color: "var(--text-1)",
   fontFamily: "var(--font-body)",
   boxSizing: "border-box",
   minWidth: 0,
@@ -55,27 +55,27 @@ const readoutStyle: CSSProperties = {
   fontVariantNumeric: "tabular-nums",
   fontSize: "13px",
   whiteSpace: "nowrap",
-  color: "var(--color-neutral-100)",
+  color: "var(--text-1)",
 };
 
-const totalStyle: CSSProperties = { color: "var(--color-neutral-400)" };
+const totalStyle: CSSProperties = { color: "var(--text-2)" };
 
 const dividerStyle: CSSProperties = {
   width: "1px",
   height: "20px",
   margin: "0 var(--space-1)",
-  background: "var(--color-neutral-800)",
+  background: "var(--border-strong)",
 };
 
 const iconButtonStyle: CSSProperties = { width: "32px", height: "32px", padding: 0 };
 
 const pressedStyle: CSSProperties = {
   ...iconButtonStyle,
-  color: "var(--color-accent)",
-  background: "var(--color-neutral-800)",
+  color: "var(--accent)",
+  background: "var(--accent-soft)",
 };
 
-const sliderStyle: CSSProperties = { width: "96px", accentColor: "var(--color-accent)" };
+const sliderStyle: CSSProperties = { width: "96px", accentColor: "var(--accent)" };
 
 function Glyph({ children }: { children: ReactNode }): ReactElement {
   return (

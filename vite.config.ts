@@ -16,12 +16,19 @@ export default defineConfig({
   plugins: [
     react(),
     electron({
+      // The plugin forces ESM lib output for "type":"module" packages, and mergeConfig
+      // concatenates `formats`, so disable lib mode and emit CJS via rollup directly.
+      // Main is CJS by choice; the preload must be CJS because windows are sandboxed.
       main: {
         entry: "electron/main.ts",
         vite: {
           build: {
+            lib: false,
             outDir: "dist-electron",
-            rollupOptions: { output: { entryFileNames: "main.cjs", format: "cjs" } },
+            rollupOptions: {
+              input: "electron/main.ts",
+              output: { entryFileNames: "main.cjs", format: "cjs" },
+            },
           },
         },
       },
@@ -29,8 +36,12 @@ export default defineConfig({
         input: "electron/preload.ts",
         vite: {
           build: {
+            lib: false,
             outDir: "dist-electron",
-            rollupOptions: { output: { entryFileNames: "preload.cjs", format: "cjs" } },
+            rollupOptions: {
+              input: "electron/preload.ts",
+              output: { entryFileNames: "preload.cjs", format: "cjs" },
+            },
           },
         },
       },

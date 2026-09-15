@@ -1,7 +1,10 @@
+import { useEffect } from "react";
+
 /**
  * Typed mirror of the Organic tokens in `tokens.css`. React components should
  * prefer the CSS custom properties; this module exists for contexts that can't
- * read CSS variables — chiefly PixiJS, which needs concrete numeric colors.
+ * read CSS variables — chiefly PixiJS, which needs concrete numeric colors —
+ * and owns the runtime theme switch (`data-theme` on <html>).
  */
 
 export const colors = {
@@ -44,4 +47,54 @@ export const fonts = {
   body: '"Figtree", system-ui, sans-serif',
 } as const;
 
-export const radius = { sm: 8, md: 16, lg: 28 } as const;
+export const radius = { xs: 6, sm: 8, md: 16, lg: 28, full: 999 } as const;
+
+// ---------------------------------------------------------------------------
+// Theme selection
+// ---------------------------------------------------------------------------
+
+/** User setting (Settings → General → Theme). "system" follows the OS. */
+export type ThemePreference = "system" | "light" | "dark";
+
+/** The palette actually on screen. */
+export type ResolvedTheme = "light" | "dark";
+
+export const THEME_ATTRIBUTE = "data-theme";
+
+/**
+ * Apply a preference to the document root. "light"/"dark" pin the theme via
+ * `data-theme`; "system" removes the attribute so tokens.css falls back to
+ * `prefers-color-scheme`.
+ */
+export function applyThemePreference(
+  pref: ThemePreference,
+  root: HTMLElement = document.documentElement,
+): void {
+  if (pref === "light" || pref === "dark") root.setAttribute(THEME_ATTRIBUTE, pref);
+  else root.removeAttribute(THEME_ATTRIBUTE);
+}
+
+/** Which palette a preference renders, given the OS preference. */
+export function resolveTheme(pref: ThemePreference, systemPrefersDark: boolean): ResolvedTheme {
+  if (pref === "system") return systemPrefersDark ? "dark" : "light";
+  return pref;
+}
+
+/**
+ * Keep `data-theme` on <html> in sync with the preference. On unmount (or
+ * before re-applying) the attribute is restored to what it was before.
+ */
+export function useThemePreference(
+  pref: ThemePreference,
+  root: HTMLElement | null = typeof document === "undefined" ? null : document.documentElement,
+): void {
+  useEffect(() => {
+    if (!root) return;
+    const previous = root.getAttribute(THEME_ATTRIBUTE);
+    applyThemePreference(pref, root);
+    return () => {
+      if (previous === null) root.removeAttribute(THEME_ATTRIBUTE);
+      else root.setAttribute(THEME_ATTRIBUTE, previous);
+    };
+  }, [pref, root]);
+}

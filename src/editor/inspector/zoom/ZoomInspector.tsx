@@ -53,11 +53,11 @@ const mono = "ui-monospace, SFMono-Regular, Menlo, monospace";
 const rootStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  color: "var(--color-neutral-200)",
+  color: "var(--text-1)",
   fontFamily: "var(--font-body)",
 };
 
-const hintStyle: CSSProperties = { fontSize: "11px", color: "var(--color-neutral-500)" };
+const hintStyle: CSSProperties = { fontSize: "11px", color: "var(--text-3)" };
 
 const rowStyle: CSSProperties = {
   display: "flex",
@@ -67,7 +67,7 @@ const rowStyle: CSSProperties = {
   fontSize: "13px",
 };
 
-const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--color-neutral-400)" };
+const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--text-2)" };
 
 const CURVE_OPTIONS: ReadonlyArray<SegmentedOption<ZoomCurve>> = ZOOM_CURVES;
 
@@ -99,7 +99,7 @@ export function ZoomInspector(props: ZoomInspectorProps): ReactElement {
           {props.hasSuggestions ? "Regenerate" : "Generate suggestions"}
         </Button>
         {analyzing && (
-          <div role="status" style={{ ...rowStyle, color: "var(--color-neutral-400)" }}>
+          <div role="status" style={{ ...rowStyle, color: "var(--text-2)" }}>
             <Spinner />
             Analyzing cursor activity…
           </div>
@@ -297,7 +297,7 @@ function RegionEditor({
           <span style={labelStyle}>Duration</span>
           <span
             data-testid="zoom-duration"
-            style={{ fontFamily: mono, fontSize: "12px", color: "var(--color-neutral-300)" }}
+            style={{ fontFamily: mono, fontSize: "12px", color: "var(--text-2)" }}
           >
             {formatTimecode(regionDurationMs(region))}
           </span>
@@ -306,7 +306,7 @@ function RegionEditor({
           <Button variant="secondary" onClick={() => onDuplicate(region.id)}>
             Duplicate
           </Button>
-          <Button variant="ghost" onClick={() => onDelete(region.id)}>
+          <Button variant="danger" onClick={() => onDelete(region.id)}>
             Delete
           </Button>
         </div>
@@ -352,9 +352,9 @@ function TimeField({ label, valueMs, onCommit }: TimeFieldProps): ReactElement {
         onKeyDown={onKeyDown}
         style={{
           width: "96px",
-          background: "var(--color-neutral-800)",
-          color: "var(--color-neutral-100)",
-          border: "1px solid var(--color-neutral-700)",
+          background: "var(--bg-sunken)",
+          color: "var(--text-1)",
+          border: "1px solid var(--border-strong)",
           borderRadius: "var(--radius-sm)",
           padding: "2px var(--space-1)",
           fontFamily: mono,
@@ -377,14 +377,14 @@ function CurvePreview({ curve, label }: { curve: ZoomCurve; label: string }): Re
       viewBox={`0 0 ${w} ${h}`}
       style={{
         flex: "0 0 auto",
-        background: "var(--color-neutral-800)",
+        background: "var(--bg-sunken)",
         borderRadius: "var(--radius-sm)",
       }}
     >
       <path
         d={curvePath(sampleCurve(curve), w, h)}
         fill="none"
-        stroke="var(--color-accent)"
+        stroke="var(--accent)"
         strokeWidth={1.5}
       />
     </svg>
@@ -394,11 +394,11 @@ function CurvePreview({ curve, label }: { curve: ZoomCurve; label: string }): Re
 function Spinner(): ReactElement {
   return (
     <svg width={14} height={14} viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx={8} cy={8} r={6} fill="none" stroke="var(--color-neutral-700)" strokeWidth={2} />
+      <circle cx={8} cy={8} r={6} fill="none" stroke="var(--border-strong)" strokeWidth={2} />
       <path
         d="M8 2 a6 6 0 0 1 6 6"
         fill="none"
-        stroke="var(--color-accent)"
+        stroke="var(--accent)"
         strokeWidth={2}
         strokeLinecap="round"
       >
