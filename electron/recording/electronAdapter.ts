@@ -8,7 +8,7 @@ import { gzip as zGzip } from "node:zlib";
 import { type BrowserWindow, app, screen, systemPreferences } from "electron";
 import { createCaptureBackends, nodeHelperDeps } from "../capture/electronAdapter";
 import type { BackendId } from "../capture/types";
-import { type RecordingEvent, recordingEvents } from "./contracts";
+import { type FinalizeResponse, type RecordingEvent, recordingEvents } from "./contracts";
 import {
   type RecordingController,
   type RecordingSettings,
@@ -28,6 +28,8 @@ export interface RecordingMainOptions {
   targets(): BrowserWindow[];
   /** Main-process observer of every `recording:event` (e.g. the tray). */
   onEvent?: ((event: RecordingEvent) => void) | undefined;
+  /** After finalize, e.g. WebM → MP4 remux (see remuxPostProcess.ts). */
+  postProcess?: ((res: FinalizeResponse) => Promise<FinalizeResponse>) | undefined;
   recordingsDir?: string | undefined;
   /**
    * Global input hook for cursor/click/key telemetry: uiohook-napi (Win/Linux)
@@ -63,6 +65,7 @@ export function createRecordingMain(opts: RecordingMainOptions): RecordingContro
       return s.bavail * s.bsize;
     },
     recordingsDir,
+    postProcess: opts.postProcess,
     join,
     mkdir: async (p) => {
       await mkdir(p, { recursive: true });

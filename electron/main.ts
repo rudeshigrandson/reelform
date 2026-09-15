@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BrowserWindow, app, shell } from "electron";
@@ -32,6 +32,7 @@ import { createProjectHandlers } from "./project";
 import { createElectronProjectDeps } from "./project/electronAdapter";
 import type { RecordingEvent } from "./recording/contracts";
 import { createRecordingMain } from "./recording/electronAdapter";
+import { createRemuxPostProcess } from "./recording/remuxPostProcess";
 import { createSettingsHandlers } from "./settings/contracts";
 import { createElectronSettings } from "./settings/electronAdapter";
 import { createSystemFileHandlers } from "./system";
@@ -167,6 +168,20 @@ async function boot(): Promise<void> {
 
   const recording = createRecordingMain({
     onEvent: onRecordingEvent,
+    // WebM from the Electron backend has no duration/seek index: remux to MP4 when ffmpeg exists.
+    postProcess: createRemuxPostProcess({
+      runner: nodeRunnerDeps,
+      resolveBinaries: mediaDeps.resolveBinaries,
+      fileSize: async (p) => {
+        try {
+          return (await stat(p)).size;
+        } catch {
+          return null;
+        }
+      },
+      remove: (p) => rm(p, { force: true }),
+      log: (message) => console.warn(`[recording] ${message}`),
+    }),
     binDir,
     settings: () => ({
       keepTypedText: false,
