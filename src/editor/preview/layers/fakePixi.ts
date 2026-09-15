@@ -1,3 +1,4 @@
+import type { SceneGraphPixi } from "../sceneGraph";
 import type {
   ContainerLike,
   FillStyleLike,
@@ -10,8 +11,9 @@ import type {
 } from "./pixiTypes";
 
 /**
- * Test double for the pixi.js surface in `pixiTypes.ts`. Graphics record their
- * draw calls; Text measures width as `chars × fontSize × 0.5`.
+ * Test double for the pixi.js surface in `pixiTypes.ts` and the scene graph
+ * port (`SceneGraphPixi`). Graphics record their draw calls; Text measures
+ * width as `chars × fontSize × 0.5`; filters / gradients are plain records.
  */
 
 export class FakePoint implements PointLike {
@@ -36,6 +38,8 @@ export class FakeContainer implements ContainerLike {
   scale = new FakePoint(1);
   pivot = new FakePoint(0);
   mask: unknown = null;
+  filters: unknown = null;
+  filterArea: unknown = null;
   children: FakeContainer[] = [];
   parent: FakeContainer | null = null;
   destroyed = false;
@@ -106,7 +110,7 @@ export class FakeGraphics extends FakeContainer implements GraphicsLike {
   lineTo(x: number, y: number): this {
     return this.op("lineTo", x, y);
   }
-  fill(style: FillStyleLike): this {
+  fill(style: FillStyleLike | object): this {
     return this.op("fill", style);
   }
   stroke(style: StrokeStyleLike): this {
@@ -140,6 +144,8 @@ export class FakeText extends FakeContainer implements TextLike {
 export class FakeSprite extends FakeContainer {
   width = 0;
   height = 0;
+  texture: unknown = null;
+  anchor = new FakePoint(0);
 }
 
 export const fakePixi: LayerPixi = {
@@ -147,6 +153,32 @@ export const fakePixi: LayerPixi = {
   Graphics: FakeGraphics,
   Text: FakeText,
 };
+
+/** A fake texture of a given size. */
+export function fakeTexture(
+  width: number,
+  height: number,
+  label = "tex",
+): { width: number; height: number; label: string } {
+  return { width, height, label };
+}
+
+/** Scene-graph port over the fakes; filters/gradients are inspectable records. */
+export function createFakeScenePixi(): SceneGraphPixi {
+  return {
+    Container: FakeContainer,
+    Graphics: FakeGraphics,
+    Text: FakeText,
+    Sprite: FakeSprite,
+    createBlurFilter: (strength) => ({ kind: "blur", strength, destroy() {} }),
+    createPixelateFilter: (size) => ({ kind: "pixelate", size, destroy() {} }),
+    createColorMatrixFilter: () => ({ kind: "colorMatrix", matrix: [], destroy() {} }),
+    createNoiseFilter: () => ({ kind: "noise", noise: 0, seed: 0, destroy() {} }),
+    createLinearGradient: (o) => ({ kind: "linear", ...o, destroy() {} }),
+    createRadialGradient: (o) => ({ kind: "radial", ...o, destroy() {} }),
+    createRectangle: (x, y, width, height) => ({ x, y, width, height }),
+  };
+}
 
 /** Depth-first search by label. */
 export function findByLabel(root: FakeContainer, label: string): FakeContainer[] {

@@ -9,7 +9,10 @@ import {
   focusAt,
   zoomLevelAt,
 } from "./camera";
+import type { SceneComposition } from "./compose";
 import { type FrameLayout, computeFrameLayout } from "./layout";
+import type { MeshPoint, WallpaperRegistry } from "./wallpapers";
+import { wallpaperPaint } from "./wallpapers";
 
 /**
  * Scene evaluation — the pure half of `SceneBuilder.update(tMs)` (§6.4).
@@ -30,6 +33,13 @@ export interface SceneInput {
   cursorTrack?: CursorPositionSource | null | undefined;
   /** Whether a playable video is attached (otherwise a placeholder is drawn). */
   hasVideo: boolean;
+  /** Procedural wallpapers by id; unknown ids use `wallpaperFallbackPaint`. */
+  wallpapers?: WallpaperRegistry | null | undefined;
+  /**
+   * Timeline → source time for telemetry lookups (cursor, follow focus).
+   * Omitted = identity (untrimmed timeline).
+   */
+  sourceTimeAt?: ((timelineMs: number) => number) | undefined;
 }
 
 export interface PaintStop {
@@ -43,6 +53,8 @@ export type BackgroundPaint =
   | { kind: "solid"; color: string }
   | { kind: "linear-gradient"; angle: number; stops: PaintStop[] }
   | { kind: "radial-gradient"; stops: PaintStop[] }
+  /** Procedural mesh: `base` fill plus soft radial color blobs. */
+  | { kind: "mesh"; base: string; points: MeshPoint[] }
   /** User image; adapters paint `fallbackColor` until the asset resolves. */
   | { kind: "image"; path: string; fit: "fit" | "fill"; fallbackColor: string };
 
@@ -72,6 +84,11 @@ export interface SceneState {
     crop: { x: number; y: number; width: number; height: number } | null;
   };
   cursor: CursorState;
+  /**
+   * Remaining §6.4 layers (annotations, captions, webcam, title cards, cursor
+   * effects, color). Set by `composeScene`; absent → base layers only.
+   */
+  composition?: SceneComposition | undefined;
 }
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -100,10 +117,8 @@ function hashString(s: string): number {
 }
 
 /**
- * Placeholder paint for a wallpaper id. Bundled wallpaper images
- * (`public/wallpapers/*.jpg`, §9.1) have not shipped yet, so each id maps to
- * a deterministic two-stop diagonal gradient derived from its hash. Replace
- * with the real wallpaper sprite once the pack lands.
+ * Placeholder paint for a wallpaper id missing from the manifest: a
+ * deterministic two-stop diagonal gradient derived from its hash.
  */
 export function wallpaperFallbackPaint(wallpaperId: string): BackgroundPaint {
   const h = hashString(wallpaperId);
@@ -119,7 +134,10 @@ export function wallpaperFallbackPaint(wallpaperId: string): BackgroundPaint {
   };
 }
 
-export function resolveBackgroundPaint(bg: FrameBackground): BackgroundPaint {
+export function resolveBackgroundPaint(
+  bg: FrameBackground,
+  wallpapers?: WallpaperRegistry | null | undefined,
+): BackgroundPaint {
   switch (bg.kind) {
     case "none":
       return { kind: "transparent" };
@@ -140,8 +158,10 @@ export function resolveBackgroundPaint(bg: FrameBackground): BackgroundPaint {
             stops,
           };
     }
-    case "wallpaper":
-      return wallpaperFallbackPaint(bg.wallpaperId);
+    case "wallpaper": {
+      const def = wallpapers?.get(bg.wallpaperId);
+      return def ? wallpaperPaint(def) : wallpaperFallbackPaint(bg.wallpaperId);
+    }
     case "image":
       return bg.image.path === null
         ? { kind: "solid", color: safeColor(bg.color) }
@@ -156,7 +176,14 @@ export function resolveBackgroundPaint(bg: FrameBackground): BackgroundPaint {
 
 export function evaluateScene(input: SceneInput, tMs: number): SceneState {
   const t = Number.isFinite(tMs) ? tMs : 0;
-  const { frame, cursor, cursorTrack } = input;
+  const { frame, cursor } = input;
+  const toSource = input.sourceTimeAt;
+  const cursorTrack: CursorPositionSource | null | undefined =
+    toSource && input.cursorTrack
+      ? {
+          positionAt: (ms) => (input.cursorTrack as CursorPositionSource).positionAt(toSource(ms)),
+        }
+      : input.cursorTrack;
   const layout = computeFrameLayout(input.canvas, frame, input.sourceSize);
   const contentW = layout.content.width;
   const contentH = layout.content.height;
@@ -182,7 +209,7 @@ export function evaluateScene(input: SceneInput, tMs: number): SceneState {
     };
   }
 
-  const bgPaint = resolveBackgroundPaint(frame.background);
+  const bgPaint = resolveBackgroundPaint(frame.background, input.wallpapers);
   const blurs = frame.background.kind === "wallpaper" || frame.background.kind === "image";
 
   return {

@@ -2,11 +2,11 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { CursorPoint } from "./cursorSmoothing.js";
 import {
+  RESAMPLE_PERIOD_MS,
+  SmoothedCursorTrack,
   buildSmoothedCursorTrack,
   knobToMinCutoff,
-  RESAMPLE_PERIOD_MS,
   resampleAndSmooth,
-  SmoothedCursorTrack,
 } from "./cursorSmoothing.js";
 
 /** Build a straight, constant-velocity line from (x0,y0) to (x1,y1). */
