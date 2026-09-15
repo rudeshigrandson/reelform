@@ -21,7 +21,17 @@ export type FsErrorCode =
   | "EXPORT_CLOSED"
   | "EXPORT_CANCELLED"
   | "EXPORT_WRITE_FAILED"
-  | "INVALID_NAME";
+  | "INVALID_NAME"
+  | "FFMPEG_UNAVAILABLE"
+  | "MUX_INVALID_INPUT"
+  | "MUX_FAILED"
+  | "SOURCE_NOT_FOUND"
+  | "TRIM_NOTHING_TO_SAVE"
+  | "TRIM_LINKED_TRACKS"
+  | "TRIM_FAILED"
+  | "TRIM_UNDO_NOT_FOUND"
+  | "PROXY_FAILED"
+  | "THUMBNAILS_FAILED";
 
 export interface IpcErrorShape {
   code: string;

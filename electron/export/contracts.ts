@@ -62,6 +62,20 @@ export const exportContracts = {
     z.object({ exportId: z.string().min(1) }),
     z.object({ cancelled: z.boolean() }),
   ),
+  /**
+   * PCM WAV fallback (§10.1/§10.5): mux the WAV into the finished silent video
+   * as AAC (mp4) or Opus (webm), replace the video in place, delete the WAV.
+   * Fails with FFMPEG_UNAVAILABLE when no ffmpeg binary is found.
+   */
+  "export:muxAudio": channel(
+    "export:muxAudio",
+    z.object({
+      videoPath: z.string().min(1).max(4096),
+      wavPath: z.string().min(1).max(4096),
+      container: z.enum(["mp4", "webm"]),
+    }),
+    z.object({ ok: z.literal(true), outputPath: z.string() }),
+  ),
 } as const;
 
 export type ExportContracts = typeof exportContracts;

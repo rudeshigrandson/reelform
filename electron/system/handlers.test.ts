@@ -8,6 +8,7 @@ import {
   dropFilesBuffer,
   fileUrlFor,
 } from "./handlers";
+import { createPickedPathRegistry } from "./pickedPaths";
 
 function makeDeps(overrides: Partial<SystemDeps> = {}) {
   const calls = {
@@ -119,6 +120,27 @@ describe("pickers", () => {
       title: "Export to",
       properties: ["openDirectory", "createDirectory"],
     });
+  });
+
+  it("records picked and saved files in the picked-path registry; cancels record nothing", async () => {
+    const pickedPaths = createPickedPathRegistry("linux");
+    const { h } = makeDeps({ pickedPaths });
+    await h["system:pickFile"]({});
+    await h["system:saveDialog"]({ defaultName: "out.mp4" });
+    expect(pickedPaths.has("/picked/a")).toBe(true);
+    expect(pickedPaths.has("/picked/out.mp4")).toBe(true);
+
+    const none = createPickedPathRegistry("linux");
+    const cancelled = makeDeps({
+      pickedPaths: none,
+      showOpenDialog: async () => ({ canceled: true, filePaths: ["/nope"] }),
+      showSaveDialog: async () => ({ canceled: true, filePath: "/nope2" }),
+    });
+    await cancelled.h["system:pickFile"]({});
+    await cancelled.h["system:saveDialog"]({ defaultName: "a.srt" });
+    await cancelled.h["system:pickFolder"](undefined);
+    expect(none.has("/nope")).toBe(false);
+    expect(none.has("/nope2")).toBe(false);
   });
 
   it("saveDialog joins the default dir and strips directories from the name", async () => {

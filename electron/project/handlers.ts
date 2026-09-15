@@ -10,7 +10,9 @@ import type {
   TrashedProjectEntry,
 } from "./contracts";
 import { FsIpcError, errnoCode } from "./errors";
+import { createFilmstripService } from "./filmstrip";
 import type { FsLike } from "./fsTypes";
+import type { FfmpegDeps } from "./mediaTools";
 import {
   BACKUPS_DIR,
   CACHE_DIR,
@@ -27,7 +29,9 @@ import {
   resolveWithin,
   uniqueName,
 } from "./paths";
+import { type ProxyProgressEvent, createProxyService } from "./proxy";
 import type { RecentsStore } from "./recents";
+import { restoreTrimmedSource, trimSource } from "./trimSource";
 
 export type ValidationResult =
   | { ok: true; value: unknown }
@@ -48,6 +52,12 @@ export interface ProjectDeps {
   probe: (absPath: string) => Promise<MediaProbe>;
   /** Fresh project id for `project:saveAs` copies. Defaults to `crypto.randomUUID`. */
   newId?: (() => string) | undefined;
+  /** ffmpeg/ffprobe for trim, proxy and filmstrip jobs; omitted → FFMPEG_UNAVAILABLE. */
+  ffmpeg?: FfmpegDeps | undefined;
+  /** Push `project:proxyProgress` to renderers. */
+  onProxyProgress?: ((e: ProxyProgressEvent) => void) | undefined;
+  /** A project's trim trash gained an original (purge it on quit). */
+  onTrimTrashed?: ((projectDir: string) => void) | undefined;
 }
 
 /** Soft-deleted projects live here, inside the library root. */
@@ -356,7 +366,30 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
     }
   };
 
-  return {
+  const proxies = createProxyService({
+    fs,
+    ffmpeg: deps.ffmpeg,
+    onProgress: deps.onProxyProgress,
+  });
+  const filmstrips = createFilmstripService({ fs, ffmpeg: deps.ffmpeg });
+
+  /** Folder for a `{ projectId } | { path }` reference; must exist. */
+  const projectDirFor = async (ref: {
+    projectId?: string | undefined;
+    path?: string | undefined;
+  }): Promise<string> => {
+    if (ref.path !== undefined) {
+      const dir = requireProjectPath(ref.path);
+      await requireDir(dir);
+      return dir;
+    }
+    if (ref.projectId === undefined) {
+      throw new FsIpcError("INVALID_PATH", "projectId or path is required");
+    }
+    return (await handlers["project:resolve"]({ projectId: ref.projectId })).path;
+  };
+
+  const handlers: ProjectHandlers = {
     "project:resolve": async (req) => {
       const cached = idIndex.get(req.projectId);
       if (cached !== undefined && (await idAt(cached)) === req.projectId) return { path: cached };
@@ -687,5 +720,42 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
       await fs.copyFile(file, dest);
       return { path: `${MEDIA_DIR}/${name}`, probe };
     },
+
+    "project:trimSource": async (req) => {
+      const dir = await projectDirFor(req);
+      return withLock(dir, () =>
+        trimSource(
+          {
+            fs,
+            ffmpeg: deps.ffmpeg,
+            newToken: newId,
+            now: deps.now,
+            onTrashed: deps.onTrimTrashed,
+          },
+          dir,
+          {
+            usedRange: req.usedRange,
+            videoPath: req.videoPath,
+            clips: req.clips,
+            allowLinkedTracks: req.allowLinkedTracks,
+          },
+        ),
+      );
+    },
+
+    "project:restoreTrimmedSource": async (req) => {
+      const dir = await projectDirFor(req);
+      const res = await withLock(dir, () => restoreTrimmedSource({ fs }, dir, req.undoToken));
+      return { ok: true as const, videoPath: res.videoPath };
+    },
+
+    "project:ensureProxy": async (req) => proxies.ensure(await projectDirFor(req), req.projectId),
+
+    "project:ensureThumbnails": async (req) =>
+      filmstrips.ensure(await projectDirFor(req), {
+        intervalMs: req.intervalMs,
+        height: req.height,
+      }),
   };
+  return handlers;
 }

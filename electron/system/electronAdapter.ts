@@ -9,17 +9,23 @@ import {
   shell,
 } from "electron";
 import type { SystemDeps } from "./handlers";
+import type { PickedPathRegistry } from "./pickedPaths";
 
 /**
  * Real deps for {@link createSystemFileHandlers}. Dialogs are parented to the
  * focused window when there is one (sheet on macOS).
  */
 export function createElectronSystemDeps(
-  opts: { focusedWindow?: (() => BrowserWindow | null) | undefined } = {},
+  opts: {
+    focusedWindow?: (() => BrowserWindow | null) | undefined;
+    /** Share with `createNodeProjectFileDeps` so picked files are readable/writable. */
+    pickedPaths?: PickedPathRegistry | undefined;
+  } = {},
 ): SystemDeps {
   const parent = (): BrowserWindow | null => opts.focusedWindow?.() ?? null;
   return {
     platform: process.platform,
+    pickedPaths: opts.pickedPaths,
     pathExists: async (p) => {
       try {
         await fsp.access(p);

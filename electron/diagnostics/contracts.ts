@@ -26,7 +26,17 @@ export const diagnosticsContracts = {
     name: "system:cacheInfo",
     request: z.void(),
     /** `bytes` null when the cache size cannot be read. */
-    response: z.object({ bytes: z.number().int().min(0).nullable() }),
+    response: z.object({
+      bytes: z.number().int().min(0).nullable(),
+      /** Per-area sizes when known: Chromium session cache, project caches, app caches. */
+      breakdown: z
+        .object({
+          sessionBytes: z.number().int().min(0).nullable(),
+          projectsBytes: z.number().int().min(0),
+          extraBytes: z.number().int().min(0),
+        })
+        .optional(),
+    }),
   },
   "system:clearCache": {
     name: "system:clearCache",
@@ -56,6 +66,10 @@ export type DiagnosticsHandlers = {
 export interface SystemUtilities {
   openLogsFolder?: (() => Promise<boolean>) | undefined;
   cacheSize?: (() => Promise<number>) | undefined;
+  /** Preferred over `cacheSize` when present: sizes per cache area. */
+  cacheBreakdown?:
+    | (() => Promise<{ sessionBytes: number | null; projectsBytes: number; extraBytes: number }>)
+    | undefined;
   clearCache?: (() => Promise<void>) | undefined;
   pickFolder?:
     | ((opts: { title?: string | undefined; defaultPath?: string | undefined }) => Promise<
@@ -94,6 +108,24 @@ export function createDiagnosticsHandlers(deps: DiagnosticsDeps): DiagnosticsHan
       }
     },
     "system:cacheInfo": async () => {
+      const breakdown = deps.system?.cacheBreakdown;
+      if (breakdown) {
+        const clean = (n: number | null): number | null =>
+          n !== null && Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+        try {
+          const b = await breakdown();
+          const sessionBytes = clean(b.sessionBytes);
+          const projectsBytes = clean(b.projectsBytes) ?? 0;
+          const extraBytes = clean(b.extraBytes) ?? 0;
+          return {
+            bytes: (sessionBytes ?? 0) + projectsBytes + extraBytes,
+            breakdown: { sessionBytes, projectsBytes, extraBytes },
+          };
+        } catch (e) {
+          deps.onError?.(e);
+          return { bytes: null };
+        }
+      }
       const size = deps.system?.cacheSize;
       if (!size) return { bytes: null };
       try {

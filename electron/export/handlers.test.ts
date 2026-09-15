@@ -1,6 +1,7 @@
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import fc from "fast-check";
+import { type SpawnCall, scriptedSpawn } from "../media/testUtils";
 import { FsIpcError } from "../project/errors";
 import { faultyFs, makeTmpDir, realFs, removeDir } from "../project/testHelpers";
 import { exportContracts } from "./contracts";
@@ -332,5 +333,129 @@ describe("export sink", () => {
     await expect(dup["export:begin"]({ projectId: "proj", config: {} })).rejects.toThrow(
       "unusable id",
     );
+  });
+});
+
+describe("export:muxAudio", () => {
+  const ok = (call: SpawnCall) => call.child.close(0);
+  const bins = () => ({ ffmpeg: "/ff", ffprobe: "/fp" });
+
+  /** Video + WAV finalized through this service's sink, like the renderer runner does. */
+  async function fixture(svc: ReturnType<typeof makeService>, container: "mp4" | "webm" = "mp4") {
+    const finished = async (finalName: string, body: string) => {
+      const h = svc.handlers;
+      const { exportId } = await h["export:begin"]({ projectId: "proj", config: {} });
+      await h["export:writeChunk"]({ exportId, chunk: bytes(body) });
+      return (await h["export:finish"]({ exportId, finalName })).path;
+    };
+    const videoPath = await finished(`Demo.${container}`, "silent-video");
+    const wavPath = await finished("Demo.wav", "pcm");
+    return { dir: exportsDir, videoPath, wavPath };
+  }
+
+  /** Fake ffmpeg: writes the output file named by the last arg, then exits. */
+  const writingSpawn = (exit = 0) =>
+    scriptedSpawn((call) => {
+      const out = call.args.at(-1) ?? "";
+      void fsp.writeFile(out, "muxed").then(() => call.child.close(exit));
+    });
+
+  it("muxes into a temp file, renames over the video and deletes the WAV", async () => {
+    const { spawn, calls } = writingSpawn();
+    const svc = makeService({ ffmpeg: { runner: { spawn }, resolveBinaries: bins } });
+    const { videoPath, wavPath, dir } = await fixture(svc);
+    const res = await svc.handlers["export:muxAudio"]({ videoPath, wavPath, container: "mp4" });
+    expect(res).toEqual({ ok: true, outputPath: videoPath });
+    expect(exportContracts["export:muxAudio"].response.parse(res)).toEqual(res);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.command).toBe("/ff");
+    const args = calls[0]?.args ?? [];
+    expect(args.slice(args.indexOf("-i"), args.indexOf("-i") + 4)).toEqual([
+      "-i",
+      videoPath,
+      "-i",
+      wavPath,
+    ]);
+    expect(args).toContain("aac");
+    expect(path.dirname(args.at(-1) ?? "")).toBe(dir);
+    expect(path.basename(args.at(-1) ?? "")).toMatch(/^\.reelform-mux-exp-\d+\.partial\.mp4$/);
+    expect(await fsp.readFile(videoPath, "utf8")).toBe("muxed");
+    expect(await fsp.readdir(dir)).toEqual(["Demo.mp4"]);
+    // The WAV export is consumed: a second mux is refused before ffmpeg runs.
+    await fsp.writeFile(wavPath, "pcm");
+    expect(
+      await codeOf(svc.handlers["export:muxAudio"]({ videoPath, wavPath, container: "mp4" })),
+    ).toBe("MUX_INVALID_INPUT");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("uses libopus for webm", async () => {
+    const { spawn, calls } = writingSpawn();
+    const svc = makeService({ ffmpeg: { runner: { spawn }, resolveBinaries: bins } });
+    const { videoPath, wavPath } = await fixture(svc, "webm");
+    await svc.handlers["export:muxAudio"]({ videoPath, wavPath, container: "webm" });
+    expect(calls[0]?.args).toContain("libopus");
+  });
+
+  it("FFMPEG_UNAVAILABLE without ffmpeg; the files stay put", async () => {
+    const plain = makeService();
+    const a = await fixture(plain);
+    expect(await codeOf(plain.handlers["export:muxAudio"]({ ...a, container: "mp4" }))).toBe(
+      "FFMPEG_UNAVAILABLE",
+    );
+    await removeDir(exportsDir);
+    const noBins = makeService({
+      ffmpeg: { runner: { spawn: scriptedSpawn(ok).spawn }, resolveBinaries: () => null },
+    });
+    const b = await fixture(noBins);
+    expect(await codeOf(noBins.handlers["export:muxAudio"]({ ...b, container: "mp4" }))).toBe(
+      "FFMPEG_UNAVAILABLE",
+    );
+    expect(await fsp.readFile(b.wavPath, "utf8")).toBe("pcm");
+  });
+
+  it("an ffmpeg failure removes the temp file and keeps video + WAV", async () => {
+    const { spawn } = writingSpawn(1);
+    const svc = makeService({ ffmpeg: { runner: { spawn }, resolveBinaries: bins } });
+    const { videoPath, wavPath, dir } = await fixture(svc);
+    expect(
+      await codeOf(svc.handlers["export:muxAudio"]({ videoPath, wavPath, container: "mp4" })),
+    ).toBe("MUX_FAILED");
+    expect((await fsp.readdir(dir)).sort()).toEqual(["Demo.mp4", "Demo.wav"]);
+    expect(await fsp.readFile(videoPath, "utf8")).toBe("silent-video");
+  });
+
+  it("rejects mismatched extensions, other folders, unexported and missing files before running ffmpeg", async () => {
+    const { spawn, calls } = scriptedSpawn(ok);
+    const svc = makeService({ ffmpeg: { runner: { spawn }, resolveBinaries: bins } });
+    const { videoPath, wavPath, dir } = await fixture(svc);
+    const mux = svc.handlers["export:muxAudio"];
+    expect(await codeOf(mux({ videoPath, wavPath, container: "webm" }))).toBe("MUX_INVALID_INPUT");
+    expect(await codeOf(mux({ videoPath, wavPath: videoPath, container: "mp4" }))).toBe(
+      "MUX_INVALID_INPUT",
+    );
+    const elsewhere = path.join(tmp, "other.wav");
+    await fsp.writeFile(elsewhere, "pcm");
+    expect(await codeOf(mux({ videoPath, wavPath: elsewhere, container: "mp4" }))).toBe(
+      "MUX_INVALID_INPUT",
+    );
+    // Same folder, right extensions, but never produced by this sink.
+    const strayVideo = path.join(dir, "Other.mp4");
+    const strayWav = path.join(dir, "Other.wav");
+    await fsp.writeFile(strayVideo, "someone else's video");
+    await fsp.writeFile(strayWav, "pcm");
+    expect(await codeOf(mux({ videoPath: strayVideo, wavPath, container: "mp4" }))).toBe(
+      "MUX_INVALID_INPUT",
+    );
+    expect(await codeOf(mux({ videoPath, wavPath: strayWav, container: "mp4" }))).toBe(
+      "MUX_INVALID_INPUT",
+    );
+    await fsp.rm(wavPath);
+    expect(await codeOf(mux({ videoPath, wavPath, container: "mp4" }))).toBe("SOURCE_NOT_FOUND");
+    expect(await codeOf(mux({ videoPath: "rel.mp4", wavPath, container: "mp4" }))).toBe(
+      "INVALID_PATH",
+    );
+    expect(calls).toHaveLength(0);
+    expect(await fsp.readFile(strayWav, "utf8")).toBe("pcm");
   });
 });

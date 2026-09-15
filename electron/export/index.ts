@@ -10,5 +10,7 @@ export {
   createExportService,
   type ExportDeps,
   type ExportService,
+  type FfmpegDeps,
+  muxTempFileName,
   tempFileName,
 } from "./handlers";

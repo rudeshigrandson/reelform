@@ -90,6 +90,47 @@ describe("createInspectorSystemPort", () => {
     });
   });
 
+  it("trimSource sends the used hull by path and rewrites clips by the returned offset", async () => {
+    const { invoke, calls } = fakeInvoke({
+      "project:trimSource": {
+        clips: [],
+        videoPath: "media/screen-trimmed.mp4",
+        videoDurationMs: 12_500,
+        savedBytes: 700,
+        offsetMs: 8500,
+        undoToken: "tok-1",
+      },
+      "project:restoreTrimmedSource": { ok: true, videoPath: "media/screen.mp4" },
+    });
+    const port = createInspectorSystemPort(invoke, () => {});
+    const res = await port.trimSource("/p/Demo.reelform", [
+      { id: "k1", sourceStartMs: 10_000, sourceEndMs: 15_000, timelineStartMs: 0 },
+      { id: "k2", sourceStartMs: 17_000, sourceEndMs: 20_000, timelineStartMs: 5000 },
+    ]);
+    expect(calls[0]).toEqual({
+      channel: "project:trimSource",
+      payload: { path: "/p/Demo.reelform", usedRange: { startMs: 10_000, endMs: 20_000 } },
+    });
+    expect(res).toEqual({
+      clips: [
+        { id: "k1", sourceStartMs: 1500, sourceEndMs: 6500, timelineStartMs: 0 },
+        { id: "k2", sourceStartMs: 8500, sourceEndMs: 11_500, timelineStartMs: 5000 },
+      ],
+      videoPath: "media/screen-trimmed.mp4",
+      videoDurationMs: 12_500,
+      savedBytes: 700,
+      undoToken: "tok-1",
+      offsetMs: 8500,
+    });
+    await expect(port.restoreTrimmedSource("/p/Demo.reelform", "tok-1")).resolves.toBeUndefined();
+    expect(calls[1]).toEqual({
+      channel: "project:restoreTrimmedSource",
+      payload: { path: "/p/Demo.reelform", undoToken: "tok-1" },
+    });
+    await expect(port.trimSource("/p/Demo.reelform", [])).rejects.toThrow();
+    expect(calls).toHaveLength(2);
+  });
+
   it("outside Electron: required results throw a coded error, optional ones degrade", async () => {
     const { invoke } = fakeInvoke({});
     const closeWindow = vi.fn();
@@ -99,6 +140,12 @@ describe("createInspectorSystemPort", () => {
       code: "NOT_BRIDGED",
     });
     expect(await port.statFiles("/p", ["media/a"])).toEqual({});
+    await expect(
+      port.trimSource("/p", [{ id: "k", sourceStartMs: 0, sourceEndMs: 1, timelineStartMs: 0 }]),
+    ).rejects.toBeInstanceOf(NotBridgedError);
+    await expect(port.restoreTrimmedSource("/p", "t")).rejects.toMatchObject({
+      code: "NOT_BRIDGED",
+    });
     expect(await port.pickFile({ title: "x", filters: SRT })).toBeNull();
     await expect(port.reveal("/p")).resolves.toBeUndefined();
     port.closeWindow?.();

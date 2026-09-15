@@ -4,6 +4,7 @@ import { join } from "node:path";
 import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { systemProjectFileContracts } from "./contracts";
+import { createPickedPathRegistry } from "./pickedPaths";
 import {
   ProjectFileError,
   createProjectFileHandlers,
@@ -11,7 +12,7 @@ import {
   resolveInProject,
   sanitizeFileName,
 } from "./projectFiles";
-import { createNodeProjectFileDeps } from "./projectFilesNode";
+import { createNodeProjectFileDeps, isInsideProjectFolder } from "./projectFilesNode";
 
 let dir: string;
 let project: string;
@@ -77,6 +78,102 @@ describe("system:readTextFile / system:writeTextFile", () => {
     await expect(
       h()["system:readTextFile"]({ path: join(dir, "missing.srt") }),
     ).rejects.toBeInstanceOf(ProjectFileError);
+  });
+});
+
+describe("text I/O access policy (§13)", () => {
+  const enforced = (opts: { picked?: string[]; projectOnly?: boolean } = {}) => {
+    const pickedPaths = createPickedPathRegistry("linux");
+    for (const p of opts.picked ?? []) pickedPaths.add(p);
+    return createProjectFileHandlers(
+      createNodeProjectFileDeps({
+        platform: "darwin",
+        pickedPaths,
+        isProjectPath: opts.projectOnly === false ? undefined : isInsideProjectFolder,
+      }),
+    );
+  };
+
+  beforeEach(async () => {
+    await writeFile(join(project, "project.json"), "{}");
+  });
+
+  it("allows dialog-picked paths anywhere with a text extension", async () => {
+    const target = join(dir, "Desktop", "captions.srt");
+    const h2 = enforced({ picked: [target] });
+    await h2["system:writeTextFile"]({ path: target, contents: "1\n" });
+    expect(await h2["system:readTextFile"]({ path: target })).toEqual({ text: "1\n" });
+  });
+
+  it("allows paths inside a project folder, creating parents", async () => {
+    const target = join(project, "exports", "captions.vtt");
+    const h2 = enforced();
+    await h2["system:writeTextFile"]({ path: target, contents: "WEBVTT" });
+    expect(await h2["system:readTextFile"]({ path: target })).toEqual({ text: "WEBVTT" });
+  });
+
+  it("rejects unpicked paths outside projects without touching the disk", async () => {
+    const target = join(dir, "elsewhere", "notes.txt");
+    const h2 = enforced();
+    await expect(h2["system:writeTextFile"]({ path: target, contents: "x" })).rejects.toMatchObject(
+      { code: "PATH_OUTSIDE_PROJECT" },
+    );
+    await expect(readFile(target, "utf8")).rejects.toThrow();
+    await writeFile(join(dir, "secret.json"), "{}");
+    await expect(
+      h2["system:readTextFile"]({ path: join(dir, "secret.json") }),
+    ).rejects.toMatchObject({ code: "PATH_OUTSIDE_PROJECT" });
+  });
+
+  it("rejects non-text extensions even when picked or inside a project", async () => {
+    const picked = join(dir, "movie.mp4");
+    const h2 = enforced({ picked: [picked] });
+    await expect(h2["system:writeTextFile"]({ path: picked, contents: "x" })).rejects.toMatchObject(
+      {
+        code: "PATH_OUTSIDE_PROJECT",
+      },
+    );
+    await expect(
+      h2["system:readTextFile"]({ path: join(project, "media", "screen.mp4") }),
+    ).rejects.toMatchObject({ code: "PATH_OUTSIDE_PROJECT" });
+  });
+
+  it("a folder named .reelform without project.json is not a project", async () => {
+    const fake = join(dir, "Fake.reelform");
+    await mkdir(fake, { recursive: true });
+    await expect(
+      enforced()["system:writeTextFile"]({ path: join(fake, "a.txt"), contents: "x" }),
+    ).rejects.toMatchObject({ code: "PATH_OUTSIDE_PROJECT" });
+  });
+
+  it("a symlink out of a project does not count as inside it", async () => {
+    const outside = join(dir, "outside");
+    await mkdir(outside, { recursive: true });
+    const linked = await symlink(outside, join(project, "escape")).then(
+      () => true,
+      () => false,
+    );
+    if (!linked) return;
+    expect(await isInsideProjectFolder(join(project, "escape", "a.txt"))).toBe(false);
+    expect(await isInsideProjectFolder(join(project, "cache", "new", "a.txt"))).toBe(true);
+  });
+
+  it("picked-only mode (no project predicate) still enforces", async () => {
+    const h2 = enforced({ projectOnly: false });
+    await expect(h2["system:readTextFile"]({ path: join(project, "a.txt") })).rejects.toMatchObject(
+      { code: "PATH_OUTSIDE_PROJECT" },
+    );
+  });
+
+  it("picked-path registry normalizes and folds case on macOS/Windows", () => {
+    const mac = createPickedPathRegistry("darwin");
+    mac.add("/Users/Me/Desktop/../Desktop/A.srt");
+    expect(mac.has("/users/me/desktop/a.srt")).toBe(true);
+    const linux = createPickedPathRegistry("linux");
+    linux.add("/home/me/A.srt");
+    expect(linux.has("/home/me/a.srt")).toBe(false);
+    linux.add("bad\0path");
+    expect(linux.has("bad\0path")).toBe(false);
   });
 });
 

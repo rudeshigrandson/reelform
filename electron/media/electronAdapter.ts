@@ -4,7 +4,7 @@ import { createReadStream, existsSync, promises as fsp } from "node:fs";
 import * as nodePath from "node:path";
 import { Readable } from "node:stream";
 import { app, protocol } from "electron";
-import { resolveFfmpegPaths } from "./ffmpegPaths";
+import { type FfmpegPaths, resolveFfmpegPaths } from "./ffmpegPaths";
 import type { MediaDeps } from "./handlers";
 import { createMediaProtocolHandler } from "./protocolHandler";
 import type { MediaRootRegistry } from "./roots";
@@ -41,9 +41,25 @@ export const nodeRunnerDeps: RunnerDeps = {
     }),
 };
 
-export function createElectronMediaDeps(registry: MediaRootRegistry): MediaDeps {
+/** Bundled/overridden/PATH ffmpeg + ffprobe for this app install; null when missing. */
+export function resolveElectronFfmpegPaths(): FfmpegPaths | null {
+  return resolveFfmpegPaths({
+    platform: process.platform,
+    arch: process.arch,
+    appPath: app.getAppPath(),
+    resourcesPath: app.isPackaged ? process.resourcesPath : undefined,
+    env: process.env,
+    exists: existsSync,
+  });
+}
+
+export function createElectronMediaDeps(
+  registry: MediaRootRegistry,
+  opts: { isRootAllowed?: ((realDir: string) => Promise<boolean>) | undefined } = {},
+): MediaDeps {
   return {
     registry,
+    isRootAllowed: opts.isRootAllowed,
     realpath: (p) => fsp.realpath(p),
     stat: async (p) => {
       const s = await fsp.stat(p);
@@ -51,15 +67,7 @@ export function createElectronMediaDeps(registry: MediaRootRegistry): MediaDeps 
     },
     isAbsolute: (p) => nodePath.isAbsolute(p),
     makeRootId: () => `r-${randomBytes(6).toString("hex")}`,
-    resolveBinaries: () =>
-      resolveFfmpegPaths({
-        platform: process.platform,
-        arch: process.arch,
-        appPath: app.getAppPath(),
-        resourcesPath: app.isPackaged ? process.resourcesPath : undefined,
-        env: process.env,
-        exists: existsSync,
-      }),
+    resolveBinaries: resolveElectronFfmpegPaths,
     runner: nodeRunnerDeps,
   };
 }

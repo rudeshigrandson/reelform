@@ -1,9 +1,14 @@
 import type { FileHandle } from "node:fs/promises";
 import * as path from "node:path";
+import { muxAudioArgs } from "../media/args";
+import { runFfmpeg } from "../media/runner";
 import { FsIpcError, errnoCode } from "../project/errors";
 import type { FsLike } from "../project/fsTypes";
+import type { FfmpegDeps } from "../project/mediaTools";
 import { pathExists, requireAbsolute, requireName, uniqueName } from "../project/paths";
 import type { ExportHandlers } from "./contracts";
+
+export type { FfmpegDeps };
 
 export interface ExportDeps {
   fs: FsLike;
@@ -11,7 +16,15 @@ export interface ExportDeps {
   newId: () => string;
   /** Absolute default destination for a project (its `exports/` folder). */
   defaultExportDir: (projectId: string) => Promise<string>;
+  /** ffmpeg for `export:muxAudio`; omitted → FFMPEG_UNAVAILABLE. */
+  ffmpeg?: FfmpegDeps | undefined;
 }
+
+const MUX_EXT: Record<"mp4" | "webm", string> = { mp4: ".mp4", webm: ".webm" };
+
+/** Temp output next to the video; keeps the container extension for ffmpeg. */
+export const muxTempFileName = (id: string, container: "mp4" | "webm"): string =>
+  `.reelform-mux-${id}.partial${MUX_EXT[container]}`;
 
 type Entry =
   | {
@@ -55,6 +68,13 @@ export function createExportService(deps: ExportDeps): ExportService {
     const e = entries.get(exportId);
     if (!e) throw new FsIpcError("EXPORT_NOT_FOUND", "Unknown export", { exportId });
     return e;
+  };
+
+  /** Final path → export id for every finished export of this session. */
+  const finishedExportIds = (): Map<string, string> => {
+    const out = new Map<string, string>();
+    for (const [id, e] of entries) if (e.state === "finished") out.set(e.path, id);
+    return out;
   };
 
   const discard = async (e: OpenEntry): Promise<void> => {
@@ -204,6 +224,67 @@ export function createExportService(deps: ExportDeps): ExportService {
       e.closing = p;
       await p;
       return { cancelled: true };
+    },
+
+    "export:muxAudio": async (req) => {
+      const videoPath = requireAbsolute(req.videoPath);
+      const wavPath = requireAbsolute(req.wavPath);
+      const invalid = (reason: string) =>
+        new FsIpcError("MUX_INVALID_INPUT", "Can't add audio to that file", {
+          reason,
+          videoPath,
+          wavPath,
+        });
+      if (path.extname(videoPath).toLowerCase() !== MUX_EXT[req.container]) {
+        throw invalid("video extension does not match the container");
+      }
+      if (path.extname(wavPath).toLowerCase() !== ".wav") throw invalid("audio is not a .wav");
+      // The runner writes the WAV next to the video; never reach into other folders.
+      if (path.dirname(wavPath) !== path.dirname(videoPath)) {
+        throw invalid("audio and video are in different folders");
+      }
+      // §13: only files this sink finalized, so the renderer can't overwrite or delete others.
+      const finished = finishedExportIds();
+      const wavExportId = finished.get(wavPath);
+      if (!finished.has(videoPath) || wavExportId === undefined) {
+        throw invalid("not a finished export");
+      }
+      for (const p of [videoPath, wavPath]) {
+        const st = await fs.stat(p).catch(() => null);
+        if (!st?.isFile()) {
+          throw new FsIpcError("SOURCE_NOT_FOUND", "The export file is missing", { path: p });
+        }
+      }
+      const bins = deps.ffmpeg?.resolveBinaries() ?? null;
+      if (!deps.ffmpeg || !bins) {
+        throw new FsIpcError("FFMPEG_UNAVAILABLE", "ffmpeg is not available to mux audio");
+      }
+      const id = deps.newId();
+      if (!SAFE_ID.test(id)) throw new Error(`newId() returned an unusable id: ${id}`);
+      const tempPath = path.join(path.dirname(videoPath), muxTempFileName(id, req.container));
+      try {
+        await runFfmpeg(deps.ffmpeg.runner, {
+          bin: bins.ffmpeg,
+          args: muxAudioArgs({
+            video: videoPath,
+            wav: wavPath,
+            output: tempPath,
+            container: req.container,
+          }),
+        });
+        await fs.rename(tempPath, videoPath);
+      } catch (err) {
+        await fs.rm(tempPath, { force: true }).catch(() => undefined);
+        const code = (err as { code?: unknown }).code;
+        throw new FsIpcError("MUX_FAILED", "Could not add the audio track", {
+          cause: typeof code === "string" ? code : errnoCode(err),
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+      await fs.rm(wavPath, { force: true }).catch(() => undefined);
+      // The WAV is gone; it can't be muxed again.
+      entries.delete(wavExportId);
+      return { ok: true as const, outputPath: videoPath };
     },
   };
 

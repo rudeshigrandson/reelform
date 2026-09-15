@@ -18,3 +18,4 @@ export {
   dropFilesBuffer,
   fileUrlFor,
 } from "./handlers";
+export { type PickedPathRegistry, createPickedPathRegistry } from "./pickedPaths";

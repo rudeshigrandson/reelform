@@ -1,7 +1,8 @@
-import { mkdir } from "node:fs/promises";
+import { lstat, mkdir, readdir, rm } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { arch, release, totalmem } from "node:os";
 import { BrowserWindow, app, clipboard, dialog, session, shell } from "electron";
+import { type CacheTargets, createCacheOps } from "./cache";
 import { createDiagnosticsHandlers } from "./contracts";
 import { type LogLevel, type Logger, createLogger } from "./logger";
 import { createScrubber } from "./scrub";
@@ -11,7 +12,20 @@ export function createElectronDiagnostics(opts: {
   level: LogLevel;
   getSettings: () => Readonly<Record<string, unknown>>;
   pathKeys: readonly string[];
+  /** `.reelform` folders whose `cache/` is regenerable (library + recents). */
+  listProjectDirs?: (() => Promise<string[]>) | undefined;
+  /** App-level folders whose contents are all regenerable. */
+  extraCacheDirs?: string[] | undefined;
 }): { logger: Logger; handlers: ReturnType<typeof createDiagnosticsHandlers> } {
+  const cacheOps = createCacheOps({
+    readdir: (dir, o) => readdir(dir, o),
+    lstat: (p) => lstat(p),
+    rm: (p, o) => rm(p, o),
+  });
+  const cacheTargets = async (): Promise<CacheTargets> => ({
+    projectDirs: (await opts.listProjectDirs?.().catch(() => [])) ?? [],
+    extraCacheDirs: opts.extraCacheDirs,
+  });
   let userName: string | undefined;
   try {
     userName = userInfo().username;
@@ -46,7 +60,20 @@ export function createElectronDiagnostics(opts: {
         return (await shell.openPath(dir)) === "";
       },
       cacheSize: () => session.defaultSession.getCacheSize(),
-      clearCache: () => session.defaultSession.clearCache(),
+      cacheBreakdown: async () => {
+        const [sessionBytes, local] = await Promise.all([
+          session.defaultSession.getCacheSize().catch(() => null),
+          cacheOps.sumCache(await cacheTargets()),
+        ]);
+        return { sessionBytes, ...local };
+      },
+      clearCache: async () => {
+        await session.defaultSession.clearCache();
+        const res = await cacheOps.clearCache(await cacheTargets(), { includeBackups: false });
+        if (res.failed.length > 0) {
+          logger.warn("some cache entries could not be removed", { count: res.failed.length });
+        }
+      },
       pickFolder: async ({ title, defaultPath }) => {
         const options: Electron.OpenDialogOptions = {
           properties: ["openDirectory", "createDirectory"],
