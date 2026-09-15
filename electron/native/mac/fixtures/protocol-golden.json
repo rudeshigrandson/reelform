@@ -16,10 +16,53 @@
   { "helper": "sck", "direction": "in", "line": "{\"t\":\"discard\"}" },
   {
     "helper": "sck",
+    "direction": "in",
+    "line": "{\"t\":\"listSources\",\"id\":6,\"thumbnailWidth\":320}"
+  },
+  {
+    "helper": "sck",
+    "direction": "in",
+    "line": "{\"t\":\"listSources\",\"id\":7,\"thumbnails\":false}"
+  },
+  {
+    "helper": "sck",
+    "direction": "inHost",
+    "line": "{\"t\":\"start\",\"id\":2,\"sessionId\":\"s1\",\"outDir\":\"/tmp/rec\",\"source\":{\"kind\":\"display\",\"id\":\"69734208\"},\"region\":{\"x\":10,\"y\":20.5,\"width\":800,\"height\":600},\"audio\":{\"system\":true,\"mic\":\"default\"},\"fps\":60,\"hideCursor\":true}"
+  },
+  {
+    "helper": "sck",
+    "direction": "inHost",
+    "line": "{\"t\":\"start\",\"id\":3,\"sessionId\":\"s2\",\"outDir\":\"/r\",\"source\":{\"kind\":\"window\",\"id\":\"99\"},\"audio\":{\"system\":false},\"fps\":30,\"hideCursor\":false}"
+  },
+  {
+    "helper": "sck",
+    "direction": "inHost",
+    "line": "{\"t\":\"start\",\"id\":4,\"sessionId\":\"s3\",\"outDir\":\"/r\",\"source\":{\"kind\":\"display\",\"id\":\"1\"},\"audio\":{\"system\":false,\"mic\":\"9f86d081884c7d65\",\"micLabel\":\"Default - MacBook Pro Microphone\"},\"fps\":30,\"hideCursor\":false}"
+  },
+  {
+    "helper": "sck",
     "direction": "out",
-    "line": "{\"t\":\"pong\",\"id\":1,\"version\":\"1.0.0\",\"caps\":[\"display\",\"window\",\"excludePids\",\"region\",\"systemAudio\",\"mic\",\"pause\",\"fragmentedMp4\",\"h264\"]}"
+    "line": "{\"t\":\"pong\",\"id\":1,\"version\":\"1.0.0\",\"caps\":[\"capture\",\"listSources\",\"display\",\"window\",\"excludePids\",\"region\",\"systemAudio\",\"mic\",\"pause\",\"fragmentedMp4\",\"h264\"]}"
   },
   { "helper": "sck", "direction": "out", "line": "{\"t\":\"ready\"}" },
+  { "helper": "sck", "direction": "out", "line": "{\"t\":\"ready\",\"id\":2}" },
+  { "helper": "sck", "direction": "out", "line": "{\"t\":\"paused\",\"id\":3}" },
+  { "helper": "sck", "direction": "out", "line": "{\"t\":\"resumed\",\"id\":4}" },
+  {
+    "helper": "sck",
+    "direction": "out",
+    "line": "{\"t\":\"deviceLost\",\"device\":\"BuiltInMicrophoneDevice\",\"message\":\"microphone disconnected\"}"
+  },
+  {
+    "helper": "sck",
+    "direction": "out",
+    "line": "{\"t\":\"interrupted\",\"reason\":\"diskLow\",\"message\":\"less than 500 MB free on the recording volume\"}"
+  },
+  {
+    "helper": "sck",
+    "direction": "out",
+    "line": "{\"t\":\"sources\",\"id\":6,\"displays\":[{\"id\":\"1\",\"name\":\"Built-in Retina Display\",\"bounds\":{\"x\":0,\"y\":0,\"width\":1512,\"height\":982},\"scaleFactor\":2,\"thumbnail\":\"data:image/png;base64,iVBORw0KGgo=\"},{\"id\":\"3\",\"name\":\"DELL U2723QE\",\"bounds\":{\"x\":-2560,\"y\":-300,\"width\":2560,\"height\":1440},\"scaleFactor\":1}],\"windows\":[{\"id\":\"4242\",\"title\":\"README.md\",\"appName\":\"Xcode\",\"bundleId\":\"com.apple.dt.Xcode\",\"pid\":501,\"bounds\":{\"x\":40,\"y\":60,\"width\":1200,\"height\":800.5},\"displayId\":\"1\",\"thumbnail\":\"data:image/png;base64,iVBORw0KGgo=\"},{\"id\":\"7\",\"title\":\"Untitled window\",\"bounds\":{\"x\":-2000,\"y\":0,\"width\":640,\"height\":480},\"displayId\":\"3\"}]}"
+  },
   {
     "helper": "sck",
     "direction": "out",

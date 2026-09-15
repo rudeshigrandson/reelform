@@ -5,8 +5,10 @@ import Foundation
 /// `fixtures/protocol-golden.jsonl`, which both sides check.
 public enum HelperProtocol {
     public static let version = "1.0.0"
+    /// `capture` is required by main's helper backend; `listSources` answers `{"t":"listSources"}`.
     public static let sckCaps = [
-        "display", "window", "excludePids", "region", "systemAudio", "mic", "pause", "fragmentedMp4", "h264",
+        "capture", "listSources", "display", "window", "excludePids", "region", "systemAudio", "mic", "pause",
+        "fragmentedMp4", "h264",
     ]
     public static let cursorCaps = ["position", "clicks", "keys", "scroll", "cursorType", "cursorAssets"]
 }
@@ -66,9 +68,12 @@ public struct StartOptions: Equatable, Sendable {
     public var systemAudio: Bool
     /// `AVCaptureDevice.uniqueID`; "default" or absent-with-`micEnabled` = system default.
     public var micDeviceId: String?
+    /// `MediaDeviceInfo.label` of the renderer's chosen mic; see `MicSelection`.
+    public var micLabel: String?
 
     public init(outputDir: String, source: CaptureSource, region: CaptureRegion? = nil, fps: Int,
-                systemAudio: Bool, micDeviceId: String? = nil) {
+                systemAudio: Bool, micDeviceId: String? = nil, micLabel: String? = nil) {
+        self.micLabel = micLabel
         self.outputDir = outputDir
         self.source = source
         self.region = region
@@ -85,11 +90,14 @@ public enum SckCommand: Equatable, Sendable {
     case resume(id: Int64?)
     case stop(id: Int64?)
     case discard(id: Int64?)
+    /// Displays + windows with optional thumbnails (`thumbnailWidth` px wide, 0 = none).
+    case listSources(id: Int64?, thumbnailWidth: Int)
 
     public var id: Int64? {
         switch self {
         case let .ping(id), let .pause(id), let .resume(id), let .stop(id), let .discard(id): return id
         case let .start(id, _): return id
+        case let .listSources(id, _): return id
         }
     }
 
@@ -104,12 +112,30 @@ public enum SckCommand: Equatable, Sendable {
         case "stop": return .stop(id: id)
         case "discard": return .discard(id: id)
         case "start": return .start(id: id, options: try decodeStart(v))
+        case "listSources":
+            var width = SourceListing.defaultThumbnailWidth
+            if let raw = v["thumbnails"], raw != .null {
+                guard let on = raw.boolValue else { throw ProtocolError.invalidField("thumbnails") }
+                if !on { width = 0 }
+            }
+            if width > 0, let raw = v["thumbnailWidth"], raw != .null {
+                guard let w = raw.int64Value, w >= 16, w <= Int64(SourceListing.maxThumbnailWidth) else {
+                    throw ProtocolError.invalidField("thumbnailWidth")
+                }
+                width = Int(w)
+            }
+            return .listSources(id: id, thumbnailWidth: width)
         default: throw ProtocolError.unknownType(t)
         }
     }
 
     public func encode() -> String {
         switch self {
+        case let .listSources(id, width):
+            let pairs: [(String, JSONValue)] = width == 0
+                ? [("thumbnails", .bool(false))]
+                : [("thumbnailWidth", .int(Int64(width)))]
+            return withId(id, pairs, type: "listSources").serialized()
         case let .ping(id): return withId(id, [], type: "ping").serialized()
         case let .pause(id): return withId(id, [], type: "pause").serialized()
         case let .resume(id): return withId(id, [], type: "resume").serialized()
@@ -135,13 +161,17 @@ public enum SckCommand: Equatable, Sendable {
             pairs.append(("fps", .int(Int64(o.fps))))
             var audio: [(String, JSONValue)] = [("system", .bool(o.systemAudio))]
             if let mic = o.micDeviceId { audio.append(("mic", .string(mic))) }
+            if let label = o.micLabel { audio.append(("micLabel", .string(label))) }
             pairs.append(("audio", .object(audio)))
             return withId(id, pairs, type: "start").serialized()
         }
     }
 
     private static func decodeStart(_ v: JSONValue) throws -> StartOptions {
-        guard let outputDir = v["outputDir"]?.stringValue, !outputDir.isEmpty else {
+        // `outDir` / `source.id` are the shape main's helperBackend sends; `outputDir` /
+        // `displayId` / `windowId` are canonical. `sessionId` and `hideCursor` are ignored
+        // (SCK never captures the cursor; it is rendered in the editor).
+        guard let outputDir = (v["outputDir"] ?? v["outDir"])?.stringValue, !outputDir.isEmpty else {
             throw ProtocolError.invalidField("outputDir")
         }
         guard let src = v["source"], let kind = src["kind"]?.stringValue else {
@@ -150,7 +180,7 @@ public enum SckCommand: Equatable, Sendable {
         let source: CaptureSource
         switch kind {
         case "display":
-            guard let d = src["displayId"]?.int64Value, let did = UInt32(exactly: d) else {
+            guard let did = parseSourceId(src["displayId"] ?? src["id"]) else {
                 throw ProtocolError.invalidField("source.displayId")
             }
             var pids: [Int32] = []
@@ -165,7 +195,7 @@ public enum SckCommand: Equatable, Sendable {
             }
             source = .display(displayId: did, excludePids: pids)
         case "window":
-            guard let w = src["windowId"]?.int64Value, let wid = UInt32(exactly: w) else {
+            guard let wid = parseSourceId(src["windowId"] ?? src["id"]) else {
                 throw ProtocolError.invalidField("source.windowId")
             }
             source = .window(windowId: wid)
@@ -192,8 +222,15 @@ public enum SckCommand: Equatable, Sendable {
             guard let s = m.stringValue, !s.isEmpty else { throw ProtocolError.invalidField("audio.mic") }
             mic = s
         }
+        var micLabel: String?
+        if let l = audio["micLabel"], l != .null {
+            guard let s = l.stringValue else { throw ProtocolError.invalidField("audio.micLabel") }
+            if !s.trimmingCharacters(in: .whitespaces).isEmpty { micLabel = s }
+        }
+        // A label alone still asks for a microphone.
+        if mic == nil, micLabel != nil { mic = "default" }
         return StartOptions(outputDir: outputDir, source: source, region: region, fps: Int(fps),
-                            systemAudio: system, micDeviceId: mic)
+                            systemAudio: system, micDeviceId: mic, micLabel: micLabel)
     }
 }
 
@@ -219,16 +256,26 @@ public enum InterruptReason: String, Sendable, CaseIterable {
     case writerFailed
     /// stdin closed: the parent process went away.
     case parentGone
+    /// Recording volume dropped below `DiskGuard.minFreeBytes` (§5.6).
+    case diskLow
 }
 
 public enum SckEvent: Equatable, Sendable {
     case pong(id: Int64?)
-    case ready
+    /// `id == nil`: process launched. With the start `id`: capture configured and running
+    /// (main's helperBackend awaits this as the reply to `start`); always precedes `started`.
+    case ready(id: Int64?)
     case started(id: Int64?, firstFramePtsNs: Int64, startHostTimeNs: Int64, width: Int, height: Int, scaleFactor: Double)
     case stats(fps: Double, droppedFrames: Int, fileBytes: Int64)
     case interrupted(reason: InterruptReason, message: String)
     case stopped(id: Int64?, durationMs: Int64, paths: RecordingPaths?, pausedRanges: [PausedRange], discarded: Bool)
     case error(id: Int64?, code: String, message: String)
+    /// Acks so main's request/response correlation resolves `pause` / `resume`.
+    case paused(id: Int64?)
+    case resumed(id: Int64?)
+    /// Non-fatal: the mic failed mid-recording; video and system audio continue without it.
+    case deviceLost(device: String, message: String)
+    case sources(id: Int64?, displays: [ListedDisplay], windows: [ListedWindow])
 
     public func encode() -> String { json.serialized() }
 
@@ -239,8 +286,19 @@ public enum SckEvent: Equatable, Sendable {
                 ("version", .string(HelperProtocol.version)),
                 ("caps", .array(HelperProtocol.sckCaps.map { .string($0) })),
             ], type: "pong")
-        case .ready:
-            return withId(nil, [], type: "ready")
+        case let .ready(id):
+            return withId(id, [], type: "ready")
+        case let .paused(id):
+            return withId(id, [], type: "paused")
+        case let .resumed(id):
+            return withId(id, [], type: "resumed")
+        case let .deviceLost(device, message):
+            return withId(nil, [("device", .string(device)), ("message", .string(message))], type: "deviceLost")
+        case let .sources(id, displays, windows):
+            return withId(id, [
+                ("displays", .array(displays.map(\.json))),
+                ("windows", .array(windows.map(\.json))),
+            ], type: "sources")
         case let .started(id, first, startHost, w, h, scale):
             return withId(id, [
                 ("firstFramePtsNs", .int(first)),

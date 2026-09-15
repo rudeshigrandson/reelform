@@ -26,32 +26,50 @@ swift run reelform-protocol-selfcheck                 # 0 failures expected
 swift run reelform-protocol-selfcheck --write-golden  # after an intentional protocol change
 ```
 
-`scripts/build-native-helpers` should copy `.build/apple/Products/Release/reelform-{sck,cursor-monitor}`
-to `electron/native/bin/darwin-universal/` and record their sha256 in `manifest.json` (§5.5).
+`../scripts/build-mac-helpers.sh` (`ARCHS="arm64 x86_64"`) builds per arch and stages
+`electron/native/bin/darwin-<arm64|x64>/{reelform-sck,reelform-cursor-monitor,manifest.json}` — the
+`${process.platform}-${process.arch}` directory main verifies (sha256 via `../manifest.ts`). Binaries
+and manifests are build outputs (CI artifacts, §14.2) and are gitignored; set `CODESIGN_IDENTITY` so
+helpers are signed *before* they are hashed.
 
 ## Protocol
 
 stdio, UTF-8, one JSON object per line. `ready` is emitted once on launch.
 
-**reelform-sck** — inbound `ping`, `start`, `pause`, `resume`, `stop`, `discard`:
+**reelform-sck** — inbound `ping`, `start`, `pause`, `resume`, `stop`, `discard`, `listSources {thumbnails?:false, thumbnailWidth?}`.
+`start` also accepts the shape `electron/capture/helperBackend.ts` sends (`outDir`, `source:{kind,id:"<n>"|"screen:<n>:0"|"window:<n>:0"}`;
+`sessionId`/`hideCursor` ignored) — pinned by the golden `inHost` entries:
 
 ```json
 {"t":"start","id":2,"outputDir":"/…/rec","source":{"kind":"display","displayId":1,"excludePids":[123]},"region":{"x":0,"y":0,"width":800,"height":600},"fps":60,"audio":{"system":true,"mic":"default"}}
 {"t":"start","id":2,"outputDir":"/…/rec","source":{"kind":"window","windowId":99},"fps":30,"audio":{"system":false}}
 ```
 
-Outbound: `pong {version,caps}`, `ready`, `started {firstFramePtsNs,startHostTimeNs,width,height,scaleFactor}`,
-`stats {fps,droppedFrames,fileBytes}` every 1s, `interrupted {reason,message}`,
-`stopped {durationMs,paths,pausedRanges,discarded}`, `error {code,message}`.
+Outbound: `pong {version,caps}` (caps include `capture`, `listSources`), `ready` (launch),
+`ready {id}` (reply to `start` once capture runs; always before `started`),
+`started {firstFramePtsNs,startHostTimeNs,width,height,scaleFactor}`, `paused {id}` / `resumed {id}` acks,
+`stats {fps,droppedFrames,fileBytes}` every 1s, `interrupted {reason,message}`
+(`streamStopped|sourceLost|deviceLost|writerFailed|parentGone|diskLow`), `deviceLost {device,message}`
+(mic failed mid-recording — **non-fatal**, video + system audio continue and the partial mic track is kept),
+`stopped {durationMs,paths,pausedRanges,discarded}`, `sources {id,displays,windows}`, `error {code,message}`.
 Replies echo the command `id`. The process exits after `stopped` (or a failed `start`).
+Disk below 500 MB free on the output volume (checked with each `stats`) interrupts with `diskLow`.
+
+`sources`: displays `{id,name,bounds,scaleFactor,thumbnail?}` and on-screen layer-0 windows ≥ 50pt
+(excluding the helper's and its parent's) `{id,title,appName?,bundleId?,pid?,bounds,displayId?,thumbnail?}`.
+Ids are decimal strings (`CGDirectDisplayID` = Electron `Display.id` on macOS, `CGWindowID`); bounds are
+global points; thumbnails are `data:image/png;base64,…` 320px wide, best effort within 6s (missing on
+timeout/failure). Without screen-recording permission the reply is `error {code:"permissionDenied"}`.
 Closing stdin while recording finalizes the files (`interrupted` reason `parentGone`).
 
 **reelform-cursor-monitor** — inbound `ping`, `start`, `pause`, `resume`, `stop`, `exportCursors {dir}`.
-Outbound `pong`, `ready`, `started {hostTimeNs,sampleHz,clickSource,keys}`,
+Outbound `pong`, `ready`, `started {hostTimeNs,sampleHz,clickSource,keys}` (`eventTap` only when
+Input Monitoring is granted — a listen-only tap is created without it but receives nothing),
 `move {tNs,x,y,cursor}` (emitted only when position or cursor type changes),
 `click {tNs,x,y,button,phase}`, `key {tNs,keyCode,modifiers}`, `scroll {tNs,dx,dy}`,
 `cursorsExported {dir,files}`, `stopped {samples}`, `error`.
-Coordinates are CoreGraphics global points (origin top-left of the primary
+`cursorMonitorBridge.ts` adapts this to main's `InputHook` (uiohook key codes via `macKeyCodes.ts`,
+DOM button indices). Coordinates are CoreGraphics global points (origin top-left of the primary
 display — the same space as `SCDisplay.frame`); main normalizes them against the
 capture bounds. Key events carry virtual key codes + modifier mask
 (`shift 1, control 2, option 4, command 8, fn 16, capsLock 32`) — never characters.

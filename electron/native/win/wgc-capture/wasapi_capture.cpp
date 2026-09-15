@@ -6,7 +6,9 @@
 #include "wasapi_capture.hpp"
 
 #include <audioclient.h>
+#include <functiondiscoverykeys_devpkey.h>
 #include <mmdeviceapi.h>
+#include <propidl.h>
 
 #include <winrt/base.h>
 
@@ -18,10 +20,52 @@ namespace reelform::wgc {
 namespace {
 constexpr REFERENCE_TIME kBufferHns = 2'000'000;  // 200 ms engine buffer
 constexpr DWORD kPollMs = 10;
+
+/// Active capture endpoints with friendly names, for audio::resolveMicEndpoint.
+std::vector<audio::EndpointDesc> listCaptureEndpoints(IMMDeviceEnumerator* enumerator) {
+  std::vector<audio::EndpointDesc> out;
+  std::wstring defaultId;
+  {
+    winrt::com_ptr<IMMDevice> def;
+    if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(eCapture, eConsole, def.put()))) {
+      LPWSTR id = nullptr;
+      if (SUCCEEDED(def->GetId(&id)) && id != nullptr) {
+        defaultId = id;
+        ::CoTaskMemFree(id);
+      }
+    }
+  }
+  winrt::com_ptr<IMMDeviceCollection> collection;
+  if (FAILED(enumerator->EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE, collection.put()))) return out;
+  UINT count = 0;
+  if (FAILED(collection->GetCount(&count))) return out;
+  for (UINT i = 0; i < count; ++i) {
+    winrt::com_ptr<IMMDevice> dev;
+    if (FAILED(collection->Item(i, dev.put()))) continue;
+    LPWSTR id = nullptr;
+    if (FAILED(dev->GetId(&id)) || id == nullptr) continue;
+    audio::EndpointDesc desc;
+    desc.id = win::toUtf8(std::wstring_view(id));
+    desc.isDefault = !defaultId.empty() && defaultId == id;
+    ::CoTaskMemFree(id);
+    winrt::com_ptr<IPropertyStore> props;
+    if (SUCCEEDED(dev->OpenPropertyStore(STGM_READ, props.put()))) {
+      PROPVARIANT name;
+      ::PropVariantInit(&name);
+      if (SUCCEEDED(props->GetValue(PKEY_Device_FriendlyName, &name)) && name.vt == VT_LPWSTR &&
+          name.pwszVal != nullptr) {
+        desc.friendlyName = win::toUtf8(std::wstring_view(name.pwszVal));
+      }
+      ::PropVariantClear(&name);
+    }
+    out.push_back(std::move(desc));
+  }
+  return out;
+}
 }  // namespace
 
-WasapiCapture::WasapiCapture(AudioEndpointKind kind, std::optional<std::string> deviceId)
-    : kind_(kind), deviceId_(std::move(deviceId)) {
+WasapiCapture::WasapiCapture(AudioEndpointKind kind, protocol::AudioOptions mic)
+    : kind_(kind), mic_(std::move(mic)) {
   stopEvent_ = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
 }
 
@@ -76,14 +120,18 @@ void WasapiCapture::run(std::promise<std::string>* ready) {
       if (loopback) {
         hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, device.put());
       } else {
-        const bool wantsDefault = !deviceId_.has_value() || deviceId_->empty() || *deviceId_ == "default";
+        // Chromium deviceIds never match endpoint ids; micEndpointId / micLabel map them.
+        const std::vector<audio::EndpointDesc> endpoints = listCaptureEndpoints(enumerator.get());
+        const audio::MicResolution pick = audio::resolveMicEndpoint(endpoints, mic_);
         hr = E_FAIL;
-        if (!wantsDefault) hr = enumerator->GetDevice(win::toWide(*deviceId_).c_str(), device.put());
+        if (pick.index.has_value()) {
+          hr = enumerator->GetDevice(win::toWide(endpoints[*pick.index].id).c_str(), device.put());
+        }
         if (FAILED(hr)) {
-          if (!wantsDefault) usedDefaultFallback_ = true;
           device = nullptr;
           hr = enumerator->GetDefaultAudioEndpoint(eCapture, eConsole, device.put());
         }
+        if (pick.fellBack) usedDefaultFallback_ = true;
       }
       if (FAILED(hr)) failStart("endpoint lookup", hr);
     }

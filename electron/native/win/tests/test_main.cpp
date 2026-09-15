@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "reelform/audio_devices.hpp"
 #include "reelform/capture_math.hpp"
 #include "reelform/cursor.hpp"
 #include "reelform/hw_probe_report.hpp"
@@ -278,6 +279,120 @@ TEST(protocol_outbound_lines) {
     CHECK(line.find('\n') == std::string::npos);
     CHECK(json::parse(line).ok);
   }
+}
+
+// Shape electron/capture/helperBackend.ts sends, plus the Windows mic mapping fields.
+TEST(protocol_host_backend_start_shape) {
+  auto p = protocol::parseCommand(
+      R"j({"t":"start","id":4,"sessionId":"s","outDir":"C:\\rec","source":{"kind":"display","id":"2528732444",)j"
+      R"j("bounds":{"x":-1920,"y":0,"width":1920,"height":1080}},"audio":{"system":true,"mic":"f00dhash",)j"
+      R"j("micLabel":"Default - Microphone (USB Audio)","micEndpointId":"{0.0.1.00000000}.{abc}"},"fps":60,"hideCursor":true})j");
+  CHECK(p.ok);
+  CHECK_EQ(p.command.start.outputDir, std::string("C:\\rec"));
+  CHECK_EQ(p.command.start.source.id, std::string("2528732444"));
+  CHECK(p.command.start.source.bounds && p.command.start.source.bounds->x == -1920);
+  CHECK(p.command.start.audio.micEndpointId == std::string("{0.0.1.00000000}.{abc}"));
+  CHECK(p.command.start.audio.micLabel == std::string("Default - Microphone (USB Audio)"));
+  CHECK(p.command.start.audio.wantsMic());
+  p = protocol::parseCommand(
+      R"({"t":"start","outDir":"x","source":{"kind":"display"},"audio":{"system":false,"micLabel":"","micEndpointId":7}})");
+  CHECK(p.ok && !p.command.start.audio.micLabel && !p.command.start.audio.micEndpointId);
+  CHECK(!p.command.start.audio.wantsMic());
+  p = protocol::parseCommand(R"({"t":"start","outputDir":"a","outDir":"b","source":{"kind":"display"}})");
+  CHECK(p.ok && p.command.start.outputDir == "a");
+  p = protocol::parseCommand(R"({"t":"start","outDir":"","source":{"kind":"display"}})");
+  CHECK(!p.ok && p.error.code == "badRequest");
+}
+
+TEST(protocol_acks_device_lost_disk_low) {
+  CHECK_EQ(protocol::ready(2), "{\"t\":\"ready\",\"id\":2}");
+  CHECK_EQ(protocol::paused(3), "{\"t\":\"paused\",\"id\":3}");
+  CHECK_EQ(protocol::resumed(), "{\"t\":\"resumed\"}");
+  CHECK_EQ(protocol::deviceLost("mic-1", "gone \"now\""),
+           "{\"t\":\"deviceLost\",\"device\":\"mic-1\",\"message\":\"gone \\\"now\\\"\"}");
+  CHECK_EQ(protocol::interrupted(protocol::reason::DiskLow, "x"),
+           "{\"t\":\"interrupted\",\"reason\":\"diskLow\",\"message\":\"x\"}");
+}
+
+TEST(audio_resolve_mic_endpoint) {
+  using audio::MicMatch;
+  const std::vector<audio::EndpointDesc> eps = {
+      {"{0.0.1.00000000}.{aaa}", "Microphone (Realtek(R) Audio)", true},
+      {"{0.0.1.00000000}.{bbb}", "Microphone (USB Audio Device)", false},
+      {"{0.0.1.00000000}.{ccc}", "Headset Microphone (Jabra Link 380)", false},
+  };
+  const auto resolve = [&](const protocol::AudioOptions& a) { return audio::resolveMicEndpoint(eps, a); };
+  protocol::AudioOptions a;
+  a.mic = "default";
+  auto r = resolve(a);
+  CHECK(r.index == std::size_t{0} && r.match == MicMatch::Default && !r.fellBack);
+
+  a = {};
+  a.mic = "{0.0.1.00000000}.{bbb}";
+  r = resolve(a);
+  CHECK(r.index == std::size_t{1} && r.match == MicMatch::Id);
+
+  a = {};
+  a.micEndpointId = "{0.0.1.00000000}.{ccc}";
+  a.mic = "{0.0.1.00000000}.{bbb}";
+  r = resolve(a);
+  CHECK(r.index == std::size_t{2} && r.match == MicMatch::EndpointId);
+
+  a = {};
+  a.mic = "3f9ac0ffee";  // Chromium hash: never an endpoint id
+  a.micLabel = "Default - Microphone (USB Audio Device)";
+  r = resolve(a);
+  CHECK(r.index == std::size_t{1} && r.match == MicMatch::LabelExact && !r.fellBack);
+
+  a = {};
+  a.micLabel = "  communications - HEADSET MICROPHONE (JABRA LINK 380) ";
+  r = resolve(a);
+  CHECK(r.index == std::size_t{2} && r.match == MicMatch::LabelExact);
+
+  a = {};
+  a.micLabel = "Jabra Link 380";
+  r = resolve(a);
+  CHECK(r.index == std::size_t{2} && r.match == MicMatch::LabelContains);
+
+  a = {};
+  a.micLabel = "Microphone";  // ambiguous: every endpoint contains it
+  r = resolve(a);
+  CHECK(r.index == std::size_t{0} && r.match == MicMatch::Default && r.fellBack);
+
+  a = {};
+  a.mic = "3f9ac0ffee";
+  r = resolve(a);
+  CHECK(r.index == std::size_t{0} && r.match == MicMatch::Default && r.fellBack);
+
+  a = {};
+  a.micEndpointId = "{gone}";
+  r = audio::resolveMicEndpoint({}, a);
+  CHECK(!r.index && r.match == MicMatch::None && r.fellBack);
+
+  a = {};
+  a.mic = "default";
+  r = audio::resolveMicEndpoint({{"x", "Mic", false}}, a);
+  CHECK(!r.index && r.match == MicMatch::None && !r.fellBack);
+
+  a = {};
+  a.micLabel = "Default";  // bare label is not a prefix; means the default device
+  r = resolve(a);
+  CHECK(r.index == std::size_t{0} && r.match == MicMatch::Default && !r.fellBack);
+}
+
+TEST(capture_resolve_monitor_dip_bounds) {
+  // Primary 2560x1440 at 150% with a 1920x1080 100% monitor to its right. Electron
+  // reports DIP bounds {1707,0,1920,1080} for the second; the larger overlap still wins.
+  std::vector<capture::MonitorDesc> mons = {
+      {"\\\\.\\DISPLAY1", {0, 0, 2560, 1440}, true},
+      {"\\\\.\\DISPLAY2", {2560, 0, 1920, 1080}, false},
+  };
+  protocol::Source s;
+  s.id = "2779098405";
+  s.bounds = protocol::Rect{1707, 0, 1920, 1080};
+  CHECK(capture::resolveMonitor(mons, s) == std::size_t{1});
+  s.bounds = protocol::Rect{0, 0, 1707, 960};  // primary in DIP
+  CHECK(capture::resolveMonitor(mons, s) == std::size_t{0});
 }
 
 // ---------------------------------------------------------------- session state
@@ -700,13 +815,18 @@ TEST(line_splitter) {
 /// protocol-compat.test.ts against the mac zod schemas.
 void emitProtocolFixture() {
   std::vector<std::pair<const char*, std::string>> lines;
-  lines.emplace_back("sck", protocol::pong({"display", "window", "region", "pause", "systemAudio", "mic", "h264"}, 1));
+  lines.emplace_back("sck", protocol::pong({"capture", "display", "window", "region", "pause", "systemAudio", "mic", "h264"}, 1));
   lines.emplace_back("sck", protocol::ready());
+  lines.emplace_back("sck", protocol::ready(2));
+  lines.emplace_back("sck", protocol::paused(3));
+  lines.emplace_back("sck", protocol::resumed(4));
+  lines.emplace_back("sck", protocol::deviceLost("{0.0.1.00000000}.{abc}", "microphone was disconnected"));
   lines.emplace_back("sck", protocol::started({123456789012345LL, 123456700000000LL, 2560, 1440, 1.25}, 2));
   protocol::Stats s{59.94, 3, 10'485'760, -18.5};
   lines.emplace_back("sck", protocol::stats(s));
   for (const char* r : {protocol::reason::StreamStopped, protocol::reason::SourceLost, protocol::reason::DeviceLost,
-                        protocol::reason::WriterFailed, protocol::reason::ParentGone}) {
+                        protocol::reason::WriterFailed, protocol::reason::ParentGone,
+                        protocol::reason::DiskLow}) {
     lines.emplace_back("sck", protocol::interrupted(r, "message"));
   }
   protocol::StoppedPaths paths{"C:\\rec\\screen.mp4", "C:\\rec\\system.m4a", "C:\\rec\\mic.m4a", "C:\\rec\\meta.json"};

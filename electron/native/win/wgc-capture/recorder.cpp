@@ -90,8 +90,8 @@ std::optional<StartError> Recorder::start(const protocol::StartOptions& options)
       return StartError{protocol::code::WriterFailed, error};
     }
 
-    if (options.audio.system) system_ = startAudio(AudioEndpointKind::SystemLoopback, std::nullopt, L"system.m4a");
-    if (options.audio.mic.has_value()) mic_ = startAudio(AudioEndpointKind::Microphone, options.audio.mic, L"mic.m4a");
+    if (options.audio.system) system_ = startAudio(AudioEndpointKind::SystemLoopback, {}, L"system.m4a");
+    if (options.audio.wantsMic()) mic_ = startAudio(AudioEndpointKind::Microphone, options.audio, L"mic.m4a");
 
     active_ = true;
     startHostNs_ = qpc_.nowNs();
@@ -119,7 +119,7 @@ std::optional<StartError> Recorder::start(const protocol::StartOptions& options)
   return std::nullopt;
 }
 
-std::unique_ptr<Recorder::AudioTrack> Recorder::startAudio(AudioEndpointKind kind, std::optional<std::string> deviceId,
+std::unique_ptr<Recorder::AudioTrack> Recorder::startAudio(AudioEndpointKind kind, const protocol::AudioOptions& mic,
                                                            const wchar_t* fileName) {
   auto track = std::make_unique<AudioTrack>();
   track->isMic = kind == AudioEndpointKind::Microphone;
@@ -132,17 +132,22 @@ std::unique_ptr<Recorder::AudioTrack> Recorder::startAudio(AudioEndpointKind kin
     post_({PipelineEventType::AudioWarning, 0, protocol::code::WriterFailed, label + ": " + error});
     return nullptr;
   }
-  track->capture = std::make_unique<WasapiCapture>(kind, std::move(deviceId));
+  track->capture = std::make_unique<WasapiCapture>(kind, mic);
+  // Reported in `deviceLost.device`: the most specific identifier main sent.
+  const std::string device = mic.micEndpointId ? *mic.micEndpointId
+                             : (mic.mic && !mic.mic->empty()) ? *mic.mic
+                             : mic.micLabel ? *mic.micLabel
+                                            : std::string("default");
   AudioTrack* raw = track.get();
   const bool isMic = track->isMic;
   const bool ok = track->capture->start(
       [this, raw](const AudioPacket& packet) { onAudio(*raw, packet); },
-      [this, label, isMic](const std::string& message) {
-        // Mic loss interrupts the recording (as on macOS). A loopback endpoint
-        // change (headphones plugged in) keeps recording; the track is padded
-        // with silence at stop.
+      [this, label, isMic, device](const std::string& message) {
+        // Mic loss is non-fatal (as on macOS): main gets `deviceLost` and recording
+        // continues. A loopback endpoint change (headphones plugged in) also keeps
+        // recording; both tracks are padded with silence at stop.
         if (isMic) {
-          post_({PipelineEventType::DeviceLost, 0, protocol::reason::DeviceLost, message});
+          post_({PipelineEventType::DeviceLost, 0, device, message});
         } else {
           post_({PipelineEventType::AudioWarning, 0, protocol::code::StreamFailed, label + ": " + message});
         }
@@ -362,7 +367,7 @@ void Recorder::releaseAll() {
 const std::vector<std::string>& captureCaps() {
   static const std::vector<std::string> caps = [] {
     std::vector<std::string> c = frameSourceCaps();
-    for (const char* extra : {"pause", "systemAudio", "mic", "micLevel", "h264"}) c.emplace_back(extra);
+    for (const char* extra : {"capture", "pause", "systemAudio", "mic", "micLevel", "h264"}) c.emplace_back(extra);
     if (hardwareH264EncoderAvailable()) c.emplace_back("hardwareEncoder");
     return c;
   }();

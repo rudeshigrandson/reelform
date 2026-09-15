@@ -15,7 +15,9 @@
 //            | {"kind":"window","windowId":<HWND as number>},
 //     "region"?:{"x","y","width","height"},  // physical px, relative to monitor top-left
 //     "fps":30|60, "audio":{"system":bool,"mic"?:"<WASAPI endpoint id>"|"default"},
-//     "hideCursor"?:bool (default true), "outputDir":"C:\\...\\recording-123"}
+//     "hideCursor"?:bool (default true), "outputDir"|"outDir":"C:\\...\\recording-123"}
+//   audio also accepts "micEndpointId" (IMMDevice::GetId) and "micLabel" (MediaDeviceInfo.label),
+//   resolved by audio_devices.hpp; Chromium deviceIds in "mic" are hashes and never match.
 //   {"t":"pause"} {"t":"resume"} {"t":"stop"} {"t":"discard"}
 //   Windows extensions (ignored by mac): source.bounds (virtual-desktop physical px,
 //   used to pick the monitor since Electron display ids do not map to HMONITORs),
@@ -25,15 +27,17 @@
 //
 // Outbound (helper -> main)
 //   {"t":"pong","id"?,"version":"1.0.0","caps":[...]}
-//   {"t":"ready","id"?}                   start accepted, writers armed, awaiting first frame
+//   {"t":"ready","id"?}                   no id: launched; with the start id: capture running (reply to start)
+//   {"t":"paused","id"?} {"t":"resumed","id"?}   acks
+//   {"t":"deviceLost","device","message"}  microphone lost; recording continues without it
 //   {"t":"started","id"?,"firstFramePtsNs","startHostTimeNs","width","height","scaleFactor"}
 //   {"t":"stats","fps","droppedFrames","fileBytes","micLevel"?:dBFS}
-//   {"t":"interrupted","reason":"streamStopped"|"sourceLost"|"deviceLost"|"writerFailed"|"parentGone","message"}
+//   {"t":"interrupted","reason":"streamStopped"|"sourceLost"|"deviceLost"|"writerFailed"|"parentGone"|"diskLow","message"}
 //   {"t":"stopped","id"?,"durationMs","paths":{"screen"?,"system"?,"mic"?,"meta"?},"pausedRanges":[{startNs,endNs}],"discarded":bool}
 //   {"t":"error","id"?,"code":<ErrorCode>,"message","fatal":bool}
 //
-// pause/resume are silent on success (main already knows); failures answer
-// with `error` carrying the command id. All `*Ns` values are QPC nanoseconds.
+// pause/resume answer paused/resumed on success; failures answer with `error`
+// carrying the command id. All `*Ns` values are QPC nanoseconds.
 #pragma once
 
 #include <cstdint>
@@ -59,6 +63,7 @@ inline constexpr const char* SourceLost = "sourceLost";
 inline constexpr const char* DeviceLost = "deviceLost";
 inline constexpr const char* WriterFailed = "writerFailed";
 inline constexpr const char* ParentGone = "parentGone";
+inline constexpr const char* DiskLow = "diskLow";  // recording volume < 500 MB free (§5.6)
 }  // namespace reason
 
 /// `error.code` values (mac HELPER_ERROR_CODES).
@@ -106,7 +111,15 @@ struct Source {
 
 struct AudioOptions {
   bool system = false;
-  std::optional<std::string> mic;  // endpoint id; "" or "default" means default capture device
+  // Requested microphone. `mic` is whatever main sent: a WASAPI endpoint id, "default",
+  // or a Chromium getUserMedia deviceId (hashed, never matches an endpoint).
+  std::optional<std::string> mic;
+  // Explicit WASAPI endpoint id (`audio.micEndpointId`, IMMDevice::GetId). Wins over `mic`.
+  std::optional<std::string> micEndpointId;
+  // Device label (`audio.micLabel`, MediaDeviceInfo.label) matched against the endpoint
+  // friendly name when no id matches. See audio_devices.hpp resolveMicEndpoint.
+  std::optional<std::string> micLabel;
+  bool wantsMic() const { return mic.has_value() || micEndpointId.has_value() || micLabel.has_value(); }
 };
 
 struct StartOptions {
@@ -263,13 +276,23 @@ inline ParsedCommand parseCommand(std::string_view line, bool requireStartOption
       if (const json::Value* mic = audio->find("mic"); mic != nullptr && mic->isString()) {
         o.audio.mic = mic->asString();
       }
+      if (const json::Value* ep = audio->find("micEndpointId"); ep != nullptr && ep->isString() &&
+                                                                 !ep->asString().empty()) {
+        o.audio.micEndpointId = ep->asString();
+      }
+      if (const json::Value* label = audio->find("micLabel"); label != nullptr && label->isString() &&
+                                                                 !label->asString().empty()) {
+        o.audio.micLabel = label->asString();
+      }
     }
 
     if (const json::Value* hc = msg.find("hideCursor"); hc != nullptr) {
       o.hideCursor = hc->asBool(true);
     }
 
+    // `outDir` is the key main's helperBackend sends; `outputDir` is canonical.
     const json::Value* dir = msg.find("outputDir");
+    if (dir == nullptr) dir = msg.find("outDir");
     if (dir == nullptr || !dir->isString() || dir->asString().empty()) {
       return detail::failure(code::BadRequest, "missing outputDir", id);
     }
@@ -341,6 +364,23 @@ inline std::string stats(const Stats& s) {
 inline std::string interrupted(std::string_view why, std::string_view message) {
   json::Value v = detail::envelope("interrupted", {});
   v.set("reason", why);
+  v.set("message", message);
+  return v.dump();
+}
+
+/// Acks so main's request/response correlation resolves `pause` / `resume`.
+inline std::string paused(std::optional<std::int64_t> id = {}) {
+  return detail::envelope("paused", id).dump();
+}
+
+inline std::string resumed(std::optional<std::int64_t> id = {}) {
+  return detail::envelope("resumed", id).dump();
+}
+
+/// Non-fatal microphone loss: recording continues without the mic track.
+inline std::string deviceLost(std::string_view device, std::string_view message) {
+  json::Value v = detail::envelope("deviceLost", {});
+  v.set("device", device);
   v.set("message", message);
   return v.dump();
 }

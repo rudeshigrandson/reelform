@@ -149,6 +149,10 @@ final class CursorMonitor {
     // MARK: Event tap (clicks + keys + scroll)
 
     private func installEventTap() -> Bool {
+        // Without Input Monitoring, macOS still hands out a listen-only tap but
+        // delivers no events through it. Fall back to the global monitor instead
+        // of reporting keys we will never see.
+        guard CGPreflightListenEventAccess() else { return false }
         let types: [CGEventType] = [
             .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
             .otherMouseDown, .otherMouseUp, .keyDown, .scrollWheel,

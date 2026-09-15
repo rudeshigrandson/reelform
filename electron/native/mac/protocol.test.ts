@@ -13,7 +13,9 @@ import {
   SCK_CAPS,
   type SckCommand,
   SckEvent,
+  SckHostStart,
   SckPermissions,
+  canonicalStartFromHost,
   createLineDecoder,
   encodeCursorCommand,
   encodeSckCommand,
@@ -25,7 +27,8 @@ import {
 
 interface GoldenEntry {
   helper: "sck" | "cursor";
-  direction: "in" | "out";
+  /** `inHost`: the start shape electron/capture/helperBackend.ts sends (aliases). */
+  direction: "in" | "inHost" | "out";
   line: string;
 }
 
@@ -45,11 +48,15 @@ describe("golden fixture (written by the Swift self-check)", () => {
       );
     expect([...types("sck")].sort()).toEqual(
       [
+        "deviceLost",
         "error",
         "interrupted",
+        "paused",
         "permissions",
         "pong",
         "ready",
+        "resumed",
+        "sources",
         "started",
         "stats",
         "stopped",
@@ -75,6 +82,11 @@ describe("golden fixture (written by the Swift self-check)", () => {
   it.each(golden.map((g) => [`${g.helper} ${g.direction} ${g.line}`, g] as const))(
     "validates %s",
     (_name, g) => {
+      if (g.direction === "inHost") {
+        expect(SckHostStart.safeParse(JSON.parse(g.line)).success).toBe(true);
+        expect(canonicalStartFromHost(JSON.parse(g.line))).not.toBeNull();
+        return;
+      }
       if (g.direction === "in") {
         const parsed = g.helper === "sck" ? parseSckCommand(g.line) : parseCursorCommand(g.line);
         expect(parsed.ok).toBe(true);

@@ -249,6 +249,116 @@ do {
     check(manifest == #"{"name":"macOS","scale":2,"cursors":{"arrow":{"file":"arrow@2x.png","hotspot":[4,4.5],"size":[17,23]}}}"#, "pack.json")
 }
 
+// MARK: - Microphone selection
+
+do {
+    let devices = [
+        MicDeviceDesc(uniqueID: "BuiltInMicrophoneDevice", name: "MacBook Pro Microphone", isDefault: true),
+        MicDeviceDesc(uniqueID: "AppleUSBAudioEngine:Logitech:1", name: "Logitech BRIO"),
+        MicDeviceDesc(uniqueID: "iPhoneMic", name: "Michi's iPhone Microphone"),
+    ]
+    typealias R = MicSelection.Resolution
+    check(MicSelection.resolve(devices: devices, requestedId: "AppleUSBAudioEngine:Logitech:1", label: nil) == R(index: 1, fellBack: false), "uniqueID match")
+    check(MicSelection.resolve(devices: devices, requestedId: "3a1f9c…hash", label: "Logitech BRIO (046d:085e)") == R(index: 1, fellBack: false), "Chromium hash + label with vid:pid")
+    check(MicSelection.resolve(devices: devices, requestedId: "default", label: "Default - MacBook Pro Microphone") == R(index: 0, fellBack: false), "default label prefix")
+    check(MicSelection.resolve(devices: devices, requestedId: "hash", label: "iphone") == R(index: 2, fellBack: false), "unique partial label")
+    check(MicSelection.resolve(devices: devices, requestedId: "hash", label: "microphone") == R(index: 0, fellBack: true), "ambiguous partial label falls back")
+    check(MicSelection.resolve(devices: devices, requestedId: "hash", label: nil) == R(index: 0, fellBack: true), "unknown hash falls back to default")
+    check(MicSelection.resolve(devices: devices, requestedId: nil, label: nil) == R(index: 0, fellBack: false), "no request → default")
+    check(MicSelection.resolve(devices: devices, requestedId: "default", label: "") == R(index: 0, fellBack: false), "explicit default")
+    check(MicSelection.resolve(devices: [], requestedId: "hash", label: "x") == R(index: nil, fellBack: true), "no devices")
+    check(MicSelection.resolve(devices: [devices[1]], requestedId: nil, label: nil) == R(index: nil, fellBack: false), "no default flagged → AVFoundation default")
+    check(MicSelection.normalizeLabel("  USB Audio (Pro) ") == "usb audio (pro)", "non vid:pid parens kept")
+    check(MicSelection.normalizeLabel("Default - ") == "default -", "bare prefix is not stripped to empty")
+}
+
+// MARK: - Start compatibility with main's helperBackend
+
+do {
+    // Exactly what electron/capture/helperBackend.ts sends.
+    let host = #"{"t":"start","id":2,"sessionId":"s1","outDir":"/tmp/rec","source":{"kind":"display","id":"69734208"},"audio":{"system":true,"mic":"default"},"fps":60,"hideCursor":true}"#
+    let decoded = try? SckCommand.decode(host)
+    check(decoded == .start(id: 2, options: StartOptions(outputDir: "/tmp/rec", source: .display(displayId: 69_734_208, excludePids: []),
+                                                         fps: 60, systemAudio: true, micDeviceId: "default")), "host start shape decodes")
+    let hostWindow = #"{"t":"start","id":3,"outDir":"/r","source":{"kind":"window","id":"window:99:0"},"audio":{"system":false},"fps":30,"hideCursor":false}"#
+    check((try? SckCommand.decode(hostWindow)) == .start(id: 3, options: StartOptions(outputDir: "/r", source: .window(windowId: 99), fps: 30, systemAudio: false)), "desktopCapturer window id")
+    let labelled = #"{"t":"start","id":4,"outDir":"/r","source":{"kind":"display","id":"1"},"audio":{"system":false,"mic":"9f86d081884c7d65","micLabel":"Default - MacBook Pro Microphone"},"fps":30}"#
+    check((try? SckCommand.decode(labelled)) == .start(id: 4, options: StartOptions(outputDir: "/r", source: .display(displayId: 1, excludePids: []), fps: 30, systemAudio: false, micDeviceId: "9f86d081884c7d65", micLabel: "Default - MacBook Pro Microphone")), "host start with micLabel")
+    let labelOnly = #"{"t":"start","outDir":"/r","source":{"kind":"display","id":"1"},"audio":{"system":false,"micLabel":"USB Mic"},"fps":30}"#
+    check((try? SckCommand.decode(labelOnly)) == .start(id: nil, options: StartOptions(outputDir: "/r", source: .display(displayId: 1, excludePids: []), fps: 30, systemAudio: false, micDeviceId: "default", micLabel: "USB Mic")), "micLabel alone requests a mic")
+    let blankLabel = #"{"t":"start","outDir":"/r","source":{"kind":"display","id":"1"},"audio":{"system":false,"micLabel":"  "},"fps":30}"#
+    check((try? SckCommand.decode(blankLabel)) == .start(id: nil, options: StartOptions(outputDir: "/r", source: .display(displayId: 1, excludePids: []), fps: 30, systemAudio: false)), "blank micLabel ignored")
+    expectThrows("non-string micLabel") { _ = try SckCommand.decode(#"{"t":"start","outDir":"/r","source":{"kind":"display","id":"1"},"audio":{"system":false,"micLabel":3},"fps":30}"#) }
+    check(parseSourceId(.string("screen:5:0")) == 5, "screen:N:M id")
+    check(parseSourceId(.int(7)) == 7, "numeric id")
+    check(parseSourceId(.string("12ab")) == nil, "garbage id")
+    check(parseSourceId(.string("-1")) == nil, "negative id string")
+    check(parseSourceId(.string("4294967296")) == nil, "id beyond UInt32")
+    check(parseSourceId(.string("")) == nil, "empty id")
+    check(parseSourceId(nil) == nil, "missing id")
+    expectThrows("host start without id") {
+        _ = try SckCommand.decode(#"{"t":"start","outDir":"/r","source":{"kind":"display"},"audio":{"system":false},"fps":30}"#)
+    }
+    expectThrows("outDir empty") {
+        _ = try SckCommand.decode(#"{"t":"start","outDir":"","source":{"kind":"display","id":"1"},"audio":{"system":false},"fps":30}"#)
+    }
+}
+
+// MARK: - listSources
+
+do {
+    check((try? SckCommand.decode(#"{"t":"listSources","id":4}"#)) == .listSources(id: 4, thumbnailWidth: 320), "listSources default width")
+    check((try? SckCommand.decode(#"{"t":"listSources","thumbnails":false,"thumbnailWidth":640}"#)) == .listSources(id: nil, thumbnailWidth: 0), "thumbnails off wins")
+    check((try? SckCommand.decode(#"{"t":"listSources","thumbnailWidth":640}"#)) == .listSources(id: nil, thumbnailWidth: 640), "custom width")
+    expectThrows("width too small") { _ = try SckCommand.decode(#"{"t":"listSources","thumbnailWidth":2}"#) }
+    expectThrows("width too large") { _ = try SckCommand.decode(#"{"t":"listSources","thumbnailWidth":5000}"#) }
+    expectThrows("thumbnails not bool") { _ = try SckCommand.decode(#"{"t":"listSources","thumbnails":1}"#) }
+    for c in [SckCommand.listSources(id: 6, thumbnailWidth: 320), .listSources(id: nil, thumbnailWidth: 0)] {
+        check((try? SckCommand.decode(c.encode())) == c, "listSources round trip \(c.encode())")
+    }
+
+    let frame = SourceRect(x: 0, y: 0, width: 800, height: 600)
+    check(SourceListing.includeWindow(layer: 0, isOnScreen: true, frame: frame, ownerPid: 10, excludedPids: [1, 2]), "normal window")
+    check(!SourceListing.includeWindow(layer: 25, isOnScreen: true, frame: frame, ownerPid: 10, excludedPids: []), "menu bar layer")
+    check(!SourceListing.includeWindow(layer: 0, isOnScreen: false, frame: frame, ownerPid: 10, excludedPids: []), "off screen")
+    check(!SourceListing.includeWindow(layer: 0, isOnScreen: true, frame: SourceRect(x: 0, y: 0, width: 49, height: 600), ownerPid: 10, excludedPids: []), "too narrow")
+    check(!SourceListing.includeWindow(layer: 0, isOnScreen: true, frame: frame, ownerPid: 2, excludedPids: [1, 2]), "own / parent window")
+    check(SourceListing.includeWindow(layer: 0, isOnScreen: true, frame: frame, ownerPid: nil, excludedPids: [1]), "unknown owner kept")
+
+    let displaysFrames: [(id: UInt32, frame: SourceRect)] = [
+        (1, SourceRect(x: 0, y: 0, width: 1512, height: 982)),
+        (2, SourceRect(x: 1512, y: -200, width: 2560, height: 1440)),
+    ]
+    check(SourceListing.displayFor(window: SourceRect(x: 1400, y: 100, width: 400, height: 300), displays: displaysFrames) == 2, "largest overlap wins")
+    check(SourceListing.displayFor(window: SourceRect(x: 100, y: 100, width: 400, height: 300), displays: displaysFrames) == 1, "inside primary")
+    check(SourceListing.displayFor(window: SourceRect(x: -9000, y: 0, width: 10, height: 10), displays: displaysFrames) == 1, "off-display → first")
+    check(SourceListing.displayFor(window: frame, displays: []) == nil, "no displays")
+
+    check(SourceListing.thumbnailSize(width: 1512, height: 982, maxWidth: 320) == (320, 208), "aspect kept")
+    check(SourceListing.thumbnailSize(width: 100, height: 4000, maxWidth: 320).height == 12_800, "tall window")
+    check(SourceListing.thumbnailSize(width: 0, height: 0, maxWidth: 320) == (320, 200), "degenerate size")
+    check(SourceListing.thumbnailSize(width: 10_000, height: 1, maxWidth: 320).height == 1, "height floor 1")
+    check(SourceListing.thumbnailSize(width: 100, height: 100, maxWidth: 99_999).width == SourceListing.maxThumbnailWidth, "width clamp")
+    check(SourceListing.displayTitle(title: "  ", appName: "Safari") == "Safari", "blank title → app")
+    check(SourceListing.displayTitle(title: nil, appName: nil) == "Untitled window", "placeholder title")
+    check(SourceListing.dataURL(png: Data([1, 2, 3])) == "data:image/png;base64,AQID", "data URL")
+    check(DiskGuard.isLow(availableBytes: 499 * 1024 * 1024), "disk low")
+    check(!DiskGuard.isLow(availableBytes: 500 * 1024 * 1024), "disk at threshold ok")
+    check(!DiskGuard.isLow(availableBytes: nil), "unknown capacity is not low")
+
+    let d = ListedDisplay(id: 1, name: "Built-in \"Retina\"", bounds: displaysFrames[0].frame, scaleFactor: 0)
+    check(d.json.serialized() == #"{"id":"1","name":"Built-in \"Retina\"","bounds":{"x":0,"y":0,"width":1512,"height":982},"scaleFactor":1}"#, "display json, scale floor")
+}
+
+// MARK: - New outbound events
+
+check(SckEvent.ready(id: nil).encode() == #"{"t":"ready"}"#, "launch ready has no id")
+check(SckEvent.ready(id: 2).encode() == #"{"t":"ready","id":2}"#, "start ready echoes id")
+check(SckEvent.paused(id: 3).encode() == #"{"t":"paused","id":3}"#, "paused ack")
+check(SckEvent.resumed(id: nil).encode() == #"{"t":"resumed"}"#, "resumed ack")
+check(InterruptReason.allCases.map(\.rawValue) == ["streamStopped", "sourceLost", "deviceLost", "writerFailed", "parentGone", "diskLow"], "interrupt reasons")
+check(HelperProtocol.sckCaps.prefix(2) == ["capture", "listSources"], "caps main requires")
+
 // MARK: - Golden fixture
 
 struct GoldenEntry {
@@ -266,8 +376,33 @@ let golden: [GoldenEntry] = [
     GoldenEntry(helper: "sck", direction: "in", line: SckCommand.resume(id: 4).encode()),
     GoldenEntry(helper: "sck", direction: "in", line: SckCommand.stop(id: 5).encode()),
     GoldenEntry(helper: "sck", direction: "in", line: SckCommand.discard(id: nil).encode()),
+    GoldenEntry(helper: "sck", direction: "in", line: SckCommand.listSources(id: 6, thumbnailWidth: 320).encode()),
+    GoldenEntry(helper: "sck", direction: "in", line: SckCommand.listSources(id: 7, thumbnailWidth: 0).encode()),
+    // Shape main's helperBackend sends (aliases), accepted but not canonical.
+    GoldenEntry(helper: "sck", direction: "inHost", line: #"{"t":"start","id":2,"sessionId":"s1","outDir":"/tmp/rec","source":{"kind":"display","id":"69734208"},"region":{"x":10,"y":20.5,"width":800,"height":600},"audio":{"system":true,"mic":"default"},"fps":60,"hideCursor":true}"#),
+    GoldenEntry(helper: "sck", direction: "inHost", line: #"{"t":"start","id":3,"sessionId":"s2","outDir":"/r","source":{"kind":"window","id":"99"},"audio":{"system":false},"fps":30,"hideCursor":false}"#),
+    GoldenEntry(helper: "sck", direction: "inHost", line: #"{"t":"start","id":4,"sessionId":"s3","outDir":"/r","source":{"kind":"display","id":"1"},"audio":{"system":false,"mic":"9f86d081884c7d65","micLabel":"Default - MacBook Pro Microphone"},"fps":30,"hideCursor":false}"#),
     GoldenEntry(helper: "sck", direction: "out", line: SckEvent.pong(id: 1).encode()),
-    GoldenEntry(helper: "sck", direction: "out", line: SckEvent.ready.encode()),
+    GoldenEntry(helper: "sck", direction: "out", line: SckEvent.ready(id: nil).encode()),
+    GoldenEntry(helper: "sck", direction: "out", line: SckEvent.ready(id: 2).encode()),
+    GoldenEntry(helper: "sck", direction: "out", line: SckEvent.paused(id: 3).encode()),
+    GoldenEntry(helper: "sck", direction: "out", line: SckEvent.resumed(id: 4).encode()),
+    GoldenEntry(helper: "sck", direction: "out", line: SckEvent.deviceLost(device: "BuiltInMicrophoneDevice", message: "microphone disconnected").encode()),
+    GoldenEntry(helper: "sck", direction: "out", line: SckEvent.interrupted(reason: .diskLow, message: "less than 500 MB free on the recording volume").encode()),
+    GoldenEntry(helper: "sck", direction: "out", line: SckEvent.sources(
+        id: 6,
+        displays: [
+            ListedDisplay(id: 1, name: "Built-in Retina Display", bounds: SourceRect(x: 0, y: 0, width: 1512, height: 982),
+                          scaleFactor: 2, thumbnail: "data:image/png;base64,iVBORw0KGgo="),
+            ListedDisplay(id: 3, name: "DELL U2723QE", bounds: SourceRect(x: -2560, y: -300, width: 2560, height: 1440), scaleFactor: 1),
+        ],
+        windows: [
+            ListedWindow(id: 4242, title: "README.md", appName: "Xcode", bundleId: "com.apple.dt.Xcode", pid: 501,
+                         bounds: SourceRect(x: 40, y: 60, width: 1200, height: 800.5), displayId: 1,
+                         thumbnail: "data:image/png;base64,iVBORw0KGgo="),
+            ListedWindow(id: 7, title: "Untitled window", bounds: SourceRect(x: -2000, y: 0, width: 640, height: 480), displayId: 3),
+        ]
+    ).encode()),
     GoldenEntry(helper: "sck", direction: "out", line: SckEvent.started(id: 2, firstFramePtsNs: 123_456_789_012_345, startHostTimeNs: 123_456_700_000_000, width: 2940, height: 1912, scaleFactor: 2).encode()),
     GoldenEntry(helper: "sck", direction: "out", line: SckEvent.stats(fps: 59.94, droppedFrames: 3, fileBytes: 10_485_760).encode()),
     GoldenEntry(helper: "sck", direction: "out", line: SckEvent.interrupted(reason: .sourceLost, message: "display disconnected").encode()),
@@ -289,6 +424,11 @@ let golden: [GoldenEntry] = [
     GoldenEntry(helper: "cursor", direction: "out", line: CursorEvent.error(id: nil, code: "invalidState", message: "stop while not running").encode()),
     GoldenEntry(helper: "cursor", direction: "out", line: permissionsLine([("inputMonitoring", .denied), ("accessibility", .granted)])),
 ]
+
+// Golden inbound sck lines (canonical and host-shaped) must decode.
+for entry in golden where entry.helper == "sck" && entry.direction != "out" && !entry.line.hasPrefix(#"{"t":"permissions""#) {
+    check((try? SckCommand.decode(entry.line)) != nil, "golden sck command decodes: \(entry.line)")
+}
 
 // Golden inbound cursor lines must decode.
 for entry in golden where entry.helper == "cursor" && entry.direction == "in" {

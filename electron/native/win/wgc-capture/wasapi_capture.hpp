@@ -14,6 +14,10 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
+
+#include "reelform/audio_devices.hpp"
+#include "reelform/protocol.hpp"
 
 namespace reelform::wgc {
 
@@ -31,7 +35,8 @@ using AudioLostCallback = std::function<void(const std::string& message)>;
 
 class WasapiCapture {
  public:
-  WasapiCapture(AudioEndpointKind kind, std::optional<std::string> deviceId);
+  /// `mic` selects the capture endpoint (ignored for loopback); see audio_devices.hpp.
+  WasapiCapture(AudioEndpointKind kind, protocol::AudioOptions mic = {});
   ~WasapiCapture();
   WasapiCapture(const WasapiCapture&) = delete;
   WasapiCapture& operator=(const WasapiCapture&) = delete;
@@ -41,14 +46,14 @@ class WasapiCapture {
   /// Stop and join. Idempotent. No callbacks run after this returns.
   void stop();
 
-  /// True when the requested mic endpoint id was not found and the default device was used.
+  /// True when a specific microphone was requested but not found, so the default device was used.
   bool usedDefaultFallback() const { return usedDefaultFallback_; }
 
  private:
   void run(std::promise<std::string>* ready);
 
   AudioEndpointKind kind_;
-  std::optional<std::string> deviceId_;
+  protocol::AudioOptions mic_;
   AudioPacketCallback onPacket_;
   AudioLostCallback onLost_;
   HANDLE stopEvent_ = nullptr;

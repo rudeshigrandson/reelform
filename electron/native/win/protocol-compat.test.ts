@@ -34,10 +34,13 @@ const typesOf = (helper: Entry["helper"]) => [...new Set(linesOf(helper).map((m)
 describe("Windows helper output matches the mac helper protocol (§5.5)", () => {
   it("fixture covers every outbound message type of both helpers", () => {
     expect(typesOf("sck")).toEqual([
+      "deviceLost",
       "error",
       "interrupted",
+      "paused",
       "pong",
       "ready",
+      "resumed",
       "started",
       "stats",
       "stopped",

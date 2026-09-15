@@ -92,6 +92,7 @@ int wmain() {
 
   session::State state = session::State::Idle;
   bool startedEmitted = false;
+  bool micLost = false;
   std::optional<std::int64_t> startId;
   auto nextStats = Clock::now() + std::chrono::seconds(1);
 
@@ -118,8 +119,8 @@ int wmain() {
       if (state == session::State::Recording || state == session::State::Paused) {
         out.post(protocol::stats(recorder.stats()));
         if (recorder.diskLow()) {
-          // §5.6 disk < 500 MB. The shared reason set has no diskLow; the message says why.
-          interrupt(protocol::reason::WriterFailed, "diskLow: less than 500 MB free on the recording volume");
+          // §5.6 disk < 500 MB: stop cleanly and keep everything written.
+          interrupt(protocol::reason::DiskLow, "less than 500 MB free on the recording volume");
           continue;
         }
       }
@@ -152,7 +153,11 @@ int wmain() {
             interrupt(protocol::reason::WriterFailed, e.message);
             break;
           case wgc::PipelineEventType::DeviceLost:
-            interrupt(protocol::reason::DeviceLost, e.message);
+            // Microphone lost: keep recording video + system audio (as on macOS).
+            if (!micLost) {
+              micLost = true;
+              out.post(protocol::deviceLost(e.reason.empty() ? "default" : e.reason, e.message));
+            }
             break;
           case wgc::PipelineEventType::AudioWarning:
             out.post(protocol::error(e.reason.empty() ? protocol::code::StreamFailed : e.reason, e.message, false));
@@ -183,19 +188,23 @@ int wmain() {
           case protocol::CommandType::Start:
             state = t.next;
             startId = cmd.id;
-            // Success is answered by `started` on the first frame (echoing this id).
+            // Success: `ready{id}` now (main's reply to start), `started` on the first frame.
             if (auto err = recorder.start(cmd.start)) {
               out.post(protocol::error(err->code, err->message, false, cmd.id));
               state = session::onEvent(state, session::Event::StartFailed).next;
+            } else {
+              out.post(protocol::ready(cmd.id));
             }
             break;
           case protocol::CommandType::Pause:
             recorder.pause();
             state = t.next;
+            out.post(protocol::paused(cmd.id));
             break;
           case protocol::CommandType::Resume:
             recorder.resume();
             state = t.next;
+            out.post(protocol::resumed(cmd.id));
             break;
           case protocol::CommandType::Stop:
           case protocol::CommandType::Discard:

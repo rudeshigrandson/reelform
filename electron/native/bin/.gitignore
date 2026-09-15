@@ -1,0 +1,5 @@
+# Helper binaries + manifest.json are build outputs (ENGINEERING_SPEC §14.2: CI
+# artifacts, signed before hashing). Build locally with
+# `electron/native/scripts/build-mac-helpers.sh`.
+*
+!.gitignore

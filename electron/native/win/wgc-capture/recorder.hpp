@@ -25,8 +25,8 @@
 namespace reelform::wgc {
 
 /// SourceClosed: `reason` is a protocol::reason. AudioWarning: `reason` is a
-/// protocol::code (non-fatal error). DeviceLost: microphone disappeared mid-recording
-/// (interrupts, like the mac helper).
+/// protocol::code (non-fatal error). DeviceLost: microphone disappeared mid-recording;
+/// `reason` carries the requested device id. Recording continues without the mic (as on macOS).
 enum class PipelineEventType { FirstFrame, SourceClosed, EncoderFailed, AudioWarning, DeviceLost };
 
 struct PipelineEvent {
@@ -83,7 +83,7 @@ class Recorder {
     std::atomic<double> level{-100.0};
   };
 
-  std::unique_ptr<AudioTrack> startAudio(AudioEndpointKind kind, std::optional<std::string> deviceId,
+  std::unique_ptr<AudioTrack> startAudio(AudioEndpointKind kind, const protocol::AudioOptions& mic,
                                          const wchar_t* fileName);
   void onFrame(ID3D11Texture2D* texture, std::int64_t contentW, std::int64_t contentH, std::int64_t hostNs);
   void onAudio(AudioTrack& track, const AudioPacket& packet);

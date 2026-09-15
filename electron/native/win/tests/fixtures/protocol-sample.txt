@@ -1,5 +1,9 @@
-{"helper":"sck","line":"{\"t\":\"pong\",\"id\":1,\"version\":\"1.0.0\",\"caps\":[\"display\",\"window\",\"region\",\"pause\",\"systemAudio\",\"mic\",\"h264\"]}"}
+{"helper":"sck","line":"{\"t\":\"pong\",\"id\":1,\"version\":\"1.0.0\",\"caps\":[\"capture\",\"display\",\"window\",\"region\",\"pause\",\"systemAudio\",\"mic\",\"h264\"]}"}
 {"helper":"sck","line":"{\"t\":\"ready\"}"}
+{"helper":"sck","line":"{\"t\":\"ready\",\"id\":2}"}
+{"helper":"sck","line":"{\"t\":\"paused\",\"id\":3}"}
+{"helper":"sck","line":"{\"t\":\"resumed\",\"id\":4}"}
+{"helper":"sck","line":"{\"t\":\"deviceLost\",\"device\":\"{0.0.1.00000000}.{abc}\",\"message\":\"microphone was disconnected\"}"}
 {"helper":"sck","line":"{\"t\":\"started\",\"id\":2,\"firstFramePtsNs\":123456789012345,\"startHostTimeNs\":123456700000000,\"width\":2560,\"height\":1440,\"scaleFactor\":1.25}"}
 {"helper":"sck","line":"{\"t\":\"stats\",\"fps\":59.94,\"droppedFrames\":3,\"fileBytes\":10485760,\"micLevel\":-18.5}"}
 {"helper":"sck","line":"{\"t\":\"interrupted\",\"reason\":\"streamStopped\",\"message\":\"message\"}"}
@@ -7,6 +11,7 @@
 {"helper":"sck","line":"{\"t\":\"interrupted\",\"reason\":\"deviceLost\",\"message\":\"message\"}"}
 {"helper":"sck","line":"{\"t\":\"interrupted\",\"reason\":\"writerFailed\",\"message\":\"message\"}"}
 {"helper":"sck","line":"{\"t\":\"interrupted\",\"reason\":\"parentGone\",\"message\":\"message\"}"}
+{"helper":"sck","line":"{\"t\":\"interrupted\",\"reason\":\"diskLow\",\"message\":\"message\"}"}
 {"helper":"sck","line":"{\"t\":\"stopped\",\"id\":5,\"durationMs\":12345,\"paths\":{\"screen\":\"C:\\\\rec\\\\screen.mp4\",\"system\":\"C:\\\\rec\\\\system.m4a\",\"mic\":\"C:\\\\rec\\\\mic.m4a\",\"meta\":\"C:\\\\rec\\\\meta.json\"},\"pausedRanges\":[{\"startNs\":1000,\"endNs\":3000}],\"discarded\":false}"}
 {"helper":"sck","line":"{\"t\":\"stopped\",\"durationMs\":0,\"paths\":{},\"pausedRanges\":[],\"discarded\":true}"}
 {"helper":"sck","line":"{\"t\":\"error\",\"id\":7,\"code\":\"badRequest\",\"message\":\"message\",\"fatal\":false}"}

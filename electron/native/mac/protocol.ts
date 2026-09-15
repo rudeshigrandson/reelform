@@ -17,6 +17,8 @@ import { z } from "zod";
 export const HELPER_PROTOCOL_VERSION = "1.0.0";
 
 export const SCK_CAPS = [
+  "capture",
+  "listSources",
   "display",
   "window",
   "excludePids",
@@ -65,6 +67,8 @@ export const INTERRUPT_REASONS = [
   "deviceLost",
   "writerFailed",
   "parentGone",
+  /** Recording volume below 500 MB free (§5.6). */
+  "diskLow",
 ] as const;
 
 /** Stable `error.code` strings emitted by the helpers. */
@@ -122,6 +126,12 @@ export const SckStart = z
       system: z.boolean(),
       /** `AVCaptureDevice.uniqueID` or "default"; absent = no mic. */
       mic: z.string().min(1).optional(),
+      /**
+       * `MediaDeviceInfo.label` of the renderer's mic. Chromium deviceIds never equal a
+       * uniqueID, so the helper matches this against `localizedName`, then falls back to
+       * the default input. Alone it implies `mic:"default"`.
+       */
+      micLabel: z.string().optional(),
     }),
   })
   .refine((m) => m.region === undefined || m.source.kind === "display", {
@@ -132,9 +142,100 @@ export const SckPause = z.object({ t: z.literal("pause"), id });
 export const SckResume = z.object({ t: z.literal("resume"), id });
 export const SckStop = z.object({ t: z.literal("stop"), id });
 export const SckDiscard = z.object({ t: z.literal("discard"), id });
+/** Displays + windows. Thumbnails default to 320px wide; `thumbnails:false` skips them. */
+export const SckListSources = z.object({
+  t: z.literal("listSources"),
+  id,
+  thumbnails: z.literal(false).optional(),
+  thumbnailWidth: z.number().int().min(16).max(1920).optional(),
+});
 
-export const SckCommand = z.union([SckPing, SckStart, SckPause, SckResume, SckStop, SckDiscard]);
+export const SckCommand = z.union([
+  SckPing,
+  SckStart,
+  SckPause,
+  SckResume,
+  SckStop,
+  SckDiscard,
+  SckListSources,
+]);
 export type SckCommand = z.infer<typeof SckCommand>;
+
+/**
+ * The `start` shape `electron/capture/helperBackend.ts` actually sends. The Swift
+ * helper accepts it as an alias of {@link SckStart}: `outDir` → `outputDir`,
+ * `source.id` (decimal, or desktopCapturer `screen:N:M` / `window:N:M`) →
+ * `displayId` / `windowId`; `sessionId` and `hideCursor` are ignored.
+ */
+export const SckHostStart = z
+  .object({
+    t: z.literal("start"),
+    id,
+    sessionId: z.string().optional(),
+    outDir: z.string().min(1),
+    source: z.object({
+      kind: z.enum(["display", "window"]),
+      id: z.string().regex(/^(?:(?:screen|window):)?\d+(?::\d+)?$/),
+    }),
+    region: CaptureRegion.optional(),
+    audio: z.object({
+      system: z.boolean(),
+      mic: z.string().min(1).optional(),
+      micLabel: z.string().optional(),
+    }),
+    fps: z.union([z.literal(30), z.literal(60)]),
+    hideCursor: z.boolean().optional(),
+  })
+  .refine((m) => m.region === undefined || m.source.kind === "display", {
+    message: "region is only valid for display sources",
+    path: ["region"],
+  });
+export type SckHostStart = z.infer<typeof SckHostStart>;
+
+/** Numeric CGDirectDisplayID / CGWindowID from a source id main sends; `null` when invalid. */
+export function parseSourceId(value: string | number): number | null {
+  if (typeof value === "number") {
+    return Number.isInteger(value) && value >= 0 && value <= 0xffff_ffff ? value : null;
+  }
+  const m = /^(?:(?:screen|window):)?(\d+)(?::\d+)?$/.exec(value.trim());
+  if (!m?.[1]) return null;
+  const n = Number(m[1]);
+  return Number.isSafeInteger(n) && n <= 0xffff_ffff ? n : null;
+}
+
+/** Mirrors the Swift decoder: blank labels are dropped; a label alone requests the default mic. */
+function canonicalAudio(a: SckHostStart["audio"]): z.infer<typeof SckStart>["audio"] {
+  const micLabel = a.micLabel?.trim() ? a.micLabel : undefined;
+  const mic = a.mic ?? (micLabel !== undefined ? "default" : undefined);
+  return {
+    system: a.system,
+    ...(mic !== undefined ? { mic } : {}),
+    ...(micLabel !== undefined ? { micLabel } : {}),
+  };
+}
+
+/** Canonical {@link SckStart} for a host-shaped start, mirroring the Swift decoder; `null` when invalid. */
+export function canonicalStartFromHost(raw: unknown): z.infer<typeof SckStart> | null {
+  const host = SckHostStart.safeParse(raw);
+  if (!host.success) return null;
+  const h = host.data;
+  const sourceId = parseSourceId(h.source.id);
+  if (sourceId === null) return null;
+  const candidate = {
+    t: "start" as const,
+    id: h.id,
+    outputDir: h.outDir,
+    source:
+      h.source.kind === "display"
+        ? { kind: "display" as const, displayId: sourceId }
+        : { kind: "window" as const, windowId: sourceId },
+    region: h.region,
+    fps: h.fps,
+    audio: canonicalAudio(h.audio),
+  };
+  const parsed = SckStart.safeParse(candidate);
+  return parsed.success ? parsed.data : null;
+}
 
 // ---- reelform-sck: outbound (helper → main) -------------------------------
 
@@ -146,7 +247,56 @@ export const SckPong = z.object({
   version: z.string(),
   caps,
 });
-export const SckReady = z.object({ t: z.literal("ready") });
+/** Without `id`: process launched. With the start `id`: capture running (main's reply to `start`). */
+export const SckReady = z.object({ t: z.literal("ready"), id });
+export const SckPaused = z.object({ t: z.literal("paused"), id });
+export const SckResumed = z.object({ t: z.literal("resumed"), id });
+/** Non-fatal: the mic failed mid-recording; video + system audio continue without it. */
+export const SckDeviceLost = z.object({
+  t: z.literal("deviceLost"),
+  device: z.string(),
+  message: z.string(),
+});
+
+const numericId = z.string().regex(/^\d+$/);
+const pngDataUrl = z.string().startsWith("data:image/png;base64,");
+/** Global CoreGraphics points (top-left of primary) = Electron screen DIP on macOS. */
+const SourceBounds = z.object({
+  x: finite,
+  y: finite,
+  width: finite.nonnegative(),
+  height: finite.nonnegative(),
+});
+
+/** Assignable to `Sources` in electron/capture/types.ts (extra fields are stripped there). */
+export const ListedDisplay = z.object({
+  id: numericId,
+  name: z.string(),
+  bounds: SourceBounds,
+  scaleFactor: finite.positive(),
+  thumbnail: pngDataUrl.optional(),
+});
+export type ListedDisplay = z.infer<typeof ListedDisplay>;
+
+export const ListedWindow = z.object({
+  id: numericId,
+  title: z.string(),
+  appName: z.string().optional(),
+  bundleId: z.string().optional(),
+  pid: z.number().int().nonnegative().optional(),
+  bounds: SourceBounds,
+  displayId: numericId.optional(),
+  thumbnail: pngDataUrl.optional(),
+});
+export type ListedWindow = z.infer<typeof ListedWindow>;
+
+export const SckSources = z.object({
+  t: z.literal("sources"),
+  id,
+  displays: z.array(ListedDisplay),
+  windows: z.array(ListedWindow),
+});
+export type SckSources = z.infer<typeof SckSources>;
 export const SckStarted = z.object({
   t: z.literal("started"),
   id,
@@ -201,6 +351,10 @@ export const SckEvent = z.discriminatedUnion("t", [
   SckInterrupted,
   SckStopped,
   HelperErrorMessage,
+  SckPaused,
+  SckResumed,
+  SckDeviceLost,
+  SckSources,
 ]);
 export type SckEvent = z.infer<typeof SckEvent>;
 

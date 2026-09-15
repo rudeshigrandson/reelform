@@ -26,5 +26,5 @@ readLines(
     onEOF: { recorder.parentGone() }
 )
 
-writer.send(SckEvent.ready.encode())
+writer.send(SckEvent.ready(id: nil).encode())
 dispatchMain()

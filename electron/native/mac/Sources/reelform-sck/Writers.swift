@@ -2,6 +2,7 @@ import AVFoundation
 import CoreMedia
 import Foundation
 import ReelformProtocol
+import ScreenCaptureKit
 import VideoToolbox
 
 /// AVAssetWriter factories (§5.3). All writers use fragmented output
@@ -153,5 +154,19 @@ enum RecorderError: Error, CustomStringConvertible {
         switch self {
         case let .permission(m), let .sourceNotFound(m), let .writer(m), let .mic(m), let .stream(m): return m
         }
+    }
+
+    /// `SCShareableContent` fails with `userDeclined` when TCC denies screen recording
+    /// even though the preflight passed (e.g. the grant is attributed to another app).
+    static func from(shareableContentError error: Error?) -> RecorderError {
+        guard let error else { return .stream("shareable content unavailable") }
+        if let sc = error as? SCStreamError, sc.code == .userDeclined {
+            return .permission("screen recording access not granted: \(error.localizedDescription)")
+        }
+        let ns = error as NSError
+        if ns.domain == SCStreamErrorDomain, ns.code == SCStreamError.Code.userDeclined.rawValue {
+            return .permission("screen recording access not granted: \(error.localizedDescription)")
+        }
+        return .stream(error.localizedDescription)
     }
 }

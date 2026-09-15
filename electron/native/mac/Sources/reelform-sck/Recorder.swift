@@ -7,6 +7,12 @@ import ScreenCaptureKit
 /// One recording session per process (§5.3). All mutable state lives on
 /// `queue`: stdin commands, SCStream samples, mic samples and the stats timer
 /// are all funnelled through it.
+///
+/// Reply contract with main (`electron/capture/helperBackend.ts`):
+///   start  → `ready{id}` once capture is running (always before `started`), then
+///            `started{firstFramePtsNs}` on the first frame; failure → `error{id}`
+///   pause  → `paused{id}`, resume → `resumed{id}`
+///   stop / discard → `stopped{id}`; listSources → `sources{id}` (any state)
 final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private let out: LineWriter
     private let clock: HostClock
@@ -15,12 +21,15 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     private var state: SessionState = .idle
     private var options: StartOptions?
     private var startId: Int64?
+    private var readySent = false
 
     private var stream: SCStream?
     private var video: Writers.Video?
     private var system: Writers.Audio?
     private var micWriter: Writers.Audio?
     private var mic: MicCapture?
+    private var micLost = false
+    private var micAppended = 0
     private var paths: RecordingPaths?
 
     private var pause = PauseTracker()
@@ -70,15 +79,26 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         switch command {
         case let .ping(id):
             emit(.pong(id: id))
+        case let .listSources(id, width):
+            SourceLister.list(thumbnailWidth: width) { [out] result in
+                switch result {
+                case let .success(listing):
+                    out.send(SckEvent.sources(id: id, displays: listing.displays, windows: listing.windows).encode())
+                case let .failure(error):
+                    out.send(SckEvent.error(id: id, code: error.code, message: error.description).encode())
+                }
+            }
         case let .start(id, opts):
             guard gate("start", id: id) else { return }
             start(id: id, options: opts)
         case let .pause(id):
             guard gate("pause", id: id) else { return }
             pause.pause(atNs: clock.nowNs())
+            emit(.paused(id: id))
         case let .resume(id):
             guard gate("resume", id: id) else { return }
             pause.resume(atNs: clock.nowNs())
+            emit(.resumed(id: id))
         case let .stop(id):
             guard gate("stop", id: id) else { return }
             stop(id: id, discard: false)
@@ -100,6 +120,13 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
     private func emit(_ event: SckEvent) { out.send(event.encode()) }
 
+    /// Reply to `start`; idempotent and always sent before `started`.
+    private func sendReady() {
+        guard !readySent else { return }
+        readySent = true
+        emit(.ready(id: startId))
+    }
+
     // MARK: Start
 
     private func start(id: Int64?, options opts: StartOptions) {
@@ -113,7 +140,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
             self.queue.async {
                 guard self.state == .starting else { return }
                 guard let content else {
-                    self.fail(RecorderError.stream(error?.localizedDescription ?? "shareable content unavailable"))
+                    self.fail(RecorderError.from(shareableContentError: error))
                     return
                 }
                 do {
@@ -180,10 +207,10 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         if let micId = opts.micDeviceId {
             micWriter = try Writers.aac(url: micURL, channels: 1, bitRate: 128_000)
             mic = try MicCapture(
-                deviceId: micId, queue: queue,
+                deviceId: micId, label: opts.micLabel, queue: queue,
                 onSample: { [weak self] sb, ns in self?.appendAudio(sb, hostNs: ns, to: self?.micWriter) },
                 onRuntimeError: { [weak self] message in
-                    self?.queue.async { self?.interrupt(.deviceLost, message) }
+                    self?.queue.async { self?.micFailed(message) }
                 }
             )
         }
@@ -202,9 +229,14 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         startHostTimeNs = clock.nowNs()
         mic?.start()
         stream.startCapture { error in
-            guard let error else { return }
             self.queue.async {
-                if self.state == .starting { self.fail(RecorderError.stream(error.localizedDescription)) }
+                if let error {
+                    if self.state == .starting { self.fail(RecorderError.stream(error.localizedDescription)) }
+                    return
+                }
+                if self.state == .starting || self.state == .recording || self.state == .paused {
+                    self.sendReady()
+                }
             }
         }
         startStatsTimer()
@@ -213,6 +245,10 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
     /// Start failed: report, release everything, remove partial files, exit.
     private func fail(_ error: Error) {
         let code = (error as? RecorderError)?.code ?? "internal"
+        if readySent {
+            // Main already resolved `start`; the error id no longer correlates.
+            emit(.interrupted(reason: .streamStopped, message: "\(error)"))
+        }
         emit(.error(id: startId, code: code, message: "\(error)"))
         teardownCapture()
         video?.writer.cancelWriting()
@@ -254,6 +290,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
             system?.writer.startSession(atSourceTime: t)
             micWriter?.writer.startSession(atSourceTime: t)
             state = SessionTransition.next(state, "started") ?? state
+            sendReady()
             emit(.started(id: startId, firstFramePtsNs: ptsNs, startHostTimeNs: startHostTimeNs,
                           width: size.width, height: size.height, scaleFactor: size.scale))
         }
@@ -279,8 +316,16 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
               audio.input.isReadyForMoreMediaData,
               let retimed = Writers.retimed(sb, ptsNs: outNs)
         else { return }
-        if !audio.input.append(retimed), audio.writer.status == .failed {
-            interrupt(.writerFailed, audio.writer.error?.localizedDescription ?? "audio writer failed")
+        let isMic = audio.writer === micWriter?.writer
+        if isMic, micLost { return }
+        if audio.input.append(retimed) {
+            if isMic { micAppended += 1 }
+        } else if audio.writer.status == .failed {
+            if isMic {
+                micFailed(audio.writer.error?.localizedDescription ?? "mic writer failed")
+            } else {
+                interrupt(.writerFailed, audio.writer.error?.localizedDescription ?? "audio writer failed")
+            }
         }
     }
 
@@ -309,6 +354,20 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
     }
 
+    /// Mic runtime error (unplugged, session error): keep recording video and
+    /// system audio; report `deviceLost` once. The partial mic track is kept.
+    private func micFailed(_ message: String) {
+        guard !micLost, mic != nil else { return }
+        switch state {
+        case .starting, .recording, .paused:
+            micLost = true
+            mic?.stop()
+            emit(.deviceLost(device: options?.micDeviceId ?? "default", message: message))
+        default:
+            break
+        }
+    }
+
     // MARK: Stop / discard
 
     private func stop(id: Int64?, discard: Bool) {
@@ -326,6 +385,13 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
             }
             finish(id: id, durationMs: 0, paths: nil, discarded: discard)
             return
+        }
+
+        // A mic lost before its first sample leaves nothing worth finalizing.
+        if micLost, micAppended == 0, let micWriter {
+            micWriter.writer.cancelWriting()
+            if let path = paths?.mic { try? FileManager.default.removeItem(atPath: path) }
+            self.micWriter = nil
         }
 
         // End every session at the same output time so tracks stay aligned and
@@ -410,5 +476,17 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
         }
         let rate = fps.fps(nowNs: clock.nowNs())
         emit(.stats(fps: rate, droppedFrames: fps.dropped, fileBytes: bytes))
+        if let dir = options?.outputDir, DiskGuard.isLow(availableBytes: Self.availableBytes(at: dir)) {
+            interrupt(.diskLow, "less than 500 MB free on the recording volume")
+        }
+    }
+
+    static func availableBytes(at path: String) -> Int64? {
+        let url = URL(fileURLWithPath: path, isDirectory: true)
+        guard let values = try? url.resourceValues(forKeys: [
+            .volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey,
+        ]) else { return nil }
+        if let important = values.volumeAvailableCapacityForImportantUsage, important > 0 { return important }
+        return values.volumeAvailableCapacity.map { Int64($0) }
     }
 }
