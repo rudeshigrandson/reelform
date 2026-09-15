@@ -284,7 +284,13 @@ export function createExportService(deps: ExportDeps): ExportService {
       await fs.rm(wavPath, { force: true }).catch(() => undefined);
       // The WAV is gone; it can't be muxed again.
       entries.delete(wavExportId);
-      return { ok: true as const, outputPath: videoPath };
+      // The size is informational: a failed stat must not fail a finished mux.
+      const size = (await fs.stat(videoPath).catch(() => null))?.size;
+      return {
+        ok: true as const,
+        outputPath: videoPath,
+        ...(size !== undefined ? { bytes: size } : {}),
+      };
     },
   };
 

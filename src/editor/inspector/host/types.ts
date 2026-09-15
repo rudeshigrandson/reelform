@@ -29,19 +29,18 @@ export interface SaveFileOptions {
 }
 
 /**
- * What an imported file is for. `webcam` / `audio` / `image` are the
+ * What an imported file is for. `webcam` / `audio` / `image` / `font` are the
  * `system:copyIntoProject` kinds (they decide the `media/imported/` sub-folder);
  * the others ride on one of those (see {@link ipcImportKind}).
  */
 export type ImportKind = "webcam" | "audio" | "image" | "font" | "cursor" | "sound";
 
 /** Kinds the `system:copyIntoProject` channel accepts. */
-export type IpcImportKind = "webcam" | "audio" | "image";
+export type IpcImportKind = "webcam" | "audio" | "image" | "font";
 
-/** Fonts and custom cursors are copied like images (no probe); click sounds like audio. */
+/** Custom cursors are copied like images (no probe); click sounds like audio. */
 export function ipcImportKind(kind: ImportKind): IpcImportKind {
   switch (kind) {
-    case "font":
     case "cursor":
       return "image";
     case "sound":
@@ -84,6 +83,27 @@ export interface TrimSourceResult {
   savedBytes: number;
   /** Token for `restoreTrimmedSource` (the original is stashed until app quit). */
   undoToken?: string | undefined;
+  /**
+   * Linked tracks main cut to the same range (same undo token). Absent keys
+   * were not trimmed; the webcam's `syncOffsetMs` is unchanged by the same cut.
+   */
+  linked?: TrimmedLinkedSources | undefined;
+}
+
+export interface TrimmedLinkedMedia {
+  /** New project-relative path. */
+  path: string;
+  durationMs: number;
+}
+
+export interface TrimmedLinkedSources {
+  mic?: TrimmedLinkedMedia | undefined;
+  system?: TrimmedLinkedMedia | undefined;
+  webcam?: TrimmedLinkedMedia | undefined;
+  /** Rewritten telemetry (timestamps shifted by the trim offset). */
+  telemetry?:
+    | { path: string; pointCount: number; hasClicks: boolean; hasKeys: boolean }
+    | undefined;
 }
 
 /** Side effects a meta history entry runs when it is undone / redone. */

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { systemFileContracts } from "./contracts";
+import { ImportKind, systemFileContracts, systemProjectFileContracts } from "./contracts";
 import {
   type SystemDeps,
   SystemIpcError,
@@ -65,6 +65,19 @@ describe("system contracts", () => {
     expect(systemFileContracts["system:reveal"].request.safeParse({ path: "" }).success).toBe(
       false,
     );
+  });
+});
+
+describe("project file contracts", () => {
+  it("copyIntoProject accepts font imports (media/imported/font) and rejects unknown kinds", () => {
+    const copy = systemProjectFileContracts["system:copyIntoProject"].request;
+    expect(ImportKind.options).toEqual(["webcam", "audio", "image", "font"]);
+    expect(copy.safeParse({ projectPath: "/p", kind: "font", sourcePath: "/f.ttf" }).success).toBe(
+      true,
+    );
+    expect(
+      copy.safeParse({ projectPath: "/p", kind: "cursor", sourcePath: "/c.svg" }).success,
+    ).toBe(false);
   });
 });
 

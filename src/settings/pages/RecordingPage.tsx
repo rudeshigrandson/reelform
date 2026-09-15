@@ -229,8 +229,11 @@ export function RecordingPage({ settings, onChange, services }: SettingsProps) {
       </Group>
 
       <Group title={t("settings.recording.files")}>
-        {/* autoDeleteRawAfterExport is hidden: nothing applies it after export yet
-            (no IPC channel deletes only a project's raw source; see ExportController). */}
+        <Switch
+          checked={settings.autoDeleteRawAfterExport}
+          onChange={(autoDeleteRawAfterExport) => onChange({ autoDeleteRawAfterExport })}
+          label="Auto-delete raw recordings after export (keep project)"
+        />
         <NumberField
           label={t("settings.recording.maxLength")}
           value={settings.maxLengthHours}

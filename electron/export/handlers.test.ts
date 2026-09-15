@@ -365,7 +365,8 @@ describe("export:muxAudio", () => {
     const svc = makeService({ ffmpeg: { runner: { spawn }, resolveBinaries: bins } });
     const { videoPath, wavPath, dir } = await fixture(svc);
     const res = await svc.handlers["export:muxAudio"]({ videoPath, wavPath, container: "mp4" });
-    expect(res).toEqual({ ok: true, outputPath: videoPath });
+    // `bytes` is the muxed file's size on disk ("muxed" = 5 bytes).
+    expect(res).toEqual({ ok: true, outputPath: videoPath, bytes: 5 });
     expect(exportContracts["export:muxAudio"].response.parse(res)).toEqual(res);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.command).toBe("/ff");

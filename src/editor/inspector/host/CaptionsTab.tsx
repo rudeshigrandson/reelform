@@ -11,14 +11,16 @@ import { usePlaybackStore } from "../../playback";
 import { useEditorStore } from "../../store";
 import { CaptionsInspector } from "../captions";
 import { DEFAULT_CAPTION_FONTS, type GenerationStatus } from "../captions/types";
+import { useInspectorT, withDetail } from "../i18n";
 import { fileNameOf } from "./audioPeaks";
 import {
-  NOTHING_TO_TRANSCRIBE_MESSAGE,
-  NO_AUDIO_MESSAGE,
-  NO_SPEECH_MESSAGE,
   captionsErrorMessage,
+  isCaptionsCancel,
   mapTranscribedCaptions,
   modelIdForTier,
+  noAudioMessage,
+  noSpeechMessage,
+  nothingToTranscribeMessage,
   pickAudioCandidate,
   sidecarFileName,
   statusFromProgress,
@@ -35,6 +37,7 @@ const setStatus = (captionStatus: GenerationStatus) =>
 export const FONT_FILTERS = [{ name: "Fonts", extensions: [...FONT_FILE_EXTENSIONS] }];
 
 export function CaptionsTab({ host }: { host: InspectorHost }): ReactElement {
+  const t = useInspectorT();
   const e = useEditorStore();
   const currentMs = usePlaybackStore((p) => p.currentMs);
   const seek = usePlaybackStore((p) => p.seek);
@@ -71,7 +74,10 @@ export function CaptionsTab({ host }: { host: InspectorHost }): ReactElement {
   const addCustomFont = async () => {
     setNotice(null);
     try {
-      const picked = await host.pickFile({ title: "Add custom font", filters: FONT_FILTERS });
+      const picked = await host.pickFile({
+        title: t("inspector.captions.addFontTitle"),
+        filters: FONT_FILTERS,
+      });
       if (!picked) return;
       const media = await host.importMedia("font", picked);
       const fileName = picked.split(/[\\/]/).pop() ?? picked;
@@ -89,10 +95,10 @@ export function CaptionsTab({ host }: { host: InspectorHost }): ReactElement {
         font,
       ]);
       if (!loaded) {
-        setNotice(`Couldn't load ${fileName} as a font.`);
+        setNotice(t("inspector.captions.error.loadFont", { file: fileName }));
         return;
       }
-      host.documentUpdate("Add caption font", {
+      host.documentUpdate(t("inspector.captions.history.addFont"), {
         captionStyle: {
           ...style,
           font: family,
@@ -100,7 +106,7 @@ export function CaptionsTab({ host }: { host: InspectorHost }): ReactElement {
         },
       });
     } catch (err) {
-      setNotice(`Couldn't add the font. ${errorMessage(err, "")}`.trim());
+      setNotice(withDetail(t, "inspector.captions.error.addFont", errorMessage(err, "")));
     }
   };
 
@@ -116,8 +122,11 @@ export function CaptionsTab({ host }: { host: InspectorHost }): ReactElement {
       setStatus({ kind: "idle" });
       await refreshModels();
     } catch (err) {
-      const msg = captionsErrorMessage(err, "download");
-      setStatus(msg === "Cancelled." ? { kind: "idle" } : { kind: "error", message: msg });
+      setStatus(
+        isCaptionsCancel(err)
+          ? { kind: "idle" }
+          : { kind: "error", message: captionsErrorMessage(err, "download") },
+      );
     } finally {
       off();
     }
@@ -126,13 +135,13 @@ export function CaptionsTab({ host }: { host: InspectorHost }): ReactElement {
   const generate = async () => {
     const candidate = pickAudioCandidate(meta, projectPath);
     if (!candidate) {
-      setStatus({ kind: "error", message: NO_AUDIO_MESSAGE });
+      setStatus({ kind: "error", message: noAudioMessage() });
       return;
     }
     const state0 = useEditorStore.getState();
     const ranges = deriveTranscribeRanges(timelineClips(state0.clips, meta), state0.speedRegions);
     if (ranges.length === 0) {
-      setStatus({ kind: "error", message: NOTHING_TO_TRANSCRIBE_MESSAGE });
+      setStatus({ kind: "error", message: nothingToTranscribeMessage() });
       return;
     }
     const jobId = hostId("captions");
@@ -153,10 +162,10 @@ export function CaptionsTab({ host }: { host: InspectorHost }): ReactElement {
       });
       const captions = mapTranscribedCaptions(res.captions, ranges);
       if (captions.length === 0) {
-        setStatus({ kind: "error", message: NO_SPEECH_MESSAGE });
+        setStatus({ kind: "error", message: noSpeechMessage() });
         return;
       }
-      host.documentUpdate("Generate captions", { captions });
+      host.documentUpdate(t("inspector.captions.generateCaptions"), { captions });
       setStatus({ kind: "idle" });
     } catch (err) {
       setStatus({ kind: "error", message: captionsErrorMessage(err, "transcribe") });
@@ -169,14 +178,19 @@ export function CaptionsTab({ host }: { host: InspectorHost }): ReactElement {
     setNotice(null);
     try {
       const saved = await host.saveFile({
-        title: `Export .${format}`,
+        title:
+          format === "srt" ? t("inspector.captions.exportSrt") : t("inspector.captions.exportVtt"),
         defaultName: sidecarFileName(meta?.name ?? "captions", format),
         filters: [{ name: format === "srt" ? "SubRip" : "WebVTT", extensions: [format] }],
         contents: serializeSidecar(useEditorStore.getState().captions, format),
       });
-      if (saved) setNotice(`Saved ${fileNameOf(saved)}`);
+      if (saved) setNotice(t("inspector.captions.saved", { file: fileNameOf(saved) }));
     } catch (err) {
-      setNotice(err instanceof Error ? `Couldn't save: ${err.message}` : "Couldn't save the file.");
+      setNotice(
+        err instanceof Error
+          ? t("inspector.captions.error.save", { message: err.message })
+          : t("inspector.captions.error.saveFile"),
+      );
     }
   };
 
@@ -184,21 +198,23 @@ export function CaptionsTab({ host }: { host: InspectorHost }): ReactElement {
     setNotice(null);
     try {
       const path = await host.pickFile({
-        title: "Import captions",
+        title: t("inspector.captions.import"),
         filters: [{ name: "Captions", extensions: ["srt", "vtt"] }],
       });
       if (!path) return;
       const text = await host.readTextFile(path);
       const parsed = parseSidecar(text, undefined, path);
       if (parsed.captions.length === 0) {
-        setNotice("No captions found in that file.");
+        setNotice(t("inspector.captions.noneInFile"));
         return;
       }
-      host.documentUpdate("Import captions", { captions: parsed.captions });
-      setNotice(`Imported ${parsed.captions.length} captions`);
+      host.documentUpdate(t("inspector.captions.import"), { captions: parsed.captions });
+      setNotice(t("inspector.captions.imported", { count: parsed.captions.length }));
     } catch (err) {
       setNotice(
-        err instanceof Error ? `Couldn't import: ${err.message}` : "Couldn't import the file.",
+        err instanceof Error
+          ? t("inspector.captions.error.import", { message: err.message })
+          : t("inspector.captions.error.importFile"),
       );
     }
   };
@@ -207,21 +223,27 @@ export function CaptionsTab({ host }: { host: InspectorHost }): ReactElement {
     <CaptionsInspector
       captions={e.captions}
       onCaptionsChange={(captions) =>
-        host.documentUpdate("Edit captions", { captions }, "captions-edit")
+        host.documentUpdate(t("inspector.captions.history.edit"), { captions }, "captions-edit")
       }
       style={e.captionStyle}
       onStyleChange={(captionStyle) =>
-        host.documentUpdate("Caption style", { captionStyle }, "caption-style")
+        host.documentUpdate(
+          t("inspector.captions.history.style"),
+          { captionStyle },
+          "caption-style",
+        )
       }
       fonts={fonts}
       onAddCustomFont={() => void addCustomFont()}
       status={e.captionStatus}
       modelDownloaded={installed.has(modelId)}
       model={e.captionModel}
-      onModelChange={(captionModel) => host.documentUpdate("Caption model", { captionModel })}
+      onModelChange={(captionModel) =>
+        host.documentUpdate(t("inspector.captions.history.model"), { captionModel })
+      }
       language={e.captionLanguage}
       onLanguageChange={(captionLanguage) =>
-        host.documentUpdate("Caption language", { captionLanguage })
+        host.documentUpdate(t("inspector.captions.history.language"), { captionLanguage })
       }
       onGenerate={() => void generate()}
       onDownloadModel={() => void download()}
@@ -231,7 +253,7 @@ export function CaptionsTab({ host }: { host: InspectorHost }): ReactElement {
       durationMs={e.durationMs}
       burnIn={e.burnInCaptions}
       onBurnInChange={(burnInCaptions) =>
-        host.documentUpdate("Burn in captions", { burnInCaptions })
+        host.documentUpdate(t("inspector.captions.history.burnIn"), { burnInCaptions })
       }
       onExportSrt={() => void exportSidecar("srt")}
       onExportVtt={() => void exportSidecar("vtt")}

@@ -236,9 +236,7 @@ export const TELEMETRY_FILE_NAME = "telemetry.json.gz";
 export const THUMBNAIL_FILE_NAME = "thumbnail.jpg";
 
 /** A `project:create` media import; `destination: "root"` places it beside project.json. */
-export type RecordingMediaImport = NonNullable<CreateProjectRequest["media"]>[number] & {
-  destination?: "media" | "root" | undefined;
-};
+export type RecordingMediaImport = NonNullable<CreateProjectRequest["media"]>[number];
 const AUDIO_TRACKS = ["mic", "system"] as const;
 
 function extOf(path: string): string {
@@ -289,9 +287,11 @@ export function resolvedFileNames(
   mediaFiles: readonly string[],
 ): MediaPlan["fileNames"] {
   const out: MediaPlan["fileNames"] = { ...plan.fileNames };
+  // `mediaFiles` lists only `media/` imports: root imports (the thumbnail) are skipped.
+  const mediaImports = plan.imports.filter((m) => m.destination !== "root");
   const keys = Object.keys(plan.fileNames) as (TrackKind | "telemetry")[];
   for (const key of keys) {
-    const idx = plan.imports.findIndex((m) => m.fileName === plan.fileNames[key]);
+    const idx = mediaImports.findIndex((m) => m.fileName === plan.fileNames[key]);
     const actual = idx >= 0 ? mediaFiles[idx] : undefined;
     if (actual) out[key] = actual;
   }

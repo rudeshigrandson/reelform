@@ -109,7 +109,11 @@ describe("createInspectorSystemPort", () => {
     ]);
     expect(calls[0]).toEqual({
       channel: "project:trimSource",
-      payload: { path: "/p/Demo.reelform", usedRange: { startMs: 10_000, endMs: 20_000 } },
+      payload: {
+        path: "/p/Demo.reelform",
+        usedRange: { startMs: 10_000, endMs: 20_000 },
+        trimLinkedTracks: true,
+      },
     });
     expect(res).toEqual({
       clips: [
@@ -129,6 +133,63 @@ describe("createInspectorSystemPort", () => {
     });
     await expect(port.trimSource("/p/Demo.reelform", [])).rejects.toThrow();
     expect(calls).toHaveLength(2);
+  });
+
+  it("trimSource maps the linked tracks main trimmed, without undefined keys", async () => {
+    const { invoke } = fakeInvoke({
+      "project:trimSource": {
+        clips: [],
+        videoPath: "media/screen-trimmed.mp4",
+        videoDurationMs: 12_500,
+        savedBytes: 2800,
+        offsetMs: 8500,
+        undoToken: "tok-2",
+        linked: {
+          mic: { path: "media/mic-trimmed.webm", durationMs: 12_480 },
+          webcam: { path: "media/webcam-trimmed.webm", durationMs: 12_500 },
+          telemetry: {
+            path: "media/telemetry-trimmed.json.gz",
+            pointCount: 3,
+            hasClicks: true,
+            hasKeys: false,
+          },
+        },
+      },
+    });
+    const port = createInspectorSystemPort(invoke, () => {});
+    const res = await port.trimSource("/p/Demo.reelform", [
+      { id: "k1", sourceStartMs: 10_000, sourceEndMs: 20_000, timelineStartMs: 0 },
+    ]);
+    expect(res.linked).toEqual({
+      mic: { path: "media/mic-trimmed.webm", durationMs: 12_480 },
+      webcam: { path: "media/webcam-trimmed.webm", durationMs: 12_500 },
+      telemetry: {
+        path: "media/telemetry-trimmed.json.gz",
+        pointCount: 3,
+        hasClicks: true,
+        hasKeys: false,
+      },
+    });
+    expect(Object.keys(res.linked ?? {})).toEqual(["mic", "webcam", "telemetry"]);
+
+    const empty = createInspectorSystemPort(
+      fakeInvoke({
+        "project:trimSource": {
+          clips: [],
+          videoPath: "v",
+          videoDurationMs: 1,
+          savedBytes: 0,
+          offsetMs: 0,
+          undoToken: "t",
+          linked: {},
+        },
+      }).invoke,
+      () => {},
+    );
+    const plain = await empty.trimSource("/p", [
+      { id: "k", sourceStartMs: 0, sourceEndMs: 1, timelineStartMs: 0 },
+    ]);
+    expect("linked" in plain).toBe(false);
   });
 
   it("outside Electron: required results throw a coded error, optional ones degrade", async () => {

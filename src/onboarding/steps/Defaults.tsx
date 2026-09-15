@@ -1,5 +1,6 @@
 import { Button, Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
+import { useOnboardingT } from "../i18n";
 import type { OnboardingDraft } from "../machine";
 import type { Fps } from "../types";
 
@@ -52,18 +53,19 @@ export function Defaults({
   saving,
   saveError,
 }: DefaultsProps) {
+  const t = useOnboardingT();
   return (
     <section
       aria-labelledby="onboarding-defaults-title"
       style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)", textAlign: "left" }}
     >
       <h2 id="onboarding-defaults-title" style={{ fontSize: "22px", fontWeight: 600, margin: 0 }}>
-        Where should recordings go?
+        {t("onboarding.defaults.title")}
       </h2>
 
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
         <code
-          aria-label="Recordings folder"
+          aria-label={t("onboarding.defaults.folderLabel")}
           style={{
             flex: 1,
             fontFamily: "var(--font-mono)",
@@ -80,14 +82,14 @@ export function Defaults({
           {draft.recordingsFolder}
         </code>
         <Button variant="secondary" onClick={onChangeFolder} disabled={!onChangeFolder || saving}>
-          Change…
+          {t("onboarding.defaults.changeFolder")}
         </Button>
       </div>
 
       <SwitchRow
         checked={draft.autoDeleteRawAfterExport}
         onChange={(autoDeleteRawAfterExport) => onDraft({ autoDeleteRawAfterExport })}
-        label="Auto-delete raw recordings after export (keep project)"
+        label={t("onboarding.defaults.autoDeleteRaw")}
       />
 
       <div className="field">
@@ -99,7 +101,7 @@ export function Defaults({
             marginBottom: "5px",
           }}
         >
-          Default frame rate
+          {t("onboarding.defaults.frameRate")}
         </span>
         <Segmented<Fps>
           name="onboarding-fps"
@@ -112,7 +114,7 @@ export function Defaults({
       <SwitchRow
         checked={draft.openEditorAfterRecording}
         onChange={(openEditorAfterRecording) => onDraft({ openEditorAfterRecording })}
-        label="Open editor automatically after recording"
+        label={t("onboarding.defaults.openEditor")}
       />
 
       {saveError ? (
@@ -123,7 +125,7 @@ export function Defaults({
 
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
         <Button variant="primary" onClick={onFinish} disabled={saving}>
-          {saving ? "Saving…" : "Finish"}
+          {saving ? t("onboarding.defaults.saving") : t("onboarding.defaults.finish")}
         </Button>
       </div>
     </section>

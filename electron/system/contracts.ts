@@ -100,7 +100,7 @@ export type SystemFileResponse<K extends keyof SystemFileContracts> = z.infer<
  * confined to `<project>/media/imported/<kind>/`; project-relative lookups may
  * not escape the project folder.
  */
-export const ImportKind = z.enum(["webcam", "audio", "image"]);
+export const ImportKind = z.enum(["webcam", "audio", "image", "font"]);
 export type ImportKind = z.infer<typeof ImportKind>;
 
 export const systemProjectFileContracts = {

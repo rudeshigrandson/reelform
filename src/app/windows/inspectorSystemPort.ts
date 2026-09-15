@@ -2,6 +2,7 @@ import type { ChannelName, RequestOf, ResponseOf } from "@contracts";
 import type {
   FileFilter as HostFileFilter,
   TrimSourceResult,
+  TrimmedLinkedSources,
 } from "../../editor/inspector/host/types";
 import type { SystemPort } from "../inspector/createInspectorHost";
 
@@ -41,6 +42,23 @@ export interface InspectorSystemPort extends SystemPort {
   ): Promise<InspectorTrimSourceResult>;
   /** Undo a trim: moves the original back (the host restores `sources.video` itself). */
   restoreTrimmedSource(projectPath: string, undoToken: string): Promise<void>;
+}
+
+type TrimLinkedResponse = NonNullable<ResponseOf<"project:trimSource">["linked"]>;
+
+/** Only the tracks main actually trimmed (no `undefined` keys). */
+function toLinkedSources(linked: TrimLinkedResponse | undefined): TrimmedLinkedSources | null {
+  if (!linked) return null;
+  const out: TrimmedLinkedSources = {};
+  for (const key of ["mic", "system", "webcam"] as const) {
+    const t = linked[key];
+    if (t) out[key] = { path: t.path, durationMs: t.durationMs };
+  }
+  if (linked.telemetry) {
+    const { path, pointCount, hasClicks, hasKeys } = linked.telemetry;
+    out.telemetry = { path, pointCount, hasClicks, hasKeys };
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 function toFilters(filters: readonly HostFileFilter[]) {
@@ -100,14 +118,16 @@ export function createInspectorSystemPort(
         startMs = Math.min(startMs, c.sourceStartMs);
         endMs = Math.max(endMs, c.sourceEndMs);
       }
+      // Main cuts mic/system/webcam and shifts telemetry too, so nothing drifts out of sync.
       const res = await invoke("project:trimSource", {
         path: projectPath,
         usedRange: { startMs, endMs },
+        trimLinkedTracks: true,
       });
       if (!res) throw new NotBridgedError("Trimming the source");
       // Rewrite locally so every clip field keeps its exact type.
       const offset = res.offsetMs;
-      return {
+      const out: InspectorTrimSourceResult = {
         clips: clips.map((c) => ({
           ...c,
           sourceStartMs: Math.max(0, c.sourceStartMs - offset),
@@ -119,6 +139,9 @@ export function createInspectorSystemPort(
         undoToken: res.undoToken,
         offsetMs: offset,
       };
+      const linked = toLinkedSources(res.linked);
+      if (linked) out.linked = linked;
+      return out;
     },
 
     async restoreTrimmedSource(projectPath, undoToken) {

@@ -64,6 +64,12 @@ export const MediaImport = z.object({
   fileName: z.string().min(1),
   /** Remove the source after the project is written (default: copy only). */
   move: z.boolean().optional(),
+  /**
+   * `media` (default) → `<project>/media/<fileName>`, listed in `mediaFiles`;
+   * `root` → `<project>/<fileName>` beside project.json (e.g. the library
+   * thumbnail), not listed in `mediaFiles`.
+   */
+  destination: z.enum(["media", "root"]).optional(),
 });
 
 const DocumentResult = z.object({
@@ -91,6 +97,27 @@ export const TrimClip = z
     timelineStartMs: z.number().finite().nonnegative(),
   })
   .passthrough();
+
+const TrimmedMedia = z.object({
+  /** New project-relative (posix) path. */
+  path: z.string(),
+  durationMs: z.number().nonnegative(),
+});
+
+export const TrimmedLinkedTracks = z.object({
+  mic: TrimmedMedia.optional(),
+  system: TrimmedMedia.optional(),
+  webcam: TrimmedMedia.optional(),
+  telemetry: z
+    .object({
+      path: z.string(),
+      pointCount: z.number().int().nonnegative(),
+      hasClicks: z.boolean(),
+      hasKeys: z.boolean(),
+    })
+    .optional(),
+});
+export type TrimmedLinkedTracks = z.infer<typeof TrimmedLinkedTracks>;
 
 const projectRef = <T extends z.ZodRawShape>(shape: T) =>
   z
@@ -126,6 +153,11 @@ export const projectMediaContracts = {
        * caller shifts those tracks by `offsetMs` itself.
        */
       allowLinkedTracks: z.boolean().optional(),
+      /**
+       * Cut mic/system/webcam to the same range as the video and rewrite the
+       * telemetry shifted by `-offsetMs`; the new paths come back in `linked`.
+       */
+      trimLinkedTracks: z.boolean().optional(),
     }),
     z.object({
       clips: z.array(TrimClip),
@@ -135,6 +167,8 @@ export const projectMediaContracts = {
       savedBytes: z.number().int().nonnegative(),
       offsetMs: z.number().nonnegative(),
       undoToken: z.string(),
+      /** Linked tracks rewritten by `trimLinkedTracks` (absent keys were not present). */
+      linked: TrimmedLinkedTracks.optional(),
     }),
   ),
   "project:restoreTrimmedSource": channel(
@@ -200,6 +234,17 @@ export const projectContracts = {
     z.object({ path: ProjectPath }),
     z.object({ path: z.string() }),
   ),
+  /**
+   * "Auto-delete raw recordings after export (keep project)" (guide S02/S14):
+   * the raw capture files (`sources.video/mic/system/webcam` inside `media/`)
+   * and the preview proxy go to the OS trash; project.json, telemetry and
+   * `exports/` stay. `removed` lists project-relative (posix) paths.
+   */
+  "project:deleteRawSource": channel(
+    "project:deleteRawSource",
+    z.object({ path: ProjectPath }),
+    z.object({ removed: z.array(z.string()) }),
+  ),
   /** Drop every autosave backup (user chose "Don't save" / dismissed recovery). */
   "project:discardBackups": channel(
     "project:discardBackups",
@@ -217,7 +262,7 @@ export const projectContracts = {
       media: z.array(MediaImport).optional(),
     }),
     DocumentResult.extend({
-      /** Final `media/` file names, in request order. */
+      /** Final `media/` file names, in request order (`destination: "root"` imports are skipped). */
       mediaFiles: z.array(z.string()),
     }),
   ),

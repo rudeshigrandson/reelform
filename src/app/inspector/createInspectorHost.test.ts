@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CaptionsProgressEvent } from "../../editor/inspector/host/types";
+import {
+  syncSessionMedia,
+  trimEditorPatch,
+  withTrimmedSource,
+} from "../../editor/inspector/host/ProjectTab";
+import type { CaptionsProgressEvent, TrimSourceResult } from "../../editor/inspector/host/types";
+import type { ProjectMeta } from "../../editor/persistence";
 import { initialProjectSession, useProjectSession } from "../project/session";
 import {
   type InvokeFn,
@@ -243,13 +249,13 @@ describe("createInspectorHost", () => {
     expect(host.platform).toBe("win");
   });
 
-  it("copies fonts and cursors like images and click sounds like audio", async () => {
+  it("copies fonts into their own folder, cursors like images and click sounds like audio", async () => {
     const { host, sys, ipc } = make({
       "media:probe": () => ({ durationMs: 120, width: 0, height: 0, hasAudio: true }),
     });
     expect(await host.importMedia("font", "/f/Brand.ttf")).toEqual({
-      path: "media/imported/image/Brand.ttf",
-      url: "reelform-media://root/media/imported/image/Brand.ttf",
+      path: "media/imported/font/Brand.ttf",
+      url: "reelform-media://root/media/imported/font/Brand.ttf",
       durationMs: null,
       width: null,
       height: null,
@@ -257,7 +263,7 @@ describe("createInspectorHost", () => {
     });
     expect(sys.copyIntoProject).toHaveBeenLastCalledWith(
       "/P/Demo.reelform",
-      "image",
+      "font",
       "/f/Brand.ttf",
     );
     await host.importMedia("cursor", "/c/arrow.svg");
@@ -304,5 +310,143 @@ describe("mediaUrlFor", () => {
     expect(mediaUrlFor("base://", "/abs.mp4")).toBeNull();
     expect(mediaUrlFor("base://", "C:\\abs.mp4")).toBeNull();
     expect(mediaUrlFor(null, "media/a.mp4")).toBeNull();
+  });
+});
+
+describe("trim with linked tracks (Project tab meta + session)", () => {
+  const media = (path: string, durationMs: number) => ({
+    path,
+    durationMs,
+    width: 1280,
+    height: 720,
+    fps: 30,
+    codec: "vp9",
+    hasAudio: true,
+  });
+  const meta = {
+    id: "p1",
+    name: "Demo",
+    clips: [{ id: "c", sourceStartMs: 10_000, sourceEndMs: 20_000, timelineStartMs: 0 }],
+    sources: {
+      video: media("media/screen.mp4", 60_000),
+      mic: media("media/mic.webm", 60_000),
+      webcam: { ...media("media/webcam.webm", 60_000), syncOffsetMs: 40 },
+      telemetry: {
+        path: "media/telemetry.json.gz",
+        hasClicks: true,
+        hasKeys: true,
+        sampleHz: 60,
+      },
+    },
+  } as unknown as ProjectMeta;
+  const res: TrimSourceResult = {
+    clips: [{ id: "c", sourceStartMs: 1500, sourceEndMs: 11_500, timelineStartMs: 0 }],
+    videoPath: "media/screen-trimmed.mp4",
+    videoDurationMs: 12_500,
+    savedBytes: 2800,
+    undoToken: "tok-1",
+    linked: {
+      mic: { path: "media/mic-trimmed.webm", durationMs: 12_480 },
+      system: { path: "media/system-trimmed.m4a", durationMs: 12_500 },
+      webcam: { path: "media/webcam-trimmed.webm", durationMs: 12_500 },
+      telemetry: {
+        path: "media/telemetry-trimmed.json.gz",
+        pointCount: 2,
+        hasClicks: false,
+        hasKeys: false,
+      },
+    },
+  };
+
+  it("withTrimmedSource re-points every linked source in the same meta update", () => {
+    const next = withTrimmedSource(meta, res);
+    expect(next.clips).toEqual(res.clips);
+    expect(next.sources.video).toMatchObject({
+      path: "media/screen-trimmed.mp4",
+      durationMs: 12_500,
+    });
+    expect(next.sources.mic).toMatchObject({ path: "media/mic-trimmed.webm", durationMs: 12_480 });
+    // Same cut as the video: the webcam keeps its sync offset.
+    expect(next.sources.webcam).toMatchObject({
+      path: "media/webcam-trimmed.webm",
+      durationMs: 12_500,
+      syncOffsetMs: 40,
+      width: 1280,
+    });
+    // A track the project doesn't have is never added.
+    expect(next.sources.system).toBeUndefined();
+    expect(next.sources.telemetry).toEqual({
+      path: "media/telemetry-trimmed.json.gz",
+      hasClicks: false,
+      hasKeys: false,
+      sampleHz: 60,
+    });
+    expect(trimEditorPatch(res)).toEqual({ clips: res.clips, cursorPointCount: 2 });
+    const { linked: _linked, ...videoOnly } = res;
+    expect(withTrimmedSource(meta, videoOnly).sources.mic).toBe(meta.sources.mic);
+    expect(trimEditorPatch(videoOnly)).toEqual({ clips: res.clips });
+  });
+
+  it("syncSessionMedia points URLs at the new files and reloads the shifted telemetry", async () => {
+    useProjectSession.setState({
+      ...initialProjectSession(),
+      meta: withTrimmedSource(meta, res),
+      mediaBaseUrl: "reelform-media://root/",
+      videoUrl: "reelform-media://root/media/screen.mp4",
+      micUrl: "reelform-media://root/media/mic.webm",
+      webcamUrl: "reelform-media://root/media/webcam.webm",
+    });
+    const telemetryFile = {
+      version: 1,
+      sampleHz: 60,
+      origin: "display",
+      bounds: { x: 0, y: 0, width: 100, height: 100 },
+      scaleFactor: 1,
+      points: [
+        [0, 1, 1, "arrow"],
+        [500, 2, 2, "arrow"],
+      ],
+      clicks: [],
+      keys: [],
+      scrolls: [],
+    };
+    const fetchBytes = vi.fn(async () => new TextEncoder().encode(JSON.stringify(telemetryFile)));
+    await syncSessionMedia(true, { fetchBytes, decompress: async (b) => b });
+    const s = useProjectSession.getState();
+    expect(s.videoUrl).toBe("reelform-media://root/media/screen-trimmed.mp4");
+    expect(s.micUrl).toBe("reelform-media://root/media/mic-trimmed.webm");
+    expect(s.webcamUrl).toBe("reelform-media://root/media/webcam-trimmed.webm");
+    expect(s.systemAudioUrl).toBeNull();
+    expect(fetchBytes).toHaveBeenCalledWith(
+      "reelform-media://root/media/telemetry-trimmed.json.gz",
+    );
+    expect(s.telemetry?.cursorPoints.map((p) => p.tMs)).toEqual([0, 500]);
+
+    // Unreadable telemetry disables the cursor layer instead of keeping stale timestamps.
+    await syncSessionMedia(true, {
+      fetchBytes: async () => {
+        throw new Error("gone");
+      },
+      decompress: async (b) => b,
+    });
+    expect(useProjectSession.getState().telemetry).toBeNull();
+  });
+
+  it("keeps URLs of sources relinked by absolute reference; no reload unless asked", async () => {
+    const referenced = {
+      ...meta,
+      sources: { ...meta.sources, mic: media("/Users/me/mic.webm", 60_000) },
+    } as ProjectMeta;
+    useProjectSession.setState({
+      ...initialProjectSession(),
+      meta: referenced,
+      mediaBaseUrl: "reelform-media://root/",
+      micUrl: "reelform-media://ext/mic.webm",
+    });
+    const fetchBytes = vi.fn(async () => new Uint8Array());
+    await syncSessionMedia(false, { fetchBytes, decompress: async (b) => b });
+    expect(useProjectSession.getState().micUrl).toBe("reelform-media://ext/mic.webm");
+    expect(useProjectSession.getState().videoUrl).toBe("reelform-media://root/media/screen.mp4");
+    expect(fetchBytes).not.toHaveBeenCalled();
   });
 });

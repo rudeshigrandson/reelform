@@ -12,11 +12,11 @@ import {
   type ExportRunnerDeps,
   type GifRouteArgs,
   type VideoRouteArgs,
-  WAV_SIDECAR_NOTICE,
   captionsForOutput,
   createExportRunner,
   isLowDisk,
   progressPatchFor,
+  wavSidecarNotice,
 } from "./runner";
 import { FakeFlowSink, deferred, fakeSystemPort, progressAt } from "./testFakes";
 import { initialExportProgress, progressRingValue } from "./useExportProgress";
@@ -212,7 +212,7 @@ describe("export runner — video", () => {
     const end = await t.runner.start(request({ format: "webm", codec: "vp9" }));
     expect(muxAudio).toHaveBeenCalledWith(expect.objectContaining({ container: "webm" }));
     expect(end).toMatchObject({ kind: "done", sidecars: ["/exports/Demo.wav"] });
-    expect(end.kind === "done" && end.notice).toBe(WAV_SIDECAR_NOTICE);
+    expect(end.kind === "done" && end.notice).toBe(wavSidecarNotice());
   });
 
   it("other mux failures also keep the sidecar and explain why", async () => {
@@ -517,5 +517,63 @@ describe("export runner — non-fatal warnings (webcam)", () => {
     expect(failed).toMatchObject({ kind: "failed", message: "muxer exploded", notice: WARN });
     const done = await t.runner.retrySoftware();
     expect(done).toMatchObject({ kind: "done", notice: "Using the software encoder" });
+  });
+});
+
+describe("export runner — auto-delete raw recordings", () => {
+  it("trashes the raw source after a successful export (after the mux step) when asked", async () => {
+    const order: string[] = [];
+    const deleteRawSource = vi.fn(async () => {
+      order.push("delete");
+    });
+    const t = setup({
+      deleteRawSource,
+      runVideo: vi.fn(async (args: VideoRouteArgs) => {
+        const res = await fakeVideo(args);
+        return {
+          ...res,
+          pcmAudio: bufferBlockSource(fakeAudioBuffer(480), 480),
+        };
+      }),
+      muxAudio: vi.fn(async (req) => {
+        order.push("mux");
+        return { path: req.videoPath, bytes: 7777 };
+      }),
+    });
+    const end = await t.runner.start(request({ audio: "aac" }, { deleteRawAfterExport: true }));
+    expect(end).toMatchObject({ kind: "done", bytes: 7777 });
+    expect(order).toEqual(["mux", "delete"]);
+    expect(deleteRawSource).toHaveBeenCalledOnce();
+  });
+
+  it("does nothing when the setting is off, and a failed delete never fails the export", async () => {
+    const off = setup({ deleteRawSource: vi.fn(async () => {}) });
+    await off.runner.start(request());
+    expect(off.deps.deleteRawSource).not.toHaveBeenCalled();
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const broken = setup({
+      deleteRawSource: vi.fn(async () => {
+        throw new Error("trash unavailable");
+      }),
+    });
+    const end = await broken.runner.start(request({}, { deleteRawAfterExport: true }));
+    expect(end).toMatchObject({ kind: "done", notice: null });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("trash unavailable"));
+    warn.mockRestore();
+  });
+
+  it("keeps the raw source when the export fails or is cancelled", async () => {
+    const deleteRawSource = vi.fn(async () => {});
+    const failing = setup({
+      deleteRawSource,
+      runVideo: vi.fn(async () => {
+        throw new Error("boom");
+      }),
+    });
+    expect((await failing.runner.start(request({}, { deleteRawAfterExport: true }))).kind).toBe(
+      "failed",
+    );
+    expect(deleteRawSource).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
+import { makeMeta } from "../../editor/inspector/host/testFixtures";
 import { useEditorStore } from "../../editor/store";
 import { ExportCancelledError } from "../../export/engine/cancel";
 import { initialProjectSession, useProjectSession } from "../project/session";
+import { useAppSettings } from "../settings/store";
 import { ExportController } from "./ExportController";
 import { createEncoderCapabilityCache } from "./capabilities";
 import type { ExportRunnerDeps, GifRouteArgs, SinkTarget, VideoRouteArgs } from "./runner";
@@ -28,6 +30,8 @@ function harness() {
     gif: [] as GifRouteArgs[],
     targets: [] as SinkTarget[],
     sinks: [] as FakeFlowSink[],
+    deleteRaw: 0,
+    removed: [] as string[],
   };
   const createDeps = (_s: unknown, base: { system: ExportRunnerDeps["system"]; now(): number }) =>
     ({
@@ -69,6 +73,10 @@ function harness() {
       },
       writeFile: async (t: SinkTarget) => `/exports/${t.finalName}`,
       streamFile: async (t: SinkTarget) => `/exports/${t.finalName}`,
+      deleteRawSource: async () => {
+        control.deleteRaw++;
+        return control.removed;
+      },
       system: base.system,
       onChange: () => undefined,
       now: base.now,
@@ -104,6 +112,74 @@ beforeEach(() => {
 });
 
 describe("ExportController", () => {
+  it("applies Settings → auto-delete raw recordings only after the export is done", async () => {
+    const before = useAppSettings.getState().settings;
+    useAppSettings.setState({ settings: { ...before, autoDeleteRawAfterExport: true } });
+    try {
+      const t = harness();
+      await screen.findByTestId("codec-unsupported-note");
+      fireEvent.click(exportButton());
+      await screen.findByTestId("export-progress");
+      expect(t.control.deleteRaw).toBe(0);
+      await act(async () => t.control.gate.resolve());
+      await screen.findByTestId("export-done");
+      expect(t.control.deleteRaw).toBe(1);
+    } finally {
+      useAppSettings.setState({ settings: before });
+    }
+  });
+
+  it("marks the session media offline once auto-delete trashed the video", async () => {
+    const before = useAppSettings.getState().settings;
+    useAppSettings.setState({ settings: { ...before, autoDeleteRawAfterExport: true } });
+    const meta = makeMeta();
+    useProjectSession.setState({ meta, projectPath: "/lib/Demo.reelform" });
+    try {
+      const t = harness();
+      t.control.removed = [meta.sources.video.path, "cache/proxy.mp4"];
+      await screen.findByTestId("codec-unsupported-note");
+      fireEvent.click(exportButton());
+      await act(async () => t.control.gate.resolve());
+      await screen.findByTestId("export-done");
+      expect(t.control.deleteRaw).toBe(1);
+      expect(useProjectSession.getState().mediaOffline).toBe(true);
+    } finally {
+      useAppSettings.setState({ settings: before });
+    }
+  });
+
+  it("keeps the media online when auto-delete removed nothing", async () => {
+    const before = useAppSettings.getState().settings;
+    useAppSettings.setState({ settings: { ...before, autoDeleteRawAfterExport: true } });
+    useProjectSession.setState({ meta: makeMeta(), projectPath: "/lib/Demo.reelform" });
+    try {
+      const t = harness();
+      await screen.findByTestId("codec-unsupported-note");
+      fireEvent.click(exportButton());
+      await act(async () => t.control.gate.resolve());
+      await screen.findByTestId("export-done");
+      expect(t.control.deleteRaw).toBe(1);
+      expect(useProjectSession.getState().mediaOffline).toBe(false);
+    } finally {
+      useAppSettings.setState({ settings: before });
+    }
+  });
+
+  it("keeps raw recordings when the setting is off", async () => {
+    const before = useAppSettings.getState().settings;
+    useAppSettings.setState({ settings: { ...before, autoDeleteRawAfterExport: false } });
+    try {
+      const t = harness();
+      await screen.findByTestId("codec-unsupported-note");
+      fireEvent.click(exportButton());
+      await act(async () => t.control.gate.resolve());
+      await screen.findByTestId("export-done");
+      expect(t.control.deleteRaw).toBe(0);
+    } finally {
+      useAppSettings.setState({ settings: before });
+    }
+  });
+
   it("greys codecs this device can't encode and keeps the selection valid", async () => {
     const t = harness();
     expect(await screen.findByTestId("codec-unsupported-note")).toHaveTextContent(

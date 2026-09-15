@@ -9,6 +9,7 @@ import type { ExportSink } from "../../export/engine/muxer";
 import type { EncoderKind, ExportProgress } from "../../export/engine/progress";
 import type { GifEncoderOptions } from "../../export/gif/types";
 import type { ExportConfig } from "../../export/route";
+import { t } from "../../i18n/format";
 import {
   type ExportFlowConfig,
   type TimeRange,
@@ -75,6 +76,8 @@ export interface ExportRequest {
   notice?: string | null | undefined;
   captions: readonly Caption[];
   speeds: readonly SpeedRegionLike[];
+  /** Settings "Auto-delete raw recordings after export": trash the raw sources once done. */
+  deleteRawAfterExport?: boolean | undefined;
 }
 
 export interface VideoRouteArgs {
@@ -113,8 +116,8 @@ export interface MuxAudioResult {
 /** ffmpeg isn't bundled / runnable: the WAV stays next to the video. */
 export const FFMPEG_UNAVAILABLE = "FFMPEG_UNAVAILABLE";
 
-export const WAV_SIDECAR_NOTICE =
-  "AAC audio isn't available on this device — audio was saved next to the video as WAV";
+/** Done-panel notice when the audio stays next to the video as a WAV sidecar. */
+export const wavSidecarNotice = (): string => t("exportFlow.notice.wavSidecar");
 
 /**
  * The file sink the flow hands to routes: an engine `ExportSink` whose `begin`
@@ -165,6 +168,8 @@ export interface ExportRunnerDeps {
   ): Promise<string>;
   /** ffmpeg finalize (`export:muxAudio`): WAV → AAC track in the exported video. */
   muxAudio?: ((req: MuxAudioRequest) => Promise<MuxAudioResult>) | undefined;
+  /** `project:deleteRawSource`: move the project's raw recordings to the OS trash. */
+  deleteRawSource?: (() => Promise<unknown>) | undefined;
   system: SystemPort;
   onChange(phase: ExportFlowPhase): void;
   now(): number;
@@ -208,7 +213,7 @@ export function isLowDisk(e: unknown): boolean {
 }
 
 const messageOf = (e: unknown): string =>
-  e instanceof Error ? e.message : typeof e === "string" ? e : "Unknown error";
+  e instanceof Error ? e.message : typeof e === "string" ? e : t("exportFlow.error.unknown");
 
 /** Captions re-timed onto the exported output (range start = 0, speeds applied). */
 export function captionsForOutput(
@@ -232,7 +237,7 @@ export function captionsForOutput(
 
 const preparing = (encoder: EncoderKind): ExportProgress => ({
   phase: "preparing",
-  label: "Preparing",
+  label: t("exportFlow.progress.preparing"),
   framesDone: 0,
   framesTotal: 0,
   fraction: 0,
@@ -385,7 +390,12 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
         // `phase` is mutated by callbacks, so read it without the narrowed type.
         const live = phase as ExportFlowPhase;
         if (live.kind === "running") {
-          running({ ...live.progress, phase: "finalizing", label: "Adding audio", etaMs: null });
+          running({
+            ...live.progress,
+            phase: "finalizing",
+            label: t("exportFlow.progress.addingAudio"),
+            etaMs: null,
+          });
         }
         const audio = pcmAudio;
         let wavPath: string | null = null;
@@ -395,7 +405,7 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
           });
         } catch (e) {
           throwIfCancelled(e);
-          notices.push(`Audio could not be written: ${messageOf(e)}`);
+          notices.push(t("exportFlow.notice.audioWriteFailed", { error: messageOf(e) }));
         }
         if (wavPath !== null && deps.muxAudio) {
           try {
@@ -410,13 +420,13 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
           } catch (e) {
             throwIfCancelled(e);
             if (errorCode(e) !== FFMPEG_UNAVAILABLE) {
-              notices.push(`Audio couldn't be added to the video: ${messageOf(e)}`);
+              notices.push(t("exportFlow.notice.audioMuxFailed", { error: messageOf(e) }));
             }
           }
         }
         if (wavPath !== null) {
           sidecars.push(wavPath);
-          notices.push(WAV_SIDECAR_NOTICE);
+          notices.push(wavSidecarNotice());
         }
       }
       if (config.captions === "srt" || config.captions === "vtt") {
@@ -433,7 +443,7 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
             ),
           );
         } catch (e) {
-          notices.push(`Captions file could not be written: ${messageOf(e)}`);
+          notices.push(t("exportFlow.notice.captionsWriteFailed", { error: messageOf(e) }));
         }
       }
       if (config.revealAfter) {
@@ -443,8 +453,14 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
         try {
           await deps.system.clipboardWriteFile(path);
         } catch {
-          notices.push("Couldn't copy the file to the clipboard");
+          notices.push(t("exportFlow.notice.clipboardFailed"));
         }
+      }
+      if (req.deleteRawAfterExport && deps.deleteRawSource && !controller.signal.aborted) {
+        // The export is already on disk: a failed cleanup never fails it.
+        await deps.deleteRawSource().catch((e: unknown) => {
+          console.warn(`Auto-delete of raw recordings failed: ${messageOf(e)}`);
+        });
       }
       abort = null;
       activeSink = null;
@@ -470,15 +486,14 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
       if (isLowDisk(e)) {
         set({
           kind: "low-disk",
-          message:
-            "There isn't enough disk space to finish this export. Free up space or choose another folder.",
+          message: t("exportFlow.error.lowDisk"),
           diagnostics: diagnostics(),
         });
       } else if (e instanceof EncoderUnsupportedError) {
         set({
           kind: "codec-unsupported",
           codec: config.codec,
-          message: `${config.codec.toUpperCase()} isn't supported on this device. Choose another codec.`,
+          message: t("exportFlow.error.codecUnsupported", { codec: config.codec.toUpperCase() }),
           diagnostics: diagnostics(),
         });
       } else {
@@ -504,7 +519,7 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
       return run({
         ...request,
         preferHardware: false,
-        notice: "Using the software encoder",
+        notice: t("exportFlow.notice.softwareEncoder"),
       });
     },
     cancel() {
@@ -544,7 +559,10 @@ export function progressPatchFor(phase: ExportFlowPhase): Partial<ExportProgress
       return {
         activity: "done",
         fraction: 1,
-        label: `Exported · ${phase.fileName} (${formatBytes(phase.bytes)})`,
+        label: t("exportFlow.toast.exported", {
+          fileName: phase.fileName,
+          size: formatBytes(phase.bytes),
+        }),
         etaMs: 0,
         fileName: phase.fileName,
         path: phase.path,
@@ -554,7 +572,12 @@ export function progressPatchFor(phase: ExportFlowPhase): Partial<ExportProgress
     case "failed":
     case "low-disk":
     case "codec-unsupported":
-      return { activity: "failed", label: "Export failed", etaMs: null, error: phase.message };
+      return {
+        activity: "failed",
+        label: t("exportFlow.failed"),
+        etaMs: null,
+        error: phase.message,
+      };
     case "cancelled":
     case "configuring":
       return {

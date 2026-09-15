@@ -44,6 +44,46 @@ export async function probeVideo(
   return parseProbeJson(new TextDecoder().decode(stdout));
 }
 
+/**
+ * Duration of any media file (audio-only included, unlike {@link probeVideo}):
+ * the container duration, else the longest stream duration.
+ */
+export async function probeDurationMs(
+  ff: Ffmpeg,
+  abs: string,
+  signal?: AbortSignal | undefined,
+): Promise<number> {
+  const { stdout } = await runFfmpeg(ff.runner, {
+    bin: ff.bins.ffprobe,
+    args: buildProbeArgs(abs),
+    collectStdout: true,
+    signal,
+  });
+  let doc: unknown;
+  try {
+    doc = JSON.parse(new TextDecoder().decode(stdout));
+  } catch {
+    throw new FsIpcError("TRIM_FAILED", "ffprobe output is not JSON", { path: abs });
+  }
+  const seconds = (v: unknown): number | null => {
+    const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : Number.NaN;
+    return Number.isFinite(n) && n >= 0 ? Math.round(n * 1000) : null;
+  };
+  const format = isPlainObject(doc) && isPlainObject(doc.format) ? doc.format : {};
+  const fromFormat = seconds(format.duration);
+  if (fromFormat !== null) return fromFormat;
+  const streams = isPlainObject(doc) && Array.isArray(doc.streams) ? doc.streams : [];
+  let best: number | null = null;
+  for (const s of streams) {
+    const d = isPlainObject(s) ? seconds(s.duration) : null;
+    if (d !== null && (best === null || d > best)) best = d;
+  }
+  if (best === null) {
+    throw new FsIpcError("TRIM_FAILED", "The media file reports no duration", { path: abs });
+  }
+  return best;
+}
+
 export interface VideoSource {
   /** Value stored in `sources.video.path` (project-relative posix, or absolute). */
   stored: string;
@@ -92,6 +132,28 @@ export async function readLinkedTracks(fs: FsLike, dir: string): Promise<string[
   }
   const sources = isPlainObject(doc) && isPlainObject(doc.sources) ? doc.sources : {};
   return LINKED_TRACK_KEYS.filter((k) => isPlainObject(sources[k]));
+}
+
+export type LinkedTrackKey = (typeof LINKED_TRACK_KEYS)[number];
+
+/** Stored `path` of every linked track present in `project.json` (missing/invalid file → none). */
+export async function readLinkedTrackPaths(
+  fs: FsLike,
+  dir: string,
+): Promise<Partial<Record<LinkedTrackKey, string>>> {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(await fs.readFile(path.join(dir, PROJECT_FILE), "utf8"));
+  } catch {
+    return {};
+  }
+  const sources = isPlainObject(doc) && isPlainObject(doc.sources) ? doc.sources : {};
+  const out: Partial<Record<LinkedTrackKey, string>> = {};
+  for (const k of LINKED_TRACK_KEYS) {
+    const src = sources[k];
+    if (isPlainObject(src)) out[k] = typeof src.path === "string" ? src.path : "";
+  }
+  return out;
 }
 
 /** Resolve the project's video source (or `override`) and stat it. */

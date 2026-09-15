@@ -6,6 +6,7 @@ import { type FetchJson, fetchJsonViaFetch } from "../../editor/preview/cursorPa
 import { type WallpaperRegistry, loadWallpaperRegistry } from "../../editor/preview/wallpapers";
 import type { EditorData } from "../../editor/store";
 import { createPixiFrameRenderer } from "../../export/engine/pixiFrameRenderer";
+import { t } from "../../i18n/format";
 import { invoke } from "../ipc";
 import type { ProjectSessionData } from "../project/session";
 import {
@@ -112,6 +113,7 @@ export function timelineFromSnapshot(
       frame: editor.frame,
       sourceSize: session.sourceSize,
       zoomRegions: editor.zoomRegions,
+      camera: editor.zoom.camera,
       cursor: editor.cursor,
       cursorTrack: session.cursorTrack,
       hasVideo: session.videoUrl !== null,
@@ -146,8 +148,20 @@ export function timelineFromSnapshot(
  */
 export async function muxAudioViaIpc(req: MuxAudioRequest): Promise<MuxAudioResult> {
   const res = await invoke("export:muxAudio", req);
-  if (res === null) throw new ExportFlowError("NOT_BRIDGED", "Export needs the desktop app");
-  return { path: res.outputPath };
+  if (res === null) throw new ExportFlowError("NOT_BRIDGED", t("exportFlow.error.notBridged"));
+  return res.bytes !== undefined
+    ? { path: res.outputPath, bytes: res.bytes }
+    : { path: res.outputPath };
+}
+
+/**
+ * `project:deleteRawSource` (Settings "Auto-delete raw recordings after
+ * export"): raw capture files go to the OS trash; the project stays.
+ */
+export async function deleteRawSourceViaIpc(projectPath: string): Promise<string[]> {
+  const res = await invoke("project:deleteRawSource", { path: projectPath });
+  if (res === null) throw new ExportFlowError("NOT_BRIDGED", t("exportFlow.error.notBridged"));
+  return res.removed;
 }
 
 export function createDefaultExportDeps(
@@ -194,6 +208,8 @@ export function createDefaultExportDeps(
     streamFile: (target, container, write) =>
       streamFileViaSink({ ipc, ...target }, container, write),
     muxAudio: muxAudioViaIpc,
+    deleteRawSource: async () =>
+      session.projectPath ? deleteRawSourceViaIpc(session.projectPath) : [],
     system: base.system,
     onChange: base.onChange,
     now: base.now,

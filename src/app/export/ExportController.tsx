@@ -4,6 +4,7 @@ import { useEditorStore } from "../../editor/store";
 import { selectRoute } from "../../export/route";
 import { ExportDialog } from "../../export/ui/ExportDialog";
 import type { ExportUiConfig } from "../../export/ui/types";
+import { useT } from "../../i18n";
 import { useProjectSession } from "../project/session";
 import { useAppSettings } from "../settings/store";
 import { ExportOptions } from "./ExportOptions";
@@ -89,6 +90,7 @@ function toUiConfig(c: ExportFlowConfig): ExportUiConfig {
 
 export function ExportController(props: ExportControllerProps): ReactElement | null {
   const { open, onClose, systemPort } = props;
+  const t = useT();
   const durationMs = useEditorStore((s) => s.durationMs);
   const captionCount = useEditorStore((s) => s.captions.length);
   const projectId = useProjectSession((s) => s.projectId);
@@ -101,7 +103,7 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
   const [caps, setCaps] = useState<EncoderCapabilities | null>(() => cache.peek());
   const [phase, setPhase] = useState<ExportFlowPhase>({ kind: "configuring" });
   const [config, setConfig] = useState<ExportFlowConfig>(() =>
-    defaultFlowConfig(projectName ?? "Export"),
+    defaultFlowConfig(projectName ?? t("exportFlow.defaultFileName")),
   );
   const [attempted, setAttempted] = useState(false);
   const [copyState, setCopyState] = useState<CopyState>("idle");
@@ -134,6 +136,15 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
           );
         }
         return mux(r);
+      },
+      deleteRawSource: async () => {
+        const removed = await requireDeps().deleteRawSource?.();
+        // The editor's video is in the OS trash now: show it offline instead of a broken preview.
+        const session = useProjectSession.getState();
+        const video = session.meta?.sources.video.path;
+        if (Array.isArray(removed) && video !== undefined && removed.includes(video)) {
+          session.setSession({ mediaOffline: true });
+        }
       },
       get system() {
         return propsRef.current.systemPort;
@@ -193,15 +204,12 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
     if (!range) return;
     const editor = useEditorStore.getState();
     const session = useProjectSession.getState();
-    // TODO(autoDeleteRawAfterExport): no IPC channel deletes only a project's raw
-    // recording source (project:moveToTrash trashes the whole project), so the
-    // setting isn't applied after export; hide its toggle until main adds one.
-    const { gpuExport } = useAppSettings.getState().settings;
+    const { gpuExport, autoDeleteRawAfterExport } = useAppSettings.getState().settings;
     let preferHardware = merged.hardwareAcceleration;
     let notice: string | null = null;
     if (merged.format !== "gif" && gpuExport === "off") {
       // Settings → Advanced → GPU export: off forces the software encoder.
-      if (preferHardware) notice = "GPU export is off in Settings — using the software encoder";
+      if (preferHardware) notice = t("exportFlow.notice.gpuOff");
       preferHardware = false;
     } else if (merged.format !== "gif" && caps) {
       const route = selectRoute(
@@ -220,7 +228,7 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
       // `native-static` (ffmpeg fast path) isn't bundled in this build; it runs on WebCodecs.
       if (route === "software-fallback" && preferHardware) {
         preferHardware = false;
-        notice = "Hardware encoder unavailable — using the software encoder";
+        notice = t("exportFlow.notice.hardwareUnavailable");
       }
     }
     buildDeps();
@@ -235,6 +243,7 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
       notice,
       captions: editor.captions,
       speeds: editor.speedRegions,
+      deleteRawAfterExport: autoDeleteRawAfterExport,
     });
   };
 
@@ -255,7 +264,9 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
   const patch = (p: Partial<ExportFlowConfig>): void => setConfig((c) => ({ ...c, ...p }));
 
   const pickFolder = async (): Promise<boolean> => {
-    const dir = await systemPort.pickFolder({ title: "Export to" }).catch(() => null);
+    const dir = await systemPort
+      .pickFolder({ title: t("exportFlow.pickFolderTitle") })
+      .catch(() => null);
     if (dir) patch({ destinationDir: dir });
     return dir !== null;
   };
@@ -327,10 +338,10 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
       <Dialog
         open={open}
         onClose={onClose}
-        title="Export"
+        title={t("exportFlow.title")}
         actions={
           <Button variant="primary" onClick={onClose}>
-            Close
+            {t("exportFlow.close")}
           </Button>
         }
       >
@@ -338,7 +349,7 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
           data-testid="export-empty"
           style={{ fontFamily: "var(--font-body)", color: "var(--text-2)" }}
         >
-          Open or record a project to export it.
+          {t("exportFlow.empty")}
         </div>
       </Dialog>
     );
@@ -347,7 +358,7 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
   switch (phase.kind) {
     case "running":
       return (
-        <Dialog open={open} onClose={onClose} title="Exporting">
+        <Dialog open={open} onClose={onClose} title={t("exportFlow.title.running")}>
           <ExportProgressView
             phase={phase}
             onCancel={() => runner.cancel()}
@@ -357,7 +368,7 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
       );
     case "done":
       return (
-        <Dialog open={open} onClose={closeDialog} title="Export">
+        <Dialog open={open} onClose={closeDialog} title={t("exportFlow.title")}>
           <ExportDoneView
             phase={phase}
             copyState={copyState}
@@ -372,7 +383,7 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
     case "low-disk":
     case "codec-unsupported":
       return (
-        <Dialog open={open} onClose={closeDialog} title="Export">
+        <Dialog open={open} onClose={closeDialog} title={t("exportFlow.title")}>
           <ExportProblemView
             phase={phase}
             diagnosticsCopied={diagnosticsCopied}
@@ -439,7 +450,7 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
         })
       }
       unsupportedCodecs={unsupportedCodecs(caps)}
-      destinationPath={config.destinationDir ?? "Project exports folder"}
+      destinationPath={config.destinationDir ?? t("exportFlow.defaultDestination")}
       sizeEstimate={sizeEstimate}
       issues={shownIssues}
       exportDisabled={issues.length > 0}
@@ -453,7 +464,7 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
             marginBottom: "var(--space-3)",
           }}
         >
-          Checking encoders…
+          {t("exportFlow.checkingEncoders")}
         </output>
       ) : null}
       {phase.kind === "cancelled" ? (
@@ -465,7 +476,7 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
             marginBottom: "var(--space-3)",
           }}
         >
-          Export cancelled
+          {t("exportFlow.cancelled")}
         </output>
       ) : null}
       <ExportOptions

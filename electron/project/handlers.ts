@@ -29,7 +29,7 @@ import {
   resolveWithin,
   uniqueName,
 } from "./paths";
-import { type ProxyProgressEvent, createProxyService } from "./proxy";
+import { PROXY_REL_PATH, type ProxyProgressEvent, createProxyService } from "./proxy";
 import type { RecentsStore } from "./recents";
 import { restoreTrimmedSource, trimSource } from "./trimSource";
 
@@ -68,7 +68,20 @@ export const TRASH_MARKER = path.join(CACHE_DIR, "trashed.json");
 /** §9.9: relinked media must match the stored duration within ±1s. */
 export const RELINK_DURATION_TOLERANCE_MS = 1000;
 
+/** Sources whose files are raw capture media (`project:deleteRawSource`). */
+export const RAW_SOURCE_KEYS = ["video", "mic", "system", "webcam"] as const;
+
 const iso = (ms: number): string => new Date(ms).toISOString();
+
+/** Root-level names a `destination: "root"` import may never take (they'd shadow the project). */
+function isReservedRootName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    lower === PROJECT_FILE.toLowerCase() ||
+    lower.startsWith(`${PROJECT_FILE.toLowerCase()}.`) ||
+    [MEDIA_DIR, CACHE_DIR, EXPORTS_DIR, TRASH_DIR].some((d) => d.toLowerCase() === lower)
+  );
+}
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
@@ -514,6 +527,51 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
       return { path: dest };
     },
 
+    "project:deleteRawSource": async (req) => {
+      const dir = requireProjectPath(req.path);
+      await requireDir(dir);
+      await requireProjectFile(dir);
+      return withLock(dir, async () => {
+        const doc = await readJson(path.join(dir, PROJECT_FILE));
+        const sources = isPlainObject(doc) && isPlainObject(doc.sources) ? doc.sources : {};
+        const mediaRoot = path.join(dir, MEDIA_DIR);
+        const candidates: string[] = [];
+        for (const key of RAW_SOURCE_KEYS) {
+          const src = sources[key];
+          const rel = isPlainObject(src) && typeof src.path === "string" ? src.path : "";
+          // Relinked-by-reference files live outside the project: never touch them.
+          if (rel === "" || path.isAbsolute(rel) || /^[a-zA-Z]:[\\/]/.test(rel)) continue;
+          let abs: string;
+          try {
+            abs = await resolveWithin(fs, dir, rel.split("/").join(path.sep));
+          } catch {
+            continue; // escapes the project (traversal, NUL, symlink out)
+          }
+          if (isWithin(mediaRoot, abs) && abs !== path.resolve(mediaRoot)) candidates.push(abs);
+        }
+        candidates.push(path.join(dir, PROXY_REL_PATH.split("/").join(path.sep)));
+        const removed: string[] = [];
+        for (const abs of new Set(candidates)) {
+          try {
+            if (!(await fs.stat(abs)).isFile()) continue;
+          } catch {
+            continue; // already gone (offline or deleted earlier)
+          }
+          try {
+            await deps.trashItem(abs);
+          } catch (e) {
+            throw new FsIpcError("TRASH_FAILED", "Could not move the raw recording to the trash", {
+              path: toPosix(path.relative(dir, abs)),
+              removed,
+              reason: e instanceof Error ? e.message : String(e),
+            });
+          }
+          removed.push(toPosix(path.relative(dir, abs)));
+        }
+        return { removed };
+      });
+    },
+
     "project:discardBackups": async (req) => {
       const dir = requireProjectPath(req.path);
       await requireDir(dir);
@@ -535,12 +593,18 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
       let written: { document: unknown; modifiedAt: string };
       try {
         for (const m of media) {
-          const name = await uniqueName(requireName(m.fileName), (c) =>
-            pathExists(fs, path.join(dir, MEDIA_DIR, c)),
-          );
-          const dest = await resolveWithin(fs, dir, path.join(MEDIA_DIR, name));
+          const toRoot = m.destination === "root";
+          const folder = toRoot ? dir : path.join(dir, MEDIA_DIR);
+          const requested = requireName(m.fileName);
+          if (toRoot && isReservedRootName(requested)) {
+            throw new FsIpcError("INVALID_NAME", "That file name is reserved in a project folder", {
+              name: m.fileName,
+            });
+          }
+          const name = await uniqueName(requested, (c) => pathExists(fs, path.join(folder, c)));
+          const dest = await resolveWithin(fs, dir, toRoot ? name : path.join(MEDIA_DIR, name));
           await fs.copyFile(m.sourcePath, dest);
-          mediaFiles.push(name);
+          if (!toRoot) mediaFiles.push(name);
         }
         written = await writeProjectFile(dir, req.document);
       } catch (e) {
@@ -738,6 +802,7 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
             videoPath: req.videoPath,
             clips: req.clips,
             allowLinkedTracks: req.allowLinkedTracks,
+            trimLinkedTracks: req.trimLinkedTracks,
           },
         ),
       );

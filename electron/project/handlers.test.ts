@@ -158,6 +158,58 @@ describe("project:create", () => {
     expect(await fsp.readdir(rec)).toEqual(["mic.m4a"]);
   });
 
+  it("places destination root imports beside project.json and leaves them out of mediaFiles", async () => {
+    const rec = path.join(tmp, "rec");
+    await fsp.mkdir(rec);
+    await fsp.writeFile(path.join(rec, "screen.webm"), "video");
+    await fsp.writeFile(path.join(rec, "telemetry.json.gz"), "telemetry");
+    await fsp.writeFile(path.join(rec, "thumb.jpg"), "jpeg");
+    const h = makeHandlers();
+    const res = await h["project:create"]({
+      name: "Rec",
+      document: doc(),
+      media: [
+        { sourcePath: path.join(rec, "screen.webm"), fileName: "screen.webm", move: true },
+        { sourcePath: path.join(rec, "telemetry.json.gz"), fileName: "telemetry.json.gz" },
+        {
+          sourcePath: path.join(rec, "thumb.jpg"),
+          fileName: "thumbnail.jpg",
+          move: true,
+          destination: "root",
+        },
+      ],
+    });
+    expect(res.mediaFiles).toEqual(["screen.webm", "telemetry.json.gz"]);
+    expect(await fsp.readFile(path.join(res.path, "thumbnail.jpg"), "utf8")).toBe("jpeg");
+    expect(await fsp.readdir(path.join(res.path, "media"))).not.toContain("thumbnail.jpg");
+    expect((await fsp.readdir(rec)).sort()).toEqual(["telemetry.json.gz"]);
+    expect(
+      projectContracts["project:create"].request.safeParse({
+        name: "x",
+        document: {},
+        media: [{ sourcePath: "/a", fileName: "b", destination: "elsewhere" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("refuses root imports that would shadow project.json or a project folder", async () => {
+    const src = path.join(tmp, "evil.json");
+    await fsp.writeFile(src, "{}");
+    const h = makeHandlers();
+    for (const fileName of ["project.json", "Project.json.tmp", "media"]) {
+      const code = await codeOf(
+        h["project:create"]({
+          name: "X",
+          document: doc(),
+          media: [{ sourcePath: src, fileName, destination: "root" }],
+        }),
+      );
+      expect(code).toBe("INVALID_NAME");
+    }
+    expect(await fsp.readdir(library)).toEqual([]);
+    expect(await fsp.readFile(src, "utf8")).toBe("{}");
+  });
+
   it("rolls back the folder and keeps moved sources when validation fails", async () => {
     const src = path.join(tmp, "screen.mp4");
     await fsp.writeFile(src, "video");
@@ -650,5 +702,99 @@ describe("helpers", () => {
   it("FsLike accepts the real fs module", () => {
     const fs: FsLike = realFs;
     expect(typeof fs.open).toBe("function");
+  });
+});
+
+describe("project:deleteRawSource", () => {
+  async function rawProject(sources: Record<string, unknown>) {
+    const h = makeHandlers();
+    const { path: p } = await h["project:create"]({ name: "Raw", document: doc({ sources }) });
+    for (const f of ["screen.mp4", "mic.webm", "system.m4a", "webcam.webm", "telemetry.json.gz"]) {
+      await fsp.writeFile(path.join(p, "media", f), f);
+    }
+    await fsp.writeFile(path.join(p, "cache", "proxy.mp4"), "proxy");
+    await fsp.writeFile(path.join(p, "exports", "Raw.mp4"), "export");
+    return { h, p };
+  }
+
+  it("trashes raw sources inside media/ and the proxy; keeps project.json, telemetry and exports", async () => {
+    const outside = path.join(tmp, "referenced.mp4");
+    await fsp.writeFile(outside, "mine");
+    const { h, p } = await rawProject({
+      video: { path: "media/screen.mp4" },
+      mic: { path: "media/mic.webm" },
+      system: { path: "media/system.m4a" },
+      webcam: { path: outside },
+      telemetry: { path: "media/telemetry.json.gz" },
+    });
+    await fsp.writeFile(path.join(p, "notes.txt"), "keep");
+    const res = await h["project:deleteRawSource"]({ path: p });
+    expect(projectContracts["project:deleteRawSource"].response.parse(res)).toEqual(res);
+    expect(res.removed).toEqual([
+      "media/screen.mp4",
+      "media/mic.webm",
+      "media/system.m4a",
+      "cache/proxy.mp4",
+    ]);
+    expect(trashed).toEqual(res.removed.map((r) => path.join(p, ...r.split("/"))));
+    expect((await fsp.readdir(path.join(p, "media"))).sort()).toEqual([
+      "telemetry.json.gz",
+      "webcam.webm",
+    ]);
+    expect(await fsp.readFile(outside, "utf8")).toBe("mine");
+    expect(await fsp.readdir(path.join(p, "exports"))).toEqual(["Raw.mp4"]);
+    expect(await readProjectJson(p)).toMatchObject({ schemaVersion: 1 });
+
+    // Already gone → nothing more to remove.
+    trashed = [];
+    expect(await h["project:deleteRawSource"]({ path: p })).toEqual({ removed: [] });
+    expect(trashed).toEqual([]);
+  });
+
+  it("never follows source paths out of media/ (traversal, root files, project.json)", async () => {
+    const { h, p } = await rawProject({
+      video: { path: "project.json" },
+      mic: { path: "media/../exports/Raw.mp4" },
+      system: { path: "../elsewhere.m4a" },
+      webcam: { path: "media" },
+    });
+    await fsp.writeFile(path.join(library, "elsewhere.m4a"), "outside");
+    const res = await h["project:deleteRawSource"]({ path: p });
+    expect(res.removed).toEqual(["cache/proxy.mp4"]);
+    expect(await fsp.readFile(path.join(library, "elsewhere.m4a"), "utf8")).toBe("outside");
+    expect(await fsp.readdir(path.join(p, "exports"))).toEqual(["Raw.mp4"]);
+  });
+
+  it("validates the folder and reports TRASH_FAILED with what was already removed", async () => {
+    expect(await codeOf(makeHandlers()["project:deleteRawSource"]({ path: "relative" }))).toBe(
+      "INVALID_PATH",
+    );
+    expect(
+      await codeOf(
+        makeHandlers()["project:deleteRawSource"]({ path: path.join(tmp, "nope.reelform") }),
+      ),
+    ).toBe("PROJECT_NOT_FOUND");
+    // A .reelform folder without project.json is not a project: nothing is trashed.
+    const notProject = path.join(tmp, "plain.reelform");
+    await fsp.mkdir(notProject);
+    expect(await codeOf(makeHandlers()["project:deleteRawSource"]({ path: notProject }))).toBe(
+      "PROJECT_NOT_FOUND",
+    );
+
+    const { p } = await rawProject({
+      video: { path: "media/screen.mp4" },
+      mic: { path: "media/mic.webm" },
+    });
+    let calls = 0;
+    const failing = makeHandlers({
+      trashItem: async () => {
+        calls++;
+        if (calls === 2) throw new Error("trash is full");
+      },
+    });
+    await expect(failing["project:deleteRawSource"]({ path: p })).rejects.toMatchObject({
+      code: "TRASH_FAILED",
+      details: { path: "media/mic.webm", removed: ["media/screen.mp4"] },
+    });
   });
 });

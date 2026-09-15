@@ -74,7 +74,12 @@ export const exportContracts = {
       wavPath: z.string().min(1).max(4096),
       container: z.enum(["mp4", "webm"]),
     }),
-    z.object({ ok: z.literal(true), outputPath: z.string() }),
+    z.object({
+      ok: z.literal(true),
+      outputPath: z.string(),
+      /** Size of the muxed video on disk. */
+      bytes: z.number().int().nonnegative().optional(),
+    }),
   ),
 } as const;
 

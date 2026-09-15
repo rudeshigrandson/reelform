@@ -169,7 +169,7 @@ export function createInspectorHost(deps: CreateInspectorHostDeps): InspectorHos
     const url = mediaUrlFor(getSession().mediaBaseUrl, rel);
     if (!url)
       throw new InspectorHostError("media-unserved", "The project media folder isn't registered.");
-    if (channelKind === "image") {
+    if (channelKind === "image" || channelKind === "font") {
       // Images, fonts and cursors: nothing to probe.
       return { path: rel, url, durationMs: null, width: null, height: null, hasAudio: false };
     }
