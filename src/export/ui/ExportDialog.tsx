@@ -42,6 +42,19 @@ export interface ExportDialogProps {
   onCancelExport?: () => void;
   onReveal?: () => void;
   onClose: () => void;
+  /** Codecs this device cannot encode, with the reason shown ("Not supported on this device"). */
+  unsupportedCodecs?: Partial<Record<ExportCodec, string>> | undefined;
+  /** Controlled destination shown/emitted instead of the draft value (folder picked by the parent). */
+  destinationPath?: string | undefined;
+  /** Size estimate text replacing the built-in readout size (e.g. the GIF estimate). */
+  sizeEstimate?: string | undefined;
+  /** Validation messages; shown above the footer. */
+  issues?: readonly string[] | undefined;
+  exportDisabled?: boolean | undefined;
+  /** Called whenever the draft config changes (live estimates in the parent). */
+  onConfigChange?: ((config: ExportUiConfig) => void) | undefined;
+  /** Extra option sections (range, captions, audio, GIF options, filename…). */
+  children?: ReactNode;
 }
 
 /** A named resolution option; "Original" keeps the source dimensions. */
@@ -192,6 +205,13 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
     onCancelExport,
     onReveal,
     onClose,
+    unsupportedCodecs,
+    destinationPath,
+    sizeEstimate,
+    issues,
+    exportDisabled,
+    onConfigChange,
+    children,
   } = props;
 
   const [config, setConfig] = useState<ExportUiConfig>(initialConfig ?? DEFAULT_CONFIG);
@@ -213,15 +233,20 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
   }, [config, durationSeconds]);
 
   function patch(partial: Partial<ExportUiConfig>): void {
-    setConfig((prev) => ({ ...prev, ...partial }));
+    const next = { ...config, ...partial };
+    setConfig(next);
+    onConfigChange?.(next);
   }
+
+  const isUnsupported = (codec: ExportCodec): boolean => unsupportedCodecs?.[codec] !== undefined;
 
   function onFormatChange(format: ExportFormat): void {
     const codecs = codecsFor(format);
     // Keep codec valid for the new format (GIF has none — leave as-is, hidden).
-    const first = codecs[0];
+    const first = codecs.find((c) => !isUnsupported(c.value)) ?? codecs[0];
     const nextCodec =
-      codecs.some((c) => c.value === config.codec) || first === undefined
+      (codecs.some((c) => c.value === config.codec) && !isUnsupported(config.codec)) ||
+      first === undefined
         ? config.codec
         : first.value;
     patch({ format, codec: nextCodec });
@@ -260,6 +285,7 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
           <div style={tokenStyles.label} data-testid="progress-phase">
             {PHASE_LABEL[phase]}
           </div>
+          {/* biome-ignore lint/a11y/useFocusableInteractive: read-only progress indicator */}
           <div
             style={tokenStyles.progressTrack}
             role="progressbar"
@@ -329,7 +355,28 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
 
   // --- Configuration form (idle) ------------------------------------------
   const showCodec = config.format !== "gif";
-  const codecOptions = codecsFor(config.format);
+  const codecOptions = codecsFor(config.format).map((opt) => {
+    const reason = unsupportedCodecs?.[opt.value];
+    return reason === undefined
+      ? opt
+      : {
+          value: opt.value,
+          label: (
+            <span
+              aria-disabled="true"
+              title={reason}
+              style={{ color: "var(--text-3)", textDecoration: "line-through" }}
+            >
+              {opt.label}
+            </span>
+          ),
+        };
+  });
+  const unsupportedNote = codecsFor(config.format)
+    .filter((c) => isUnsupported(c.value))
+    .map((c) => c.label)
+    .join(", ");
+  const shownDestination = destinationPath ?? config.destinationPath;
 
   return (
     <Dialog
@@ -341,7 +388,11 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
           <Button variant="secondary" onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={() => onExport(config)}>
+          <Button
+            variant="primary"
+            disabled={exportDisabled}
+            onClick={() => onExport({ ...config, destinationPath: shownDestination })}
+          >
             Export
           </Button>
         </>
@@ -386,8 +437,18 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
             name="export-codec"
             value={config.codec}
             options={codecOptions}
-            onChange={(codec) => patch({ codec })}
+            onChange={(codec) => {
+              if (!isUnsupported(codec)) patch({ codec });
+            }}
           />
+          {unsupportedNote ? (
+            <div
+              data-testid="codec-unsupported-note"
+              style={{ ...tokenStyles.label, color: "var(--text-3)", marginTop: "var(--space-2)" }}
+            >
+              {unsupportedNote}: Not supported on this device
+            </div>
+          ) : null}
         </Labelled>
       ) : null}
 
@@ -404,26 +465,39 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
         {readout ? (
           <>
             <span data-testid="bitrate-value">{readout.bitrate}</span>
-            <span data-testid="size-value">~{readout.size}</span>
+            <span data-testid="size-value">~{sizeEstimate ?? readout.size}</span>
           </>
         ) : (
-          <span data-testid="size-value">size varies</span>
+          <span data-testid="size-value">{sizeEstimate ? `~${sizeEstimate}` : "size varies"}</span>
         )}
       </div>
 
+      {children}
+
       <div style={tokenStyles.destinationRow}>
         <div style={{ flex: 1 }}>
-          <Input
-            label="Destination"
-            readOnly
-            value={config.destinationPath}
-            aria-label="Destination"
-          />
+          <Input label="Destination" readOnly value={shownDestination} aria-label="Destination" />
         </div>
         <Button variant="secondary" onClick={onChangeDestination}>
           Change…
         </Button>
       </div>
+
+      {issues && issues.length > 0 ? (
+        <ul
+          role="alert"
+          style={{
+            margin: "var(--space-3) 0 0",
+            paddingLeft: "var(--space-4)",
+            color: "var(--danger)",
+            fontFamily: "var(--font-body)",
+          }}
+        >
+          {issues.map((msg) => (
+            <li key={msg}>{msg}</li>
+          ))}
+        </ul>
+      ) : null}
     </Dialog>
   );
 }
