@@ -15,6 +15,7 @@ import { type IntervalTimer, bindBlurAutosave } from "../../editor/persistence";
 import { usePlaybackStore } from "../../editor/playback/store";
 import type { CreatePreviewStage } from "../../editor/preview";
 import { createDocumentUpdate, createEditorHistory, useHistoryState } from "../../editor/state";
+import { useOptionalShortcut } from "../../shortcuts/ShortcutsProvider";
 import { invoke as appInvoke } from "../ipc";
 import { useAppSettings } from "../settings/store";
 import { AutoZoomSuggestionsToast } from "./AutoZoomSuggestionsToast";
@@ -32,6 +33,7 @@ import {
   defaultProjectStores,
   openProject,
   releaseMediaRoots,
+  renameOpenProject,
   restoreProjectBackup,
   toIpcErrorShape,
 } from "./openProject";
@@ -168,7 +170,10 @@ export function ProjectEditor({
   autoZoomRef.current = autoZoomOnOpen;
 
   const saverRef = useRef<ProjectSaver | null>(null);
+  /** Media roots of the open project (swapped when a rename moves the folder). */
+  const rootIdsRef = useRef<string[]>([]);
   const allowCloseRef = useRef(false);
+  const autosaveIntervalSec = useAppSettings((s) => s.settings.autosaveIntervalSec);
   const projectName = useProjectSession((s) => s.meta?.name ?? "Untitled");
   const sourceDurationMs = useProjectSession((s) => s.meta?.sources.video.durationMs);
   const ready = phase.kind === "ready";
@@ -178,9 +183,7 @@ export function ProjectEditor({
   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the Try again trigger.
   useEffect(() => {
     const controller = new AbortController();
-    let rootIds: string[] = [];
     let unbindCursor: (() => void) | null = null;
-    let unbindBlur: (() => void) | null = null;
     setPhase({ kind: "loading" });
     setRecovery(null);
     setZoomSuggestions([]);
@@ -194,12 +197,9 @@ export function ProjectEditor({
         setPhase({ kind: res.status, error: res.error });
         return;
       }
-      rootIds = res.mediaRootIds;
+      rootIdsRef.current = res.mediaRootIds;
       history.clear();
-      const saver = createProjectSaver({ invoke, history, timer });
-      saverRef.current = saver;
       unbindCursor = bindCursorTrack();
-      if (target) unbindBlur = bindBlurAutosave(target, saver);
       try {
         const auto = runAutoZoomOnOpen({
           stores: defaultProjectStores(),
@@ -217,12 +217,35 @@ export function ProjectEditor({
     return () => {
       controller.abort();
       unbindCursor?.();
-      unbindBlur?.();
+      // Switching project while ready: the old saver must not autosave the next load.
+      // The save lifecycle effect creates a fresh one once the new project is ready.
       saverRef.current?.dispose();
       saverRef.current = null;
+      const rootIds = rootIdsRef.current;
+      rootIdsRef.current = [];
       if (rootIds.length > 0) void releaseMediaRoots(rootIds, invoke);
     };
-  }, [projectId, attempt, invoke, media, history, timer, target]);
+  }, [projectId, attempt, invoke, media, history]);
+
+  // Save lifecycle while a project is open; re-created when the autosave interval
+  // setting changes (SPEC §4, settings `autosaveIntervalSec`).
+  useEffect(() => {
+    if (!ready) return;
+    const intervalMs =
+      Number.isFinite(autosaveIntervalSec) && autosaveIntervalSec > 0
+        ? autosaveIntervalSec * 1000
+        : undefined;
+    const saver = createProjectSaver({ invoke, history, timer, intervalMs });
+    // Unsaved edits made under the previous saver still need their backup.
+    if (history.isDirty()) saver.autosave.markDirty();
+    saverRef.current = saver;
+    const unbindBlur = target ? bindBlurAutosave(target, saver) : null;
+    return () => {
+      unbindBlur?.();
+      saver.dispose();
+      if (saverRef.current === saver) saverRef.current = null;
+    };
+  }, [ready, invoke, history, timer, target, autosaveIntervalSec]);
 
   const showToast = useCallback((text: string, tone: "info" | "error" = "info") => {
     setToast({ text, tone });
@@ -266,8 +289,12 @@ export function ProjectEditor({
   );
 
   // ⌘S / Ctrl+S manual save; "Saved" toast only for manual saves (guide §5).
+  // Registry id `editor.save` (user overrides apply) inside a shortcuts provider;
+  // the fixed ⌘S/Ctrl+S listener only runs standalone.
+  const saveShortcut = () => void saveNow().then((ok) => ok && showToast("Saved"));
+  const hasShortcuts = useOptionalShortcut("editor.save", saveShortcut, { enabled: ready });
   useEffect(() => {
-    if (!target || !ready) return;
+    if (!target || !ready || hasShortcuts) return;
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
       if (e.key.toLowerCase() !== "s" && e.code !== "KeyS") return;
@@ -276,7 +303,24 @@ export function ProjectEditor({
     };
     target.addEventListener("keydown", onKey);
     return () => target.removeEventListener("keydown", onKey);
-  }, [target, ready, saveNow, showToast]);
+  }, [target, ready, hasShortcuts, saveNow, showToast]);
+
+  // Top-bar rename (S12): same outcome as the launcher rename, plus the open
+  // session follows the renamed folder.
+  const onRename = useCallback(
+    (name: string): Promise<boolean> =>
+      renameOpenProject(name, { invoke, mediaRootIds: rootIdsRef.current })
+        .then((res) => {
+          rootIdsRef.current = res.mediaRootIds;
+          setPhase((p) => (p.kind === "ready" ? { kind: "ready", path: res.path } : p));
+          return true;
+        })
+        .catch((err: unknown) => {
+          showToast(`Couldn't rename — ${toIpcErrorShape(err).message}`, "error");
+          return false;
+        }),
+    [invoke, showToast],
+  );
 
   // Closing the window with unsaved changes → cancel and ask (S12 state 12).
   useEffect(() => {
@@ -398,6 +442,7 @@ export function ProjectEditor({
         history={history}
         dirty={dirty}
         onBack={() => requestLeave("back")}
+        onRename={onRename}
         onLocateMedia={onLocateMedia}
         sourceDurationMs={sourceDurationMs}
         createInspectorHost={createInspectorHost}

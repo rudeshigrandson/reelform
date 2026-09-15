@@ -5,6 +5,8 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { shortcutScopeProps } from "../../shortcuts/matcher";
+import { visibleFilmstrip, visibleWaveform } from "./filmstrip";
 import { collectSnapTargets } from "./snapping";
 import {
   type TimeScale,
@@ -23,14 +25,17 @@ import {
   applySelection,
   clearSelection,
   moveItem,
+  overlaps,
   resizeItemEnd,
   resizeItemStart,
+  resolveOverlapByTrimming,
   selectInRange,
 } from "./trackOps";
 import {
   ITEM_NOUNS,
   type TimeSpan,
   type TimelineItem,
+  type TimelineMedia,
   type TimelineTrack,
   type TrackKind,
 } from "./types";
@@ -49,6 +54,9 @@ export const DRAG_THRESHOLD_PX = 3;
 const EDGE_GRAB_PX = 6;
 const OVERSCAN_PX = 120;
 const WHEEL_ZOOM_SENSITIVITY = 0.002;
+const ITEM_HEIGHT_PX = LANE_HEIGHT_PX - 9;
+const WAVEFORM_HEIGHT_PX = 9;
+const WAVEFORM_BAR_PX = 2;
 
 export interface TimelineProps {
   durationMs: number;
@@ -66,10 +74,24 @@ export interface TimelineProps {
   onSelect: (ids: ReadonlySet<string>) => void;
   /** Fired on drop of a valid move/resize with the committed times. */
   onItemChange: (kind: TrackKind, item: TimeSpan) => void;
+  /**
+   * One gesture changing several items, to commit as one edit: a group move of
+   * the selection, or a shift-drop that trims the neighbours it overlaps.
+   */
+  onItemsChange?:
+    | ((changes: ReadonlyArray<{ kind: TrackKind; span: TimeSpan }>) => void)
+    | undefined;
+  /** Alt-drag drop: copy the dragged item to `span` (the original stays). */
+  onItemDuplicate?: ((kind: TrackKind, span: TimeSpan) => void) | undefined;
   onAddAtPlayhead?: ((kind: TrackKind) => void) | undefined;
 }
 
 type DragMode = "move" | "start" | "end";
+
+interface GroupMember {
+  kind: TrackKind;
+  item: TimelineItem;
+}
 
 interface DragState {
   trackKind: TrackKind;
@@ -80,15 +102,52 @@ interface DragState {
   shift: boolean;
   toggle: boolean;
   targets: number[];
+  /** Other selected items moving by the same delta (move mode, multi-selection). */
+  group: GroupMember[];
   last: OpResult<TimelineItem> | null;
+  /** Group delta and validity from the last pointer move. */
+  lastDelta: number;
+  lastGroupValid: boolean;
+  /** Alt-drag copy validity (the original counts as a neighbour). */
+  lastDuplicateValid: boolean;
 }
 
-interface Preview {
-  id: string;
+interface PreviewSpan {
   startMs: number;
   endMs: number;
   valid: boolean;
+}
+
+interface Preview {
+  spans: ReadonlyMap<string, PreviewSpan>;
   snappedTo: number | null;
+}
+
+/** Group move: every member shifted by `delta`, validity checked against non-moving siblings. */
+function groupPreview(
+  origin: GroupMember,
+  group: readonly GroupMember[],
+  delta: number,
+  tracks: readonly TimelineTrack[],
+): { spans: Map<string, PreviewSpan>; valid: boolean } {
+  const members = [origin, ...group];
+  const moving = new Set(members.map((m) => m.item.id));
+  const spans = new Map<string, PreviewSpan>();
+  let valid = true;
+  for (const m of members) {
+    const track = tracks.find((t) => t.kind === m.kind);
+    const next = { startMs: m.item.startMs + delta, endMs: m.item.endMs + delta };
+    const ok =
+      track === undefined ||
+      track.allowOverlap ||
+      !overlaps(
+        track.items.filter((i) => !moving.has(i.id)),
+        next,
+      );
+    valid &&= ok;
+    spans.set(m.item.id, { ...next, valid: ok });
+  }
+  return { spans, valid };
 }
 
 interface MarqueeState {
@@ -101,6 +160,136 @@ interface MarqueeState {
 }
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi);
+
+/**
+ * Drop of a moved drag (SPEC §6.7): alt → duplicate; multi-selection → one
+ * batch; a valid single move/resize → `onItemChange`; an invalid drop with
+ * shift held → the item plus trimmed neighbours as one batch.
+ */
+function commitDrag(
+  d: DragState,
+  e: PointerEvent,
+  p: TimelineProps,
+  track: TimelineTrack | undefined,
+): void {
+  const r = d.last;
+  if (!r) return;
+  const span = (item: TimeSpan): TimeSpan => ({
+    id: item.id,
+    startMs: item.startMs,
+    endMs: item.endMs,
+  });
+  const changed = r.item.startMs !== d.origin.startMs || r.item.endMs !== d.origin.endMs;
+
+  if (d.group.length > 0) {
+    if (!d.lastGroupValid || d.lastDelta === 0) return;
+    const changes = [{ kind: d.trackKind, item: d.origin }, ...d.group].map((m) => ({
+      kind: m.kind,
+      span: {
+        id: m.item.id,
+        startMs: m.item.startMs + d.lastDelta,
+        endMs: m.item.endMs + d.lastDelta,
+      },
+    }));
+    if (p.onItemsChange) p.onItemsChange(changes);
+    else for (const c of changes) p.onItemChange(c.kind, c.span);
+    return;
+  }
+
+  if (d.mode === "move" && e.altKey && p.onItemDuplicate) {
+    if (changed && d.lastDuplicateValid) p.onItemDuplicate(d.trackKind, span(r.item));
+    return;
+  }
+
+  if (!changed) return;
+  if (r.valid) {
+    p.onItemChange(d.trackKind, span(r.item));
+    return;
+  }
+  if (e.shiftKey && track && p.onItemsChange) {
+    const trims = resolveOverlapByTrimming(r.item, track.items);
+    if (!trims) return;
+    p.onItemsChange([
+      { kind: d.trackKind, span: span(r.item) },
+      ...trims.map((n) => ({ kind: track.kind, span: span(n) })),
+    ]);
+  }
+}
+
+/** Filmstrip + mini waveform inside a video clip item, limited to its visible part. */
+function ClipMedia({
+  media,
+  startMs,
+  endMs,
+  sourceStartMs,
+  pxPerMs,
+  visibleStartMs,
+  visibleEndMs,
+}: {
+  media: TimelineMedia;
+  startMs: number;
+  endMs: number;
+  sourceStartMs: number;
+  pxPerMs: number;
+  visibleStartMs: number;
+  visibleEndMs: number;
+}): ReactElement {
+  const placement = {
+    itemStartMs: startMs,
+    itemEndMs: endMs,
+    sourceStartMs,
+    pxPerMs,
+    visibleStartMs,
+    visibleEndMs,
+  };
+  const aspect = media.aspect !== undefined && media.aspect > 0 ? media.aspect : 16 / 9;
+  const tiles = visibleFilmstrip(media.thumbs, placement, ITEM_HEIGHT_PX * aspect);
+  const bars = visibleWaveform(media.peaks, media.sourceDurationMs, placement, WAVEFORM_BAR_PX);
+  const path = bars
+    .map((b) => {
+      const h = Math.max(0.5, b.peak * WAVEFORM_HEIGHT_PX);
+      return `M${b.leftPx} ${WAVEFORM_HEIGHT_PX}v${-h}h${WAVEFORM_BAR_PX - 0.5}v${h}z`;
+    })
+    .join("");
+  return (
+    <div
+      aria-hidden="true"
+      data-testid="clip-media"
+      style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}
+    >
+      {tiles.map((t) => (
+        <img
+          key={`${t.leftPx}`}
+          src={t.url}
+          alt=""
+          draggable={false}
+          data-testid="filmstrip-thumb"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: `${t.leftPx}px`,
+            width: `${t.widthPx}px`,
+            height: "100%",
+            objectFit: "cover",
+            objectPosition: "left center",
+            opacity: 0.55,
+          }}
+        />
+      ))}
+      {bars.length > 0 && (
+        <svg
+          data-testid="clip-waveform"
+          width="100%"
+          height={WAVEFORM_HEIGHT_PX}
+          style={{ position: "absolute", left: 0, bottom: 0, color: "var(--text-1)", opacity: 0.6 }}
+        >
+          <title>Audio waveform</title>
+          <path d={path} fill="currentColor" />
+        </svg>
+      )}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Styles
@@ -117,6 +306,7 @@ const rootStyle: CSSProperties = {
   color: "var(--text-1)",
   fontFamily: "var(--font-body)",
   userSelect: "none",
+  outline: "none",
 };
 
 const topRowStyle: CSSProperties = {
@@ -208,11 +398,14 @@ const itemLabelStyle: CSSProperties = {
   fontSize: "12px",
   color: "var(--text-1)",
   pointerEvents: "none",
+  position: "relative",
+  zIndex: 1,
 };
 
 function handleStyle(edge: "start" | "end"): CSSProperties {
   return {
     position: "absolute",
+    zIndex: 2,
     top: 0,
     bottom: 0,
     ...(edge === "start" ? { left: 0 } : { right: 0 }),
@@ -385,11 +578,27 @@ export function Timeline(props: TimelineProps): ReactElement {
           d.mode === "move" ? moveItem : d.mode === "start" ? resizeItemStart : resizeItemEnd;
         const r = op(d.origin, dx / s.pxPerMs, ctx);
         d.last = r;
+        if (d.group.length > 0) {
+          // The grabbed item snaps; the rest follow, clamped so all stay on the timeline.
+          const members = [d.origin, ...d.group.map((g) => g.item)];
+          const lo = -Math.min(...members.map((i) => i.startMs));
+          const hi = p.durationMs - Math.max(...members.map((i) => i.endMs));
+          const raw = r.item.startMs - d.origin.startMs;
+          const delta = Math.min(Math.max(raw, lo), Math.max(lo, hi));
+          const g = groupPreview({ kind: d.trackKind, item: d.origin }, d.group, delta, p.tracks);
+          d.lastDelta = delta;
+          d.lastGroupValid = g.valid;
+          setPreview({ spans: g.spans, snappedTo: delta === raw ? r.snappedTo : null });
+          return;
+        }
+        let valid = r.valid;
+        if (d.mode === "move" && e.altKey && p.onItemDuplicate) {
+          // A copy may not land on the original either.
+          d.lastDuplicateValid = (track?.allowOverlap ?? true) || !overlaps(ctx.siblings, r.item);
+          valid = d.lastDuplicateValid;
+        }
         setPreview({
-          id: d.origin.id,
-          startMs: r.item.startMs,
-          endMs: r.item.endMs,
-          valid: r.valid,
+          spans: new Map([[d.origin.id, { startMs: r.item.startMs, endMs: r.item.endMs, valid }]]),
           snappedTo: r.snappedTo,
         });
         return;
@@ -422,23 +631,14 @@ export function Timeline(props: TimelineProps): ReactElement {
         setPreview(null);
         const track = p.tracks.find((t) => t.kind === d.trackKind);
         if (d.moved) {
-          const r = d.last;
-          const changed =
-            r !== null && (r.item.startMs !== d.origin.startMs || r.item.endMs !== d.origin.endMs);
-          if (r?.valid && changed) {
-            p.onItemChange(d.trackKind, {
-              id: r.item.id,
-              startMs: r.item.startMs,
-              endMs: r.item.endMs,
-            });
-          }
+          commitDrag(d, e, p, track);
         } else if (track) {
           const ordered = [...track.items].sort((a, b) => a.startMs - b.startMs).map((i) => i.id);
           p.onSelect(
             applySelection(
               p.selectedIds,
               d.origin.id,
-              { shift: d.shift, toggle: d.toggle },
+              { shift: d.shift || e.shiftKey, toggle: d.toggle || e.metaKey || e.ctrlKey },
               ordered,
             ),
           );
@@ -502,6 +702,18 @@ export function Timeline(props: TimelineProps): ReactElement {
     const handle = e.target instanceof HTMLElement ? e.target.dataset.handle : undefined;
     const mode: DragMode = handle === "start" ? "start" : handle === "end" ? "end" : "move";
     e.currentTarget.setPointerCapture?.(e.pointerId);
+    // Grabbing one of several selected items moves the whole selection (clips stay put).
+    const group: GroupMember[] =
+      mode === "move" && track.kind !== "video" && selectedIds.has(item.id) && selectedIds.size > 1
+        ? tracks.flatMap((t) =>
+            t.kind === "video"
+              ? []
+              : t.items
+                  .filter((i) => i.id !== item.id && selectedIds.has(i.id))
+                  .map((i) => ({ kind: t.kind, item: i })),
+          )
+        : [];
+    const moving = new Set([item.id, ...group.map((g) => g.item.id)]);
     drag.current = {
       trackKind: track.kind,
       origin: item,
@@ -513,11 +725,22 @@ export function Timeline(props: TimelineProps): ReactElement {
       targets: collectSnapTargets({
         playheadMs: currentMs,
         items: tracks.flatMap((t) => t.items),
-        excludeIds: new Set([item.id]),
+        excludeIds: moving,
         pxPerMs: scale.pxPerMs,
         durationMs,
+        wordBoundaries:
+          track.kind === "captions"
+            ? track.items.flatMap((i) =>
+                // Moving words travel with their caption; a resize snaps to its own words.
+                mode === "move" && moving.has(i.id) ? [] : (i.wordBoundaries ?? []),
+              )
+            : undefined,
       }),
+      group,
       last: null,
+      lastDelta: 0,
+      lastGroupValid: true,
+      lastDuplicateValid: false,
     };
   };
 
@@ -569,7 +792,15 @@ export function Timeline(props: TimelineProps): ReactElement {
   const playheadVisible = ready && playheadPx >= 0 && playheadPx <= viewportPx;
 
   return (
-    <section ref={rootRef} style={rootStyle} aria-label="Timeline" onKeyDown={onRootKeyDown}>
+    <section
+      ref={rootRef}
+      style={rootStyle}
+      aria-label="Timeline"
+      // Focusable so a click inside puts focus in the `timeline` shortcut scope (§6.9).
+      tabIndex={-1}
+      {...shortcutScopeProps("timeline")}
+      onKeyDown={onRootKeyDown}
+    >
       <div style={topRowStyle}>
         <div style={cornerStyle} />
         <div
@@ -655,10 +886,11 @@ export function Timeline(props: TimelineProps): ReactElement {
               style={laneStyle}
               role="group"
               aria-label={`${track.label} track`}
+              data-track-kind={track.kind}
             >
               {ready &&
                 track.items.map((item) => {
-                  const live = preview?.id === item.id ? preview : null;
+                  const live = preview?.spans.get(item.id) ?? null;
                   const startMs = live ? live.startMs : item.startMs;
                   const endMs = live ? live.endMs : item.endMs;
                   if (!live && !(item.startMs < visEnd && item.endMs > visStart)) return null;
@@ -685,6 +917,17 @@ export function Timeline(props: TimelineProps): ReactElement {
                       onPointerDown={(e) => onItemPointerDown(e, track, item)}
                       onKeyDown={(e) => onItemKeyDown(e, track, item)}
                     >
+                      {track.media && item.sourceStartMs !== undefined && (
+                        <ClipMedia
+                          media={track.media}
+                          startMs={startMs}
+                          endMs={endMs}
+                          sourceStartMs={item.sourceStartMs}
+                          pxPerMs={scale.pxPerMs}
+                          visibleStartMs={visStart}
+                          visibleEndMs={visEnd}
+                        />
+                      )}
                       <div data-handle="start" aria-hidden="true" style={handleStyle("start")} />
                       <span style={itemLabelStyle}>{item.label}</span>
                       <div data-handle="end" aria-hidden="true" style={handleStyle("end")} />

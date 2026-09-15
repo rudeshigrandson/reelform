@@ -136,13 +136,28 @@ export function useShortcut(
   handler: ShortcutHandler,
   options: { enabled?: boolean | undefined } = {},
 ): void {
+  useShortcutsContext();
+  useOptionalShortcut(id, handler, options);
+}
+
+/**
+ * {@link useShortcut} that is a no-op outside a provider, for components that
+ * also run standalone (tests, stories) with their own key listeners. Returns
+ * whether a provider is present, so callers can switch their fallback off.
+ */
+export function useOptionalShortcut(
+  id: string,
+  handler: ShortcutHandler,
+  options: { enabled?: boolean | undefined } = {},
+): boolean {
   const { enabled = true } = options;
-  const ctx = useShortcutsContext();
+  const ctx = useOptionalShortcutsContext();
   const latest = useRef(handler);
   latest.current = handler;
-  const { register } = ctx;
+  const register = ctx?.register;
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !register) return;
     return register(id, (e) => latest.current(e));
   }, [register, id, enabled]);
+  return ctx !== null;
 }

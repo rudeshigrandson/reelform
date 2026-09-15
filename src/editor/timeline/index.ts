@@ -23,8 +23,17 @@ export {
   overlaps,
   resizeItemEnd,
   resizeItemStart,
+  resolveOverlapByTrimming,
   selectInRange,
 } from "./trackOps";
+export {
+  type ClipPlacement,
+  type FilmstripTile,
+  type WaveformBar,
+  nearestThumbIndex,
+  visibleFilmstrip,
+  visibleWaveform,
+} from "./filmstrip";
 export type { OpContext, OpResult, SelectionModifiers, SnapConfig } from "./trackOps";
 export {
   ITEM_NOUNS,
@@ -38,5 +47,12 @@ export {
   speedToItems,
   zoomToItems,
 } from "./types";
-export type { TimeSpan, TimelineItem, TimelineTrack, TrackKind } from "./types";
+export type {
+  TimeSpan,
+  TimelineItem,
+  TimelineMedia,
+  TimelineThumb,
+  TimelineTrack,
+  TrackKind,
+} from "./types";
 export { INVALID_COLOR, TRACK_COLORS } from "./trackColors";

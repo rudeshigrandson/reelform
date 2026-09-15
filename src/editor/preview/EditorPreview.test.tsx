@@ -156,6 +156,37 @@ describe("EditorPreview", () => {
     expect(fetchJson).toHaveBeenCalledWith("/wallpapers/wallpapers.json");
   });
 
+  it("Auto/Half play the proxy when it exists; Full plays the original", async () => {
+    const { create } = fakeStage();
+    useProjectSession.getState().setSession({ proxyUrl: "file:///proxy.mp4" });
+    const src = () => document.querySelector("video")?.getAttribute("src");
+    const { rerender } = render(
+      <EditorPreview createStage={create} fetchJson={noWallpapers} quality="half" />,
+    );
+    await waitFor(() => expect(src()).toBe("file:///proxy.mp4"));
+    rerender(<EditorPreview createStage={create} fetchJson={noWallpapers} quality="auto" />);
+    expect(src()).toBe("file:///proxy.mp4");
+    rerender(<EditorPreview createStage={create} fetchJson={noWallpapers} quality="full" />);
+    await waitFor(() => expect(src()).toBe("file:///rec.mp4"));
+  });
+
+  it("canvas edits name their gesture for history", async () => {
+    const { create } = fakeStage();
+    useEditorStore.getState().update({ zoomRegions: [zoom], selectedZoomId: "z" });
+    const update = vi.fn();
+    render(<EditorPreview createStage={create} fetchJson={noWallpapers} update={update} />);
+    drag(await screen.findByTestId("zoom-reticle"), 0, 0, -50, 0);
+    expect(update.mock.calls.at(-2)?.[1]).toEqual({
+      label: "Move zoom focus",
+      coalesceKey: "canvas:zoomFocus:z",
+      commit: false,
+    });
+    expect(update.mock.lastCall?.[1]).toMatchObject({
+      coalesceKey: "canvas:zoomFocus:z",
+      commit: true,
+    });
+  });
+
   it("media offline shows Locate…", async () => {
     const { create } = fakeStage();
     useProjectSession.getState().setSession({ mediaOffline: true });

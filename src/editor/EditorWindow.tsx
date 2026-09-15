@@ -6,7 +6,13 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useProjectSession } from "../app/project/session";
+import { useAppSettings } from "../app/settings/store";
+import { useOptionalShortcut, useOptionalShortcutsContext } from "../shortcuts/ShortcutsProvider";
+import { type UsePreviewAudioOptions, usePreviewAudio } from "./audio";
 import { InspectorPanel } from "./inspector/InspectorPanel";
+import { cursorSamplesFromTelemetry } from "./inspector/host/telemetryInputs";
+import { timelineClips } from "./inspector/host/timeMap";
 import type { InspectorHost } from "./inspector/host/types";
 import {
   PlaybackBar,
@@ -18,27 +24,44 @@ import {
 import type { CreatePreviewStage } from "./preview";
 import { EditorPreview } from "./preview/EditorPreview";
 import { EditorShell } from "./shell/EditorShell";
-import type { InspectorTab } from "./shell/types";
+import type { InspectorTab, PreviewQuality } from "./shell/types";
 import { useTrimShortcuts } from "./shell/useTrimShortcuts";
 import {
   EditorHistoryProvider,
   type History,
+  createCanvasUpdate,
   createDocumentUpdate,
   createEditorHistory,
   useHistoryShortcuts,
   useHistoryState,
 } from "./state";
-import { type EditorState, useEditorStore } from "./store";
-import { HEADER_WIDTH_PX, type TimeSpan, Timeline, type TrackKind } from "./timeline";
+import { type EditorState, useEditorStore, useEditorUiStore } from "./store";
 import {
+  HEADER_WIDTH_PX,
+  type TimeSpan,
+  Timeline,
+  type TimelineMedia,
+  type TrackKind,
+} from "./timeline";
+import {
+  type FocusResolver,
+  type ItemChange,
   addAtPlayhead,
   applyItemChange,
+  applyItemsChange,
   buildTracks,
+  countSelection,
   deleteSelection,
+  duplicateItemAt,
+  duplicateSelection,
+  focusFromSamples,
   itemChangeLabel,
+  nudgeSelection,
   scaleToZoom,
+  selectAllOnTrack,
   selectionPatch,
   splitClipAt,
+  trackKindOf,
   trimClipToPlayhead,
   zoomToScale,
 } from "./timelineBinding";
@@ -58,6 +81,10 @@ const ADD_LABELS: Readonly<Record<TrackKind, string>> = {
   annotations: "Add annotation",
   captions: "Add caption",
 };
+
+/** ⌘= / ⌘- step on the playback-bar zoom slider (0 = fit, 1 = 5s visible). */
+export const TIMELINE_ZOOM_STEP = 0.1;
+const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 
 /** Width of an element, tracked with ResizeObserver (0 where unavailable, e.g. jsdom). */
 function useElementWidth(): [RefCallback<HTMLElement>, number] {
@@ -90,6 +117,9 @@ export interface EditorWindowProps {
   /** Unsaved changes indicator in the top bar. */
   dirty?: boolean | undefined;
   onBack?: (() => void) | undefined;
+  /** Top-bar project name committed (blur / Enter); omitted → the name is read-only. */
+  /** May return a `Promise<boolean>`; resolving `false` reverts the field. */
+  onRename?: ((name: string) => unknown) | undefined;
   onLocateMedia?: (() => void) | undefined;
   /** Source video length: lets clip edges grow back out after a trim. */
   sourceDurationMs?: number | undefined;
@@ -101,20 +131,29 @@ export interface EditorWindowProps {
    * omitted → the inspector's store-only fallback host.
    */
   createInspectorHost?: ((history: History<EditorState>) => InspectorHost) | undefined;
+  /** Preview audio player options (noise reduction worklet; a fake player in tests). */
+  audioOptions?: UsePreviewAudioOptions | undefined;
 }
 
 /** Inspector tab for the first selected item kind (§6.8 auto-switch). */
-function tabForSelection(patch: ReturnType<typeof selectionPatch>): InspectorTab | null {
+function tabForSelection(
+  patch: ReturnType<typeof selectionPatch>,
+  captions: readonly { id: string }[],
+  ids: ReadonlySet<string>,
+): InspectorTab | null {
   if (patch.selectedZoomId) return "Zoom";
   if (patch.selectedAnnotationId) return "Annotations";
   if (patch.selectedSpeedId) return "Effects";
+  if (captions.some((c) => ids.has(c.id))) return "Captions";
   return null;
 }
 
 /**
  * Editor window composition (SPEC §6): shell + inspector bound to the document
- * store, transport bound to the playback store, and every timeline edit routed
- * through the pure `timelineBinding` patches into the undo history (§7).
+ * store, transport bound to the playback store, preview audio, and every
+ * timeline / canvas edit routed through the pure `timelineBinding` patches into
+ * the undo history (§7). Keyboard actions bind by registry id (§6.9) inside a
+ * shortcuts provider; undo/redo and trim keep fixed listeners standalone.
  */
 export function EditorWindow({
   projectName,
@@ -124,10 +163,12 @@ export function EditorWindow({
   undoHistorySize,
   dirty,
   onBack,
+  onRename,
   onLocateMedia,
   sourceDurationMs,
   narrow,
   createInspectorHost,
+  audioOptions,
 }: EditorWindowProps): ReactElement {
   const durationMs = useEditorStore((e) => e.durationMs);
   const clips = useEditorStore((e) => e.clips);
@@ -136,21 +177,40 @@ export function EditorWindow({
   const annotations = useEditorStore((e) => e.annotations);
   const captions = useEditorStore((e) => e.captions);
   const audio = useEditorStore((e) => e.audio);
+  const clickSound = useEditorStore((e) => e.cursor.clickSound);
   const update = useEditorStore((e) => e.update);
+  const pendingSuggestionIds = useEditorUiStore((u) => u.pendingSuggestionIds);
   const currentMs = usePlaybackStore((p) => p.currentMs);
   const isPlaying = usePlaybackStore((p) => p.isPlaying);
   const loop = usePlaybackStore((p) => p.loop);
   const fps = usePlaybackStore((p) => p.fps);
+
+  const micUrl = useProjectSession((s) => s.micUrl);
+  const systemAudioUrl = useProjectSession((s) => s.systemAudioUrl);
+  const mediaBaseUrl = useProjectSession((s) => s.mediaBaseUrl);
+  const telemetry = useProjectSession((s) => s.telemetry);
+  const thumbnails = useProjectSession((s) => s.thumbnails);
+  const waveformPeaks = useProjectSession((s) => s.waveformPeaks);
+  const sourceSize = useProjectSession((s) => s.sourceSize);
+  const sessionSourceMs = useProjectSession((s) => s.meta?.sources.video.durationMs);
+
+  const inspectorAutoSwitch = useAppSettings((s) => s.settings.inspectorAutoSwitch);
 
   const [ownHistory] = useState(() =>
     providedHistory ? null : createEditorHistory({ cap: undoHistorySize }),
   );
   const history = (providedHistory ?? ownHistory) as History<EditorState>;
   const historyState = useHistoryState(history);
-  useHistoryShortcuts(history);
   const commit = useMemo(() => createDocumentUpdate(history), [history]);
+  const canvasUpdate = useMemo(() => createCanvasUpdate(commit), [commit]);
 
-  const [snapEnabled, setSnapEnabled] = useState(true);
+  // Settings are read once when the window opens; the toggles are per window after that.
+  const [snapEnabled, setSnapEnabled] = useState(
+    () => useAppSettings.getState().settings.snapByDefault,
+  );
+  const [quality, setQuality] = useState<PreviewQuality>(
+    () => useAppSettings.getState().settings.previewQuality,
+  );
   const [timelineZoom, setTimelineZoom] = useState(0);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(EMPTY_SELECTION);
   const [activeTab, setActiveTab] = useState<InspectorTab>("Frame");
@@ -163,11 +223,59 @@ export function EditorWindow({
   const rateAt = useMemo(() => rateAtFromRegions(speedRegions), [speedRegions]);
   usePlaybackLoop({ rateAt });
 
+  usePreviewAudio(
+    {
+      micUrl,
+      systemAudioUrl,
+      mediaBaseUrl,
+      audio,
+      clickSound,
+      telemetry: telemetry?.telemetry ?? null,
+      clips,
+      speeds: speedRegions,
+      durationMs,
+    },
+    audioOptions,
+  );
+
+  const videoMedia = useMemo<TimelineMedia | undefined>(
+    () =>
+      thumbnails.length > 0 || waveformPeaks
+        ? {
+            thumbs: thumbnails,
+            peaks: waveformPeaks ?? undefined,
+            // Without source metadata the furthest clip end is the best known source length.
+            sourceDurationMs:
+              sessionSourceMs ??
+              sourceDurationMs ??
+              clips.reduce((end, c) => Math.max(end, c.sourceEndMs), 0),
+            aspect:
+              sourceSize && sourceSize.height > 0
+                ? sourceSize.width / sourceSize.height
+                : undefined,
+          }
+        : undefined,
+    [thumbnails, waveformPeaks, sessionSourceMs, sourceDurationMs, sourceSize, clips],
+  );
+
   // Tracks only rebuild when the document changes, never on playhead moves (§6.2).
   const tracks = useMemo(
     () =>
-      buildTracks({ durationMs, clips, zoomRegions, speedRegions, annotations, captions, audio }),
-    [durationMs, clips, zoomRegions, speedRegions, annotations, captions, audio],
+      buildTracks(
+        { durationMs, clips, zoomRegions, speedRegions, annotations, captions, audio },
+        { pendingSuggestionIds, videoMedia },
+      ),
+    [
+      durationMs,
+      clips,
+      zoomRegions,
+      speedRegions,
+      annotations,
+      captions,
+      audio,
+      pendingSuggestionIds,
+      videoMedia,
+    ],
   );
 
   // Undo can remove selected items; drop ids that no longer exist.
@@ -181,13 +289,14 @@ export function EditorWindow({
   const select = useCallback(
     (ids: ReadonlySet<string>) => {
       setSelectedIds(ids);
-      const patch = selectionPatch(useEditorStore.getState(), ids);
+      const doc = useEditorStore.getState();
+      const patch = selectionPatch(doc, ids);
       // Selection is UI state (§4 `ui`), not an undoable edit.
       update(patch);
-      const tab = tabForSelection(patch);
-      if (tab) setActiveTab(tab);
+      const tab = tabForSelection(patch, doc.captions, ids);
+      if (tab && inspectorAutoSwitch) setActiveTab(tab);
     },
-    [update],
+    [update, inspectorAutoSwitch],
   );
 
   const onItemChange = useCallback(
@@ -199,15 +308,50 @@ export function EditorWindow({
     [commit, sourceDurationMs],
   );
 
+  const onItemsChange = useCallback(
+    (changes: readonly ItemChange[]) => {
+      const first = changes[0];
+      if (!first) return;
+      const doc = useEditorStore.getState();
+      const patch = applyItemsChange(doc, changes, { sourceDurationMs, makeId: newId });
+      if (!patch) return;
+      const group = changes.length > 1 && changes.every((c) => selectedIds.has(c.span.id));
+      // Shift-drop: the dragged item names the edit; its neighbour trims ride along.
+      commit(group ? "Move items" : itemChangeLabel(doc, first.kind, first.span), patch);
+    },
+    [commit, sourceDurationMs, selectedIds],
+  );
+
+  const onItemDuplicate = useCallback(
+    (kind: TrackKind, span: TimeSpan) => {
+      const result = duplicateItemAt(useEditorStore.getState(), kind, span, newId);
+      if (!result) return;
+      commit("Duplicate", result.patch);
+      select(new Set([result.id]));
+    },
+    [commit, select],
+  );
+
+  /** Cursor position at a timeline time, from telemetry (§9.3); built lazily per add. */
+  const focusAt = useCallback((): FocusResolver | undefined => {
+    const { telemetry: t, meta } = useProjectSession.getState();
+    const samples = cursorSamplesFromTelemetry(
+      t?.telemetry ?? null,
+      timelineClips(useEditorStore.getState().clips, meta),
+    );
+    return samples && samples.length > 0 ? (tMs) => focusFromSamples(samples, tMs) : undefined;
+  }, []);
+
   const onAddAtPlayhead = useCallback(
     (kind: TrackKind) => {
       const playheadMs = usePlaybackStore.getState().currentMs;
-      const result = addAtPlayhead(useEditorStore.getState(), kind, playheadMs, newId);
+      const resolver = kind === "zoom" ? focusAt() : undefined;
+      const result = addAtPlayhead(useEditorStore.getState(), kind, playheadMs, newId, resolver);
       if (!result) return;
       commit(ADD_LABELS[kind], result.patch);
       setSelectedIds(new Set([result.id]));
     },
-    [commit],
+    [commit, focusAt],
   );
 
   const canDelete = selectedIds.size > 0;
@@ -246,8 +390,72 @@ export function EditorWindow({
     [commit],
   );
 
+  /** ←/→ with a selection nudges it one frame; declines (→ frame step) without one. */
+  const nudge = (direction: -1 | 1): boolean => {
+    const doc = useEditorStore.getState();
+    const counts = countSelection(doc, selectedIds);
+    if (counts.zoom + counts.speed + counts.annotations + counts.captions === 0) return false;
+    const frameMs = fps > 0 ? 1000 / fps : 1000 / 30;
+    const patch = nudgeSelection(doc, selectedIds, direction * frameMs);
+    if (patch) commit("Nudge", patch, "timeline:nudge");
+    return true;
+  };
+
+  const duplicateSelected = (): boolean => {
+    const result = duplicateSelection(useEditorStore.getState(), selectedIds, newId);
+    if (!result) return false;
+    commit("Duplicate", result.patch);
+    select(new Set(result.ids));
+    return true;
+  };
+
+  const selectAll = (event: KeyboardEvent): boolean => {
+    const lane = event.target instanceof Element ? event.target.closest("[data-track-kind]") : null;
+    const fromFocus = lane?.getAttribute("data-track-kind") as TrackKind | null | undefined;
+    const first = [...selectedIds][0];
+    const kind = fromFocus ?? (first !== undefined ? trackKindOf(tracks, first) : null);
+    if (!kind) return false;
+    select(selectAllOnTrack(tracks, kind));
+    return true;
+  };
+
   usePlaybackShortcuts({ onDelete: canDelete ? onDelete : undefined, onSplit });
-  useTrimShortcuts({ onTrimStart: () => trim("start"), onTrimEnd: () => trim("end") });
+
+  // Registry-bound actions (§6.9): user overrides and focus scopes apply.
+  const hasShortcuts = useOptionalShortcutsContext() !== null;
+  useHistoryShortcuts(history, { enabled: !hasShortcuts });
+  useTrimShortcuts({
+    onTrimStart: () => trim("start"),
+    onTrimEnd: () => trim("end"),
+    enabled: !hasShortcuts,
+  });
+  useOptionalShortcut("editor.undo", () => void history.undo());
+  useOptionalShortcut("editor.redo", () => void history.redo());
+  useOptionalShortcut("timeline.trimStart", () => void trim("start"));
+  useOptionalShortcut("timeline.trimEnd", () => void trim("end"));
+  useOptionalShortcut("timeline.nudgeBack", () => nudge(-1));
+  useOptionalShortcut("timeline.nudgeForward", () => nudge(1));
+  useOptionalShortcut("timeline.duplicate", () => duplicateSelected());
+  useOptionalShortcut("timeline.selectAll", (e) => selectAll(e));
+  useOptionalShortcut("timeline.rippleDelete", () => {
+    if (!canDelete) return false;
+    onDelete();
+    return true;
+  });
+  useOptionalShortcut(
+    "editor.zoomIn",
+    () => void setTimelineZoom((z) => clamp01(z + TIMELINE_ZOOM_STEP)),
+  );
+  useOptionalShortcut(
+    "editor.zoomOut",
+    () => void setTimelineZoom((z) => clamp01(z - TIMELINE_ZOOM_STEP)),
+  );
+  useOptionalShortcut("editor.clearSelection", () => {
+    if (selectedIds.size === 0) return false;
+    select(EMPTY_SELECTION);
+    return true;
+  });
+  useOptionalShortcut("editor.export", () => void onExport());
 
   const viewportPx = Math.max(0, timelineWidth - HEADER_WIDTH_PX);
   const pxPerMs = viewportPx > 0 ? zoomToScale(timelineZoom, durationMs, viewportPx) : undefined;
@@ -265,7 +473,9 @@ export function EditorWindow({
         durationMs={durationMs}
         currentMs={currentMs}
         isPlaying={isPlaying}
-        previewQuality="auto"
+        previewQuality={quality}
+        onQualityChange={setQuality}
+        onRename={onRename}
         onExport={onExport}
         onTogglePlay={playback.toggle}
         onBack={onBack}
@@ -281,9 +491,22 @@ export function EditorWindow({
           onUndo: () => void history.undo(),
           onRedo: () => void history.redo(),
         }}
-        renderInspector={(tab) => <InspectorPanel tab={tab} host={inspectorHost} />}
+        renderInspector={(tab) => (
+          <InspectorPanel
+            tab={tab}
+            host={inspectorHost}
+            selectedIds={selectedIds}
+            onSelect={select}
+            makeId={newId}
+          />
+        )}
         renderPreview={() => (
-          <EditorPreview createStage={createStage} onLocateMedia={onLocateMedia} />
+          <EditorPreview
+            createStage={createStage}
+            onLocateMedia={onLocateMedia}
+            update={canvasUpdate}
+            quality={quality}
+          />
         )}
         renderPlaybackBar={() => (
           <PlaybackBar
@@ -324,6 +547,8 @@ export function EditorWindow({
               onSeek={playback.seek}
               onSelect={select}
               onItemChange={onItemChange}
+              onItemsChange={onItemsChange}
+              onItemDuplicate={onItemDuplicate}
               onAddAtPlayhead={onAddAtPlayhead}
             />
           </div>

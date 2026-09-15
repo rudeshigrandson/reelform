@@ -1,6 +1,6 @@
 import { Button, Input, Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactElement } from "react";
 import {
   type EditorShellProps,
@@ -208,6 +208,31 @@ export function EditorShell(props: EditorShellProps): ReactElement {
     history,
   } = props;
 
+  // Rename edits a local draft; blur / Enter commits, Escape reverts (S12 top bar).
+  const [nameDraft, setNameDraft] = useState(projectName);
+  useEffect(() => setNameDraft(projectName), [projectName]);
+  const revertingName = useRef(false);
+  const latestName = useRef(projectName);
+  latestName.current = projectName;
+  const commitName = (): void => {
+    const trimmed = nameDraft.trim();
+    if (revertingName.current || trimmed === "" || trimmed === projectName) {
+      revertingName.current = false;
+      setNameDraft(projectName);
+      return;
+    }
+    const result = onRename?.(trimmed);
+    // A rename that resolves `false` failed: show the current name again.
+    if (result instanceof Promise) {
+      void result.then(
+        (ok) => {
+          if (ok === false) setNameDraft(latestName.current);
+        },
+        () => setNameDraft(latestName.current),
+      );
+    }
+  };
+
   const [uncontrolledTab, setUncontrolledTab] = useState<InspectorTab>("Frame");
   const activeTab = props.activeTab ?? uncontrolledTab;
   const setActiveTab = (tab: InspectorTab): void => {
@@ -286,8 +311,22 @@ export function EditorShell(props: EditorShellProps): ReactElement {
         <div style={{ width: narrow ? "180px" : "240px" }}>
           <Input
             aria-label="Project name"
-            value={projectName}
-            onChange={(e) => onRename?.(e.target.value)}
+            value={onRename ? nameDraft : projectName}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={() => {
+              if (onRename) commitName();
+            }}
+            onKeyDown={(e) => {
+              if (!onRename) return;
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.currentTarget.blur();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                revertingName.current = true;
+                e.currentTarget.blur();
+              }
+            }}
             readOnly={!onRename}
           />
         </div>

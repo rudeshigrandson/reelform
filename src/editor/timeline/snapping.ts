@@ -51,6 +51,8 @@ export interface SnapTargetInput {
   /** Ids being dragged — their own edges must not attract them. */
   readonly excludeIds?: ReadonlySet<string> | undefined;
   readonly clipBoundaries?: readonly number[] | undefined;
+  /** Caption word starts/ends (timeline ms), added while dragging a caption. */
+  readonly wordBoundaries?: readonly number[] | undefined;
   /** Current zoom; enables the 1s grid when ≤ GRID_MAX_PX_PER_MS. */
   readonly pxPerMs?: number | undefined;
   /** Grid lines are generated over [0, durationMs]. */
@@ -67,6 +69,7 @@ export function collectSnapTargets(input: SnapTargetInput): number[] {
     out.add(item.endMs);
   }
   for (const b of input.clipBoundaries ?? []) out.add(b);
+  for (const b of input.wordBoundaries ?? []) out.add(b);
   const px = input.pxPerMs;
   const duration = input.durationMs;
   if (px !== undefined && px > 0 && px <= GRID_MAX_PX_PER_MS && duration !== undefined) {

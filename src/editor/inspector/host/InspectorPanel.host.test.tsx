@@ -51,6 +51,87 @@ beforeEach(() => {
   usePlaybackStore.getState().seek(0);
 });
 
+describe("multi-select summary (§6.8)", () => {
+  const z = (id: string, startMs: number, endMs: number) => ({
+    id,
+    startMs,
+    endMs,
+    level: 2,
+    focus: { mode: "fixed" as const, x: 0.5, y: 0.5 },
+    easeInMs: 0,
+    easeOutMs: 0,
+    curve: "linear" as const,
+    source: "manual" as const,
+  });
+  const s = (id: string, startMs: number, endMs: number) => ({
+    id,
+    startMs,
+    endMs,
+    rate: 2,
+    keepPitch: true,
+    rampInMs: 0,
+    rampOutMs: 0,
+  });
+  let seq = 0;
+  const makeId = (prefix: string) => `${prefix}-new-${++seq}`;
+
+  it("one selected item shows only the tab", () => {
+    render(<InspectorPanel tab="Frame" host={fakeHost()} selectedIds={new Set(["a"])} />);
+    expect(screen.queryByRole("region", { name: "Selection summary" })).toBeNull();
+  });
+
+  it("counts per kind; Duplicate and Delete are single edits that reselect", () => {
+    useEditorStore.setState({
+      durationMs: 20_000,
+      zoomRegions: [z("z1", 0, 1000), z("z2", 3000, 4000)],
+      speedRegions: [s("s1", 5000, 6000)],
+    });
+    const host = fakeHost();
+    const onSelect = vi.fn();
+    const ids = new Set(["z1", "z2", "s1"]);
+    render(
+      <InspectorPanel
+        tab="Frame"
+        host={host}
+        selectedIds={ids}
+        onSelect={onSelect}
+        makeId={makeId}
+      />,
+    );
+    const summary = screen.getByRole("region", { name: "Selection summary" });
+    expect(summary).toHaveTextContent("3 items");
+    expect(summary).toHaveTextContent("2 zooms");
+    expect(summary).toHaveTextContent("1 speed");
+    // Both zooms would start at 0 and overlap.
+    expect(within(summary).getByRole("button", { name: "Align start" })).toBeDisabled();
+
+    fireEvent.click(within(summary).getByRole("button", { name: "Duplicate" }));
+    expect(host.labels).toEqual(["Duplicate"]);
+    expect(useEditorStore.getState().zoomRegions).toHaveLength(4);
+    const reselected = onSelect.mock.lastCall?.[0] as ReadonlySet<string>;
+    expect(reselected.size).toBe(3);
+    expect([...reselected].every((id) => id.includes("-new-"))).toBe(true);
+
+    fireEvent.click(within(summary).getByRole("button", { name: "Delete" }));
+    expect(host.labels).toEqual(["Duplicate", "Delete"]);
+    expect(useEditorStore.getState().zoomRegions.map((r) => r.id)).not.toContain("z1");
+    expect(onSelect.mock.lastCall?.[0].size).toBe(0);
+  });
+
+  it("Align start moves regions on different tracks to the earliest start", () => {
+    useEditorStore.setState({
+      durationMs: 20_000,
+      zoomRegions: [z("z1", 3000, 4000)],
+      speedRegions: [s("s1", 5000, 6000)],
+    });
+    const host = fakeHost();
+    render(<InspectorPanel tab="Zoom" host={host} selectedIds={new Set(["z1", "s1"])} />);
+    fireEvent.click(screen.getByRole("button", { name: "Align start" }));
+    expect(host.labels).toEqual(["Align start"]);
+    expect(useEditorStore.getState().speedRegions[0]).toMatchObject({ startMs: 3000, endMs: 4000 });
+  });
+});
+
 describe("Zoom tab", () => {
   it("disables generation without telemetry", () => {
     render(<InspectorPanel tab="Zoom" host={fakeHost()} />);

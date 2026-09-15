@@ -101,6 +101,13 @@ export function fakeIpc(overrides: FakeHandlers = {}): FakeIpc {
       backupName: req.autosave ? "autosave-000000000000001.json" : null,
     }),
     "project:discardBackups": () => ({ removed: 1 }),
+    "project:ensureProxy": () => ({ proxyPath: null, generated: false }),
+    "project:ensureThumbnails": () => ({ items: [] }),
+    "project:rename": (req) => ({
+      path: req.path,
+      document: projectDocument({ name: req.name }),
+      modifiedAt: "2026-09-15T12:00:00.000Z",
+    }),
     ...overrides,
   };
   const invoke = (async (channel: ChannelName, payload: unknown) => {

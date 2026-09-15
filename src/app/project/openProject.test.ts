@@ -36,6 +36,9 @@ describe("openProject: happy path", () => {
       "project:resolve",
       "project:open",
       "media:registerRoot",
+      // Background derived media starts once the session is ready.
+      "project:ensureProxy",
+      "project:ensureThumbnails",
     ]);
     expect(ipc.callsTo("project:resolve")).toEqual([{ projectId: "proj-1" }]);
     expect(ipc.callsTo("media:registerRoot")).toEqual([{ path: PROJECT_PATH }]);

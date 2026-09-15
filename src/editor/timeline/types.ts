@@ -20,10 +20,32 @@ export interface TimeSpan {
   readonly endMs: number;
 }
 
+/** One cached filmstrip frame (SPEC §6.7: every 2s of source at 160px height). */
+export interface TimelineThumb {
+  readonly sourceMs: number;
+  readonly url: string;
+}
+
+/** Source media drawn inside video clip items: filmstrip + mini waveform. */
+export interface TimelineMedia {
+  /** Sorted by `sourceMs`. */
+  readonly thumbs: readonly TimelineThumb[];
+  /** Peak |amplitude| 0..1 per bucket, evenly spread over `sourceDurationMs`. */
+  readonly peaks?: Float32Array | undefined;
+  /** Source length the peaks span; required to place peaks. */
+  readonly sourceDurationMs?: number | undefined;
+  /** Frame width / height; 16:9 when unknown. */
+  readonly aspect?: number | undefined;
+}
+
 export interface TimelineItem extends TimeSpan {
   readonly label: string;
   /** Auto-zoom suggestion not yet accepted: drawn dashed at 50% opacity. */
   readonly ghost?: boolean | undefined;
+  /** Video clips: source ms at the item's start (filmstrip/waveform alignment). */
+  readonly sourceStartMs?: number | undefined;
+  /** Captions: word start/end times (timeline ms), extra snap targets while dragging. */
+  readonly wordBoundaries?: readonly number[] | undefined;
 }
 
 export interface TimelineTrack {
@@ -32,6 +54,8 @@ export interface TimelineTrack {
   readonly items: readonly TimelineItem[];
   /** Zooms and speeds may not overlap on their own track; annotations/captions may. */
   readonly allowOverlap: boolean;
+  /** Video track: thumbnails + peaks for its clips. */
+  readonly media?: TimelineMedia | undefined;
 }
 
 export const TRACK_LABELS: Readonly<Record<TrackKind, string>> = {
@@ -77,13 +101,20 @@ export function truncateLabel(text: string, max = CAPTION_LABEL_MAX): string {
   return flat.length > max ? `${flat.slice(0, Math.max(0, max - 1)).trimEnd()}…` : flat;
 }
 
-export function zoomToItems(regions: readonly ZoomRegion[]): TimelineItem[] {
+/**
+ * Only suggestions still awaiting Keep / Review / Dismiss (`pending`, editor UI
+ * state) are ghosts; a kept `auto` region draws like any other (§8).
+ */
+export function zoomToItems(
+  regions: readonly ZoomRegion[],
+  pending: ReadonlySet<string> = new Set(),
+): TimelineItem[] {
   return regions.map((r) => ({
     id: r.id,
     startMs: r.startMs,
     endMs: r.endMs,
     label: formatMultiplier(r.level),
-    ghost: r.source === "auto",
+    ghost: r.source === "auto" && pending.has(r.id),
   }));
 }
 
@@ -113,6 +144,7 @@ export function captionsToItems(captions: readonly Caption[]): TimelineItem[] {
     startMs: c.startMs,
     endMs: c.endMs,
     label: truncateLabel(c.text),
+    wordBoundaries: c.words.flatMap((w) => [w.t0, w.t1]),
   }));
 }
 
@@ -122,5 +154,6 @@ export function clipsToItems(clips: readonly Clip[]): TimelineItem[] {
     startMs: c.timelineStartMs,
     endMs: c.timelineStartMs + (c.sourceEndMs - c.sourceStartMs),
     label: `Clip ${i + 1}`,
+    sourceStartMs: c.sourceStartMs,
   }));
 }

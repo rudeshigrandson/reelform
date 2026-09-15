@@ -1,4 +1,5 @@
 export { type Command, patchCommand } from "./command";
+export { type CanvasEdit, type CanvasUpdate, createCanvasUpdate } from "./canvasGesture";
 export {
   DEFAULT_COALESCE_MS,
   DEFAULT_HISTORY_CAP,

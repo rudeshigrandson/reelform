@@ -92,3 +92,30 @@ export const useEditorStore = create<EditorState>((set) => ({
   update: (patch) => set(patch),
   reset: () => set(initialEditorData()),
 }));
+
+/**
+ * Editor UI state that is neither document nor history (SPEC §4 `ui`): never
+ * saved, never undone.
+ */
+export interface EditorUiState {
+  /**
+   * Auto-zoom suggestions still awaiting Keep / Review / Dismiss. Only these are
+   * drawn as timeline ghosts; a kept suggestion keeps `source: "auto"` but draws solid (§8).
+   */
+  pendingSuggestionIds: ReadonlySet<string>;
+  setPendingSuggestions: (ids: Iterable<string>) => void;
+  clearPendingSuggestions: () => void;
+}
+
+const NO_PENDING: ReadonlySet<string> = new Set();
+
+export const useEditorUiStore = create<EditorUiState>((set, get) => ({
+  pendingSuggestionIds: NO_PENDING,
+  setPendingSuggestions: (ids) => {
+    const next = new Set(ids);
+    set({ pendingSuggestionIds: next.size === 0 ? NO_PENDING : next });
+  },
+  clearPendingSuggestions: () => {
+    if (get().pendingSuggestionIds.size > 0) set({ pendingSuggestionIds: NO_PENDING });
+  },
+}));

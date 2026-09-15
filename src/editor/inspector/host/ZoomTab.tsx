@@ -3,7 +3,7 @@ import { type ReactElement, useEffect, useRef, useState } from "react";
 import { useProjectSession } from "../../../app/project/session";
 import type { SuggestedZoom } from "../../autozoom";
 import { usePlaybackStore } from "../../playback";
-import { useEditorStore } from "../../store";
+import { useEditorStore, useEditorUiStore } from "../../store";
 import { ZoomInspector, deleteRegion, duplicateRegion } from "../zoom";
 import { formatTimecode } from "../zoom/zoomLogic";
 import { hostId } from "./hooks";
@@ -59,6 +59,14 @@ export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
       live.current = false;
     };
   }, []);
+
+  // Suggestions awaiting Keep / Review / Dismiss are the pending set (timeline ghosts, §8).
+  const offered = pending?.mode === "toast" ? pending.suggestions : null;
+  useEffect(() => {
+    if (!offered || offered.length === 0) return;
+    useEditorUiStore.getState().setPendingSuggestions(offered.map((s) => s.id));
+    return () => useEditorUiStore.getState().clearPendingSuggestions();
+  }, [offered]);
 
   const hasTelemetry = telemetry !== null && telemetry.telemetry.points.length > 0;
 

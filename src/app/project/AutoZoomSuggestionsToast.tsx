@@ -1,5 +1,5 @@
 import { Button } from "@design/components";
-import { type CSSProperties, type ReactElement, useState } from "react";
+import { type CSSProperties, type ReactElement, useEffect, useState } from "react";
 import type { SuggestedZoom } from "../../editor/autozoom";
 import {
   type ReviewState,
@@ -10,7 +10,7 @@ import {
 } from "../../editor/inspector/host/zoomSuggestions";
 import { formatTimecode } from "../../editor/inspector/zoom/zoomLogic";
 import type { DocumentUpdate } from "../../editor/state";
-import { useEditorStore } from "../../editor/store";
+import { useEditorStore, useEditorUiStore } from "../../editor/store";
 import { withoutUntouchedSuggestions } from "./autoZoomOnOpen";
 
 /**
@@ -57,12 +57,25 @@ export function AutoZoomSuggestionsToast({
 }: AutoZoomSuggestionsToastProps): ReactElement | null {
   const [review, setReview] = useState<ReviewState | null>(null);
 
+  // Suggestions on the timeline draw as ghosts only while this toast awaits a decision.
+  useEffect(() => {
+    const ui = useEditorUiStore.getState();
+    if (suggestions.length === 0) return;
+    ui.setPendingSuggestions(suggestions.map((s) => s.id));
+    return () => useEditorUiStore.getState().clearPendingSuggestions();
+  }, [suggestions]);
+
+  const close = () => {
+    useEditorUiStore.getState().clearPendingSuggestions();
+    onClose();
+  };
+
   const removeUntouched = (label: string, ids: readonly string[]) => {
     if (ids.length > 0) {
       const current = useEditorStore.getState().zoomRegions;
       documentUpdate(label, { zoomRegions: withoutUntouchedSuggestions(current, ids) });
     }
-    onClose();
+    close();
   };
 
   const decide = (decision: "keep" | "skip") => {
@@ -100,7 +113,7 @@ export function AutoZoomSuggestionsToast({
           <Button variant="secondary" onClick={() => decide("skip")}>
             Skip
           </Button>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={close}>
             Cancel
           </Button>
         </div>
@@ -112,7 +125,7 @@ export function AutoZoomSuggestionsToast({
     <output aria-label="Zoom suggestions" style={toastStyle}>
       <span>{suggestionsToastText(suggestions.length)}</span>
       <div style={rowStyle}>
-        <Button variant="primary" onClick={onClose}>
+        <Button variant="primary" onClick={close}>
           Keep all
         </Button>
         <Button
@@ -120,6 +133,8 @@ export function AutoZoomSuggestionsToast({
           onClick={() => {
             const first = suggestions[0];
             if (first) seek(first.startMs);
+            // Reviewing is a decision in progress: the regions draw solid while stepped through.
+            useEditorUiStore.getState().clearPendingSuggestions();
             setReview(startReview(suggestions));
           }}
         >

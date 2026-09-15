@@ -65,9 +65,13 @@ export interface EditorShellProps {
   isPlaying: boolean;
   previewQuality: PreviewQuality;
   onExport: () => void;
-  onTogglePlay?: () => void;
-  onQualityChange?: (quality: PreviewQuality) => void;
-  onRename?: (name: string) => void;
+  onTogglePlay?: (() => void) | undefined;
+  onQualityChange?: ((quality: PreviewQuality) => void) | undefined;
+  /**
+   * Name committed on blur / Enter (Escape reverts); omitted → read-only. May
+   * resolve `false` (or reject) when the rename failed, reverting the field.
+   */
+  onRename?: ((name: string) => unknown) | undefined;
   /** Renders the body of the active inspector tab; placeholder text when omitted. */
   renderInspector?: ((tab: InspectorTab) => ReactNode) | undefined;
   /** Renders the preview canvas; placeholder box when omitted. */

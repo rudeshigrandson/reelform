@@ -139,6 +139,28 @@ export function nudge<T extends TimeSpan>(
   return moveItem(item, delta, { durationMs, allowOverlap: true, siblings: [], minMs: 0 }).item;
 }
 
+/**
+ * Shift-drop on a no-overlap track: trim the neighbours `item` now overlaps so
+ * it fits (SPEC §6.7). A neighbour starting before the item loses its tail; one
+ * starting inside loses its head. Returns only the changed neighbours, or null
+ * when a neighbour would drop below `minMs` (e.g. it sits entirely inside).
+ */
+export function resolveOverlapByTrimming<T extends TimeSpan>(
+  item: TimeSpan,
+  siblings: readonly T[],
+  minMs: number = MIN_ITEM_MS,
+): T[] | null {
+  const patched: T[] = [];
+  for (const n of siblings) {
+    if (n.id === item.id || !(n.startMs < item.endMs && item.startMs < n.endMs)) continue;
+    const next =
+      n.startMs < item.startMs ? { ...n, endMs: item.startMs } : { ...n, startMs: item.endMs };
+    if (next.endMs - next.startMs < minMs) return null;
+    patched.push(next);
+  }
+  return patched;
+}
+
 /** Ids of items intersecting the marquee range (order-independent bounds, inclusive touch excluded). */
 export function selectInRange(items: readonly TimeSpan[], aMs: number, bMs: number): string[] {
   const lo = Math.min(aMs, bMs);
