@@ -31,10 +31,10 @@
     "whisper:build": "node scripts/build-whisper-runtime.mjs",
     "ffmpeg:fetch": "node scripts/fetch-ffmpeg.mjs",
     "licenses:generate": "node scripts/generate-licenses.mjs",
-    "dist": "npm run build && electron-builder",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:win": "npm run build && electron-builder --win",
-    "dist:linux": "npm run build && electron-builder --linux"
+    "dist": "npm run build && npm run licenses:generate && electron-builder",
+    "dist:mac": "npm run build && npm run licenses:generate && electron-builder --mac",
+    "dist:win": "npm run build && npm run licenses:generate && electron-builder --win",
+    "dist:linux": "npm run build && npm run licenses:generate && electron-builder --linux"
   },
   "dependencies": {
     "@fontsource/caprasimo": "^5.3.0",

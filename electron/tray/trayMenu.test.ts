@@ -1,5 +1,7 @@
 import fc from "fast-check";
+import { type MainMessageKey, createMainTranslator } from "../i18n";
 import {
+  DEFAULT_TRAY_LABELS,
   MAX_RECENT_ITEMS,
   type TrayAction,
   type TrayMenuItem,
@@ -78,6 +80,47 @@ describe("buildTrayMenu", () => {
     expect(full.items[0]).toMatchObject({
       label: "Untitled",
       action: { type: "open-recent", projectId: "p0" },
+    });
+  });
+
+  it("English fallback labels match the en catalog", () => {
+    const { t } = createMainTranslator("en", []);
+    for (const [key, text] of Object.entries(DEFAULT_TRAY_LABELS)) {
+      expect(t(key as MainMessageKey)).toBe(text);
+    }
+    const plain = buildTrayMenu({ recording: "paused", recent: [] });
+    const translated = buildTrayMenu({ recording: "paused", recent: [], t });
+    expect(translated).toEqual(plain);
+  });
+
+  it("labels every item through the translator when given", () => {
+    const t = (key: MainMessageKey) => `[${key}]`;
+    const m = buildTrayMenu({
+      recording: "recording",
+      recent: [{ projectId: "p1", name: "" }],
+      t,
+    });
+    const labels = m.flatMap((i) =>
+      i.kind === "separator"
+        ? []
+        : i.kind === "submenu"
+          ? [i.label, ...i.items.map((c) => (c.kind === "separator" ? "-" : c.label))]
+          : [i.label],
+    );
+    expect(labels).toEqual([
+      "[main.tray.newRecording]",
+      "[main.tray.recent]",
+      "[main.tray.untitled]",
+      "[main.tray.openEditor]",
+      "[main.tray.pause]",
+      "[main.tray.stopRecording]",
+      "[main.tray.settings]",
+      "[main.tray.quit]",
+    ]);
+    const empty = buildTrayMenu({ recording: "idle", recent: [], t });
+    const sub = empty.find((i) => i.kind === "submenu");
+    expect(sub?.kind === "submenu" && sub.items[0]).toMatchObject({
+      label: "[main.tray.noRecent]",
     });
   });
 

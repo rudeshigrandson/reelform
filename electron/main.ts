@@ -26,6 +26,7 @@ import { verifyHelperBinary } from "./capture/manifest";
 import { createElectronDiagnostics } from "./diagnostics/electronAdapter";
 import { createExportService } from "./export";
 import { createElectronExportDeps } from "./export/electronAdapter";
+import { createMainTranslator } from "./i18n";
 import { events, type ChannelName } from "./ipc/contracts";
 import { handle } from "./ipc/registerIpc";
 import {
@@ -47,11 +48,12 @@ import type { ProjectListEntry } from "./project/contracts";
 import { createElectronProjectDeps } from "./project/electronAdapter";
 import { documentId } from "./project/handlers";
 import { purgeTrimTrash } from "./project/trimSource";
-import type { RecordingEvent } from "./recording/contracts";
+import { type RecordingEvent, recordingEvents } from "./recording/contracts";
 import { createRecordingMain } from "./recording/electronAdapter";
 import { isAttachedToProject, pruneRecordings } from "./recording/prune";
 import { createRemuxPostProcess } from "./recording/remuxPostProcess";
 import { composePostProcess, createThumbnailPostProcess } from "./recording/thumbnailPostProcess";
+import { createTranscodePostProcess, createTranscodeQueue } from "./recording/transcodeJob";
 import { installWebContentsHardening, isAllowedExternalUrl } from "./security/hardening";
 import { backendOverrideFor } from "./settings/captureBackend";
 import { createSettingsHandlers } from "./settings/contracts";
@@ -326,10 +328,15 @@ async function boot(): Promise<void> {
   // Tray mirrors the live recording session (red dot, Pause/Resume/Stop).
   let tray: TrayController | null = null;
   let trayRecording: TrayRecording = IDLE_TRAY_RECORDING;
+  // Tray labels follow the language setting ("system" → OS preferred languages).
+  const mainTranslator = () =>
+    createMainTranslator(settings.get().language, app.getPreferredSystemLanguages());
+  let translator = mainTranslator();
   const trayState = (): TrayState => ({
     recording: trayRecording.state,
     recent: recentProjects(),
     ...trayAccelerators(settings.get().shortcuts),
+    t: translator.t,
   });
   const onRecordingEvent = (event: RecordingEvent): void => {
     // Global shortcuts are live while HUD open / recording / countdown (§5.6).
@@ -346,6 +353,14 @@ async function boot(): Promise<void> {
   };
 
   const recordingLog = (message: string): void => console.warn(`[recording] ${message}`);
+  const fileSize = async (p: string): Promise<number | null> => {
+    try {
+      return (await stat(p)).size;
+    } catch {
+      return null;
+    }
+  };
+  const removeFile = (p: string): Promise<void> => rm(p, { force: true });
   const recording = createRecordingMain({
     onEvent: onRecordingEvent,
     recordingsDir: recordingsRoot,
@@ -354,14 +369,8 @@ async function boot(): Promise<void> {
       createRemuxPostProcess({
         runner: nodeRunnerDeps,
         resolveBinaries: mediaDeps.resolveBinaries,
-        fileSize: async (p) => {
-          try {
-            return (await stat(p)).size;
-          } catch {
-            return null;
-          }
-        },
-        remove: (p) => rm(p, { force: true }),
+        fileSize,
+        remove: removeFile,
         log: recordingLog,
       }),
       createThumbnailPostProcess({
@@ -369,6 +378,24 @@ async function boot(): Promise<void> {
         resolveBinaries: mediaDeps.resolveBinaries,
         log: recordingLog,
       }),
+      // Electron-backend VP9 → H.264 in the background; finalize does not wait for it.
+      createTranscodePostProcess(
+        createTranscodeQueue({
+          runner: nodeRunnerDeps,
+          resolveBinaries: mediaDeps.resolveBinaries,
+          fileSize,
+          remove: removeFile,
+          rename: (from, to) => rename(from, to),
+          exists: (p) =>
+            access(p).then(
+              () => true,
+              () => false,
+            ),
+          emit: (progress) =>
+            broadcast(recordingEvents["recording:transcodeProgress"].name, progress),
+          log: recordingLog,
+        }),
+      ),
     ),
     binDir,
     settings: () => {
@@ -500,7 +527,10 @@ async function boot(): Promise<void> {
     if (change.changed.includes("logLevel")) diagnostics.logger.setLevel(change.settings.logLevel);
     if (change.changed.includes("showInTray")) syncTray(change.settings.showInTray);
     if (change.changed.includes("launchAtLogin")) applyLoginItem(change.settings.launchAtLogin);
-    if (change.changed.includes("shortcuts")) tray?.update(trayState());
+    if (change.changed.includes("language")) translator = mainTranslator();
+    if (change.changed.includes("shortcuts") || change.changed.includes("language")) {
+      tray?.update(trayState());
+    }
     if (
       (change.changed.includes("autoPrune") || change.changed.includes("autoPruneDays")) &&
       change.settings.autoPrune

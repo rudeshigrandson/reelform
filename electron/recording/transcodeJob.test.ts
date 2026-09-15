@@ -93,6 +93,16 @@ describe("createTranscodeQueue", () => {
     expect(t.disk.get("/rec/s1/screen.h264.mp4")).toBe(500);
   });
 
+  it("keeps a WebM original and reports the H.264 sibling instead of swapping", async () => {
+    const input = "/rec/s1/screen.webm";
+    const t = setup({}, { [input]: 1000 });
+    t.queue.enqueue({ ...JOB, input });
+    await t.queue.idle();
+    expect(t.events.at(-1)).toMatchObject({ done: true, outputPath: "/rec/s1/screen.h264.mp4" });
+    expect(t.disk.get(input)).toBe(1000);
+    expect(t.disk.get("/rec/s1/screen.h264.mp4")).toBe(500);
+  });
+
   it("skips H.264 input and a missing ffmpeg without emitting", async () => {
     const t = setup({ codec: "h264" }, { [JOB.input]: 1000 });
     t.queue.enqueue(JOB);

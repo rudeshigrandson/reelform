@@ -80,6 +80,67 @@ transitive dependencies are bundled into the app. Each package, its version,
 declared license and full license text are listed in `THIRD_PARTY_LICENSES.txt`,
 regenerated with `node scripts/generate-licenses.mjs` before packaging.
 
+## MediaPipe Tasks Vision (`@mediapipe/tasks-vision`)
+
+- Project: MediaPipe — https://github.com/google-ai-edge/mediapipe — Copyright The MediaPipe Authors
+- License: Apache License 2.0
+- Version: as locked in `package-lock.json` (1.0.x at the time of writing).
+- Used as: on-device webcam face detection for face centering. The JavaScript loader
+  (`vision_wasm_internal.js`) and WebAssembly runtime (`vision_wasm_internal.wasm`) are
+  bundled into the renderer **unmodified** (`src/editor/webcam/faceDetectAssets.ts`); nothing
+  is fetched from a CDN. The full Apache-2.0 text is reproduced in `THIRD_PARTY_LICENSES.txt`.
+
+## MediaPipe BlazeFace short-range face detector (model)
+
+- Project: MediaPipe face detector models — https://ai.google.dev/edge/mediapipe/solutions/vision/face_detector
+  — Copyright The MediaPipe Authors
+- License: Apache License 2.0
+- Source: `blaze_face_short_range.tflite` from
+  https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite
+- Used as: the face-detection model, bundled **unmodified** at
+  `src/editor/webcam/models/blaze_face_short_range.tflite` and loaded locally at runtime.
+
+## RNNoise WebAssembly (`@jitsi/rnnoise-wasm`)
+
+- Project: rnnoise-wasm — https://github.com/jitsi/rnnoise-wasm — Copyright 8x8, Inc. / Jitsi
+- License: Apache License 2.0
+- Version: as locked in `package-lock.json` (0.2.x at the time of writing).
+- Used as: microphone noise suppression in the preview audio graph and export mix, running
+  in an AudioWorklet (`src/editor/audio/rnnoise/`). Bundled into the renderer **unmodified**.
+- Includes RNNoise — https://gitlab.xiph.org/xiph/rnnoise — Copyright (c) 2017 Mozilla;
+  Copyright (c) 2007-2017 Jean-Marc Valin; Copyright (c) 2005-2017 Xiph.Org Foundation;
+  Copyright (c) 2003-2004 Mark Borgerding. Licensed under the BSD 3-Clause License, which
+  requires the notice below to be retained:
+
+```
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+- Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+
+- Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+
+- Neither the name of the Xiph.Org Foundation nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
 ## Figtree (font)
 
 - Project: Figtree — https://github.com/erikdkennedy/figtree

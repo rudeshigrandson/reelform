@@ -48,6 +48,8 @@ export interface TranscodeQueue {
 /** Minimum progress change between emitted events. */
 export const PROGRESS_STEP = 0.01;
 
+const MP4 = /\.mp4$/i;
+
 const replaceExt = (path: string, suffix: string): string => path.replace(/(\.[^./\\]+)?$/, suffix);
 
 export const h264OutputPath = (input: string): string => replaceExt(input, ".h264.mp4");
@@ -140,7 +142,9 @@ export function createTranscodeQueue(deps: TranscodeQueueDeps): TranscodeQueue {
     }
 
     let outputPath = final;
-    if (await deps.exists(job.input)) {
+    // Only swap into an .mp4 name: a WebM left behind by a failed remux must not end up
+    // holding an MP4 container, so its H.264 sibling is reported instead.
+    if (MP4.test(job.input) && (await deps.exists(job.input))) {
       try {
         await deps.remove(job.input);
         await deps.rename(final, job.input);

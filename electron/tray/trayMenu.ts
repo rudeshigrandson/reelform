@@ -5,6 +5,8 @@
  * recording.
  */
 
+import type { MainMessageKey, MainTranslate } from "../i18n";
+
 export type TrayRecordingState = "idle" | "recording" | "paused";
 
 export interface RecentProject {
@@ -19,7 +21,25 @@ export interface TrayState {
   startStopAccelerator?: string | undefined;
   /** Electron accelerator for pause (from settings); default ⌘⇧P / Ctrl+Shift+P. */
   pauseAccelerator?: string | undefined;
+  /** Main-process translator for labels; English when omitted. */
+  t?: MainTranslate | undefined;
 }
+
+type TrayLabelKey = Extract<MainMessageKey, `main.tray.${string}`>;
+
+/** English labels used when no translator is supplied (mirrors `en.json`). */
+export const DEFAULT_TRAY_LABELS: Readonly<Record<TrayLabelKey, string>> = {
+  "main.tray.newRecording": "New recording",
+  "main.tray.recent": "Recent",
+  "main.tray.noRecent": "No recent projects",
+  "main.tray.untitled": "Untitled",
+  "main.tray.openEditor": "Open editor",
+  "main.tray.pause": "Pause",
+  "main.tray.resume": "Resume",
+  "main.tray.stopRecording": "Stop recording",
+  "main.tray.settings": "Settings…",
+  "main.tray.quit": "Quit Reelform",
+};
 
 export type TrayAction =
   | { type: "new-recording" }
@@ -50,6 +70,9 @@ export const MAX_RECENT_ITEMS = 10;
 export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
   const active = state.recording !== "idle";
   const recent = state.recent.slice(0, MAX_RECENT_ITEMS);
+  const translate = state.t;
+  const label = (key: TrayLabelKey): string =>
+    translate ? translate(key) : DEFAULT_TRAY_LABELS[key];
 
   const recentItems: TrayMenuItem[] =
     recent.length === 0
@@ -57,7 +80,7 @@ export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
           {
             kind: "item",
             id: "recent-empty",
-            label: "No recent projects",
+            label: label("main.tray.noRecent"),
             enabled: false,
             action: { type: "open-editor" },
           },
@@ -65,7 +88,7 @@ export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
       : recent.map((p) => ({
           kind: "item" as const,
           id: `recent:${p.projectId}`,
-          label: p.name || "Untitled",
+          label: p.name || label("main.tray.untitled"),
           enabled: true,
           action: { type: "open-recent" as const, projectId: p.projectId },
         }));
@@ -74,16 +97,22 @@ export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
     {
       kind: "item",
       id: "new-recording",
-      label: "New recording",
+      label: label("main.tray.newRecording"),
       enabled: !active,
       accelerator: state.startStopAccelerator ?? DEFAULT_START_STOP_ACCELERATOR,
       action: { type: "new-recording" },
     },
-    { kind: "submenu", id: "recent", label: "Recent", enabled: true, items: recentItems },
+    {
+      kind: "submenu",
+      id: "recent",
+      label: label("main.tray.recent"),
+      enabled: true,
+      items: recentItems,
+    },
     {
       kind: "item",
       id: "open-editor",
-      label: "Open editor",
+      label: label("main.tray.openEditor"),
       enabled: true,
       action: { type: "open-editor" },
     },
@@ -95,7 +124,7 @@ export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
     items.push({
       kind: "item",
       id: paused ? "resume" : "pause",
-      label: paused ? "Resume" : "Pause",
+      label: label(paused ? "main.tray.resume" : "main.tray.pause"),
       enabled: true,
       accelerator: state.pauseAccelerator ?? DEFAULT_PAUSE_ACCELERATOR,
       action: paused ? { type: "resume" } : { type: "pause" },
@@ -106,7 +135,7 @@ export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
     {
       kind: "item",
       id: "stop-recording",
-      label: "Stop recording",
+      label: label("main.tray.stopRecording"),
       enabled: active,
       ...(active
         ? { accelerator: state.startStopAccelerator ?? DEFAULT_START_STOP_ACCELERATOR }
@@ -117,11 +146,17 @@ export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
     {
       kind: "item",
       id: "settings",
-      label: "Settings…",
+      label: label("main.tray.settings"),
       enabled: true,
       action: { type: "settings" },
     },
-    { kind: "item", id: "quit", label: "Quit Reelform", enabled: true, action: { type: "quit" } },
+    {
+      kind: "item",
+      id: "quit",
+      label: label("main.tray.quit"),
+      enabled: true,
+      action: { type: "quit" },
+    },
   );
   return items;
 }

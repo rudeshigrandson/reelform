@@ -131,6 +131,10 @@ jobs:
           npx tsc --noEmit
           npx vite build
 
+      - name: Generate third-party licenses
+        shell: bash
+        run: node scripts/generate-licenses.mjs
+
       # electron-builder wants APPLE_API_KEY as a path to the .p8 key file.
       - name: Write App Store Connect API key
         if: matrix.platform == 'mac'

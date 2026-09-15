@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import * as fsp from "node:fs/promises";
-import { availableParallelism, tmpdir } from "node:os";
+import { availableParallelism } from "node:os";
 import * as path from "node:path";
 import { app } from "electron";
 import type { CaptionsProgress } from "./contracts";
@@ -20,6 +20,7 @@ export function createElectronCaptionsDeps(opts: {
   splitter: SilenceSplitter;
   emit: (event: CaptionsProgress) => void;
 }): CaptionsDeps {
+  const tempDir = path.join(app.getPath("userData"), "tmp");
   return {
     modelsDir: path.join(app.getPath("userData"), "models"),
     join: path.join,
@@ -30,8 +31,16 @@ export function createElectronCaptionsDeps(opts: {
     fetch: nodeFetch,
     downloadFs: nodeDownloadFs,
     createHash: nodeSha256,
-    fs: nodeTranscribeFs,
-    tempPrefix: path.join(tmpdir(), "reelform-captions-"),
+    fs: {
+      ...nodeTranscribeFs,
+      // mkdtemp needs the parent to exist; userData/tmp is created lazily (and removed by Clear cache).
+      mkdtemp: async (prefix) => {
+        await fsp.mkdir(path.dirname(prefix), { recursive: true });
+        return nodeTranscribeFs.mkdtemp(prefix);
+      },
+    },
+    // Under userData/tmp so Settings → Clear cache also removes leftover caption chunks.
+    tempPrefix: path.join(tempDir, "captions-"),
     spawn: ((cmd, args) => spawn(cmd, [...args], { windowsHide: true })) as SpawnFn,
     extractWav: opts.extractWav,
     splitter: opts.splitter,
