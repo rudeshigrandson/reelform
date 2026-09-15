@@ -251,3 +251,68 @@ describe("diagnostics bundle", () => {
     expect(onError).toHaveBeenCalled();
   });
 });
+
+describe("system utility handlers", () => {
+  const base = {
+    now: () => 0,
+    scrub: mac,
+    collect: async () => {
+      throw new Error("unused");
+    },
+    clipboard: { writeText: () => {} },
+  };
+
+  it("report unavailable when no utilities are injected", async () => {
+    const h = createDiagnosticsHandlers(base);
+    expect(await h["system:openLogsFolder"]()).toEqual({ ok: false });
+    expect(await h["system:cacheInfo"]()).toEqual({ bytes: null });
+    expect(await h["system:clearCache"]()).toEqual({ ok: false });
+    expect(await h["system:pickFolder"]({})).toEqual({ path: null });
+  });
+
+  it("delegate to the injected utilities and validate against the contracts", async () => {
+    const pickFolder = vi.fn(async () => "/Users/michi/Movies/Reelform");
+    const h = createDiagnosticsHandlers({
+      ...base,
+      system: {
+        openLogsFolder: async () => true,
+        cacheSize: async () => 1536.4,
+        clearCache: async () => {},
+        pickFolder,
+      },
+    });
+    const logs = await h["system:openLogsFolder"]();
+    const cache = await h["system:cacheInfo"]();
+    const cleared = await h["system:clearCache"]();
+    const picked = await h["system:pickFolder"]({ title: "Choose", defaultPath: "/tmp" });
+    expect(logs).toEqual({ ok: true });
+    expect(cache).toEqual({ bytes: 1536 });
+    expect(cleared).toEqual({ ok: true });
+    expect(picked).toEqual({ path: "/Users/michi/Movies/Reelform" });
+    expect(pickFolder).toHaveBeenCalledWith({ title: "Choose", defaultPath: "/tmp" });
+    expect(diagnosticsContracts["system:cacheInfo"].response.parse(cache)).toEqual(cache);
+    expect(diagnosticsContracts["system:pickFolder"].response.parse(picked)).toEqual(picked);
+  });
+
+  it("turn failures, cancels and bogus sizes into safe results", async () => {
+    const onError = vi.fn();
+    const boom = async () => {
+      throw new Error("EPERM");
+    };
+    const h = createDiagnosticsHandlers({
+      ...base,
+      onError,
+      system: {
+        openLogsFolder: boom,
+        cacheSize: async () => Number.NaN,
+        clearCache: boom,
+        pickFolder: async () => "",
+      },
+    });
+    expect(await h["system:openLogsFolder"]()).toEqual({ ok: false });
+    expect(await h["system:cacheInfo"]()).toEqual({ bytes: null });
+    expect(await h["system:clearCache"]()).toEqual({ ok: false });
+    expect(await h["system:pickFolder"]({})).toEqual({ path: null });
+    expect(onError).toHaveBeenCalledTimes(2);
+  });
+});

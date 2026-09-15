@@ -10,7 +10,9 @@ import { SETTINGS_SCHEMA_VERSION, type Settings, SettingsShape } from "./schema"
  * Version history:
  * - v1 (M0, no `schemaVersion` field): the flat `SettingsState` from
  *   `src/settings/types.ts`; `autoPruneDays: 0` meant "never prune".
- * - v2: full S24 schema; pruning is an explicit `autoPrune` switch.
+ * - v2: full S24 schema; pruning is an explicit `autoPrune` switch. Keys added
+ *   later within v2 (e.g. `onboardingCompleted`) are filled from defaults by
+ *   per-key coercion, so no version bump is needed for additive keys.
  */
 
 type Raw = Record<string, unknown>;

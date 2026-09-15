@@ -1,6 +1,7 @@
+import { mkdir } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { arch, release, totalmem } from "node:os";
-import { app, clipboard } from "electron";
+import { BrowserWindow, app, clipboard, dialog, session, shell } from "electron";
 import { createDiagnosticsHandlers } from "./contracts";
 import { type LogLevel, type Logger, createLogger } from "./logger";
 import { createScrubber } from "./scrub";
@@ -35,7 +36,30 @@ export function createElectronDiagnostics(opts: {
     scrub,
     pathKeys: opts.pathKeys,
     clipboard,
-    onError: (e) => logger.error("copyDiagnostics failed", e),
+    onError: (e) => logger.error("system utility failed", e),
+    system: {
+      // shell.openPath resolves "" on success, an error message otherwise.
+      openLogsFolder: async () => {
+        const dir = app.getPath("logs");
+        // The folder only exists once something wrote to it; openPath fails on a missing path.
+        await mkdir(dir, { recursive: true });
+        return (await shell.openPath(dir)) === "";
+      },
+      cacheSize: () => session.defaultSession.getCacheSize(),
+      clearCache: () => session.defaultSession.clearCache(),
+      pickFolder: async ({ title, defaultPath }) => {
+        const options: Electron.OpenDialogOptions = {
+          properties: ["openDirectory", "createDirectory"],
+          ...(title ? { title } : {}),
+          ...(defaultPath ? { defaultPath } : {}),
+        };
+        const parent = BrowserWindow.getFocusedWindow();
+        const res = parent
+          ? await dialog.showOpenDialog(parent, options)
+          : await dialog.showOpenDialog(options);
+        return res.canceled ? null : (res.filePaths[0] ?? null);
+      },
+    },
     collect: async () => ({
       app: {
         name: app.getName(),

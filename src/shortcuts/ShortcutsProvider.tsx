@@ -116,6 +116,11 @@ export function ShortcutsProvider({
   return <ShortcutsContext.Provider value={value}>{children}</ShortcutsContext.Provider>;
 }
 
+/** The nearest provider, or null (lets hooks like `usePlaybackShortcuts` work standalone). */
+export function useOptionalShortcutsContext(): ShortcutsContextValue | null {
+  return useContext(ShortcutsContext);
+}
+
 export function useShortcutsContext(): ShortcutsContextValue {
   const ctx = useContext(ShortcutsContext);
   if (!ctx) throw new Error("useShortcutsContext must be used inside <ShortcutsProvider>");

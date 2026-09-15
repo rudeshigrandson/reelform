@@ -32,19 +32,11 @@ export function Done({ onFinish }: DoneProps) {
       >
         ✓
       </div>
-      <h2
-        id="onboarding-done-title"
-        style={{
-          fontFamily: "var(--font-heading)",
-          color: "var(--text-1)",
-          fontSize: "1.75rem",
-          margin: 0,
-        }}
-      >
+      <h2 id="onboarding-done-title" style={{ fontSize: "22px", fontWeight: 600, margin: 0 }}>
         You're all set
       </h2>
-      <p style={{ fontFamily: "var(--font-body)", color: "var(--text-1)", margin: 0 }}>
-        Reelform is ready. Let's capture your first recording.
+      <p style={{ color: "var(--text-2)", margin: 0 }}>
+        Reelform is ready. You can change these any time in Settings.
       </p>
       <Button variant="primary" onClick={onFinish}>
         Start recording

@@ -142,6 +142,9 @@ describe("var(--…) references", () => {
     const defined = new Set<string>([
       ...declarations(tokensCss).keys(),
       ...declarations(componentsCss).keys(),
+      // Set at runtime on <html> by src/app/settings/appearance.ts (theme accent
+      // kept while a custom accent swatch overrides --accent).
+      "--accent-theme",
     ]);
     const missing: string[] = [];
     for (const file of walk(SRC)) {

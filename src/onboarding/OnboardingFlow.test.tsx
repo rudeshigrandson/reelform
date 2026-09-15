@@ -1,91 +1,72 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { OnboardingFlow, sampleOnboardingProps } from "./OnboardingFlow";
 import type { OnboardingProps } from "./types";
+
+afterEach(cleanup);
 
 function makeProps(overrides: Partial<OnboardingProps> = {}): OnboardingProps {
   return { ...sampleOnboardingProps, ...overrides };
 }
 
-describe("OnboardingFlow", () => {
+const granted = { screen: "granted", microphone: "needed", accessibility: "needed" } as const;
+
+describe("OnboardingFlow (legacy props)", () => {
   it("starts on the Welcome step", () => {
     render(<OnboardingFlow {...makeProps()} />);
-    expect(screen.getByRole("heading", { name: "Reelform" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Record something great" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /get started/i })).toBeInTheDocument();
   });
 
-  it("advances to Permissions when Get started is clicked", () => {
+  it("advances to Permissions and keeps Continue disabled until Screen Recording is granted", () => {
     render(<OnboardingFlow {...makeProps()} />);
     fireEvent.click(screen.getByRole("button", { name: /get started/i }));
     expect(screen.getByRole("heading", { name: /needs a few permissions/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(screen.queryByRole("listitem", { name: "Camera" })).not.toBeInTheDocument();
   });
 
-  it("keeps Continue disabled until Screen Recording is granted", () => {
-    render(<OnboardingFlow {...makeProps()} />);
-    fireEvent.click(screen.getByRole("button", { name: /get started/i }));
-    expect(screen.getByRole("button", { name: /continue/i })).toBeDisabled();
-  });
-
-  it("calls onRequestPermission('screen') when Grant is clicked on Screen Recording", () => {
+  it("calls onRequestPermission('screen') from Allow…", () => {
     const onRequestPermission = vi.fn();
     render(<OnboardingFlow {...makeProps({ onRequestPermission })} />);
     fireEvent.click(screen.getByRole("button", { name: /get started/i }));
-    fireEvent.click(screen.getByRole("button", { name: /grant screen recording/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Allow Screen Recording" }));
     expect(onRequestPermission).toHaveBeenCalledWith("screen");
   });
 
-  it("advances to Defaults after screen recording is granted", () => {
+  it("follows permission prop changes and offers Skip for now", () => {
     const { rerender } = render(<OnboardingFlow {...makeProps()} />);
     fireEvent.click(screen.getByRole("button", { name: /get started/i }));
-
-    rerender(
-      <OnboardingFlow
-        {...makeProps({
-          permissions: { screen: "granted", microphone: "needed", accessibility: "needed" },
-        })}
-      />,
-    );
-
-    const continueBtn = screen.getByRole("button", { name: /continue/i });
-    expect(continueBtn).toBeEnabled();
-    fireEvent.click(continueBtn);
-    expect(screen.getByRole("heading", { name: /set your defaults/i })).toBeInTheDocument();
+    rerender(<OnboardingFlow {...makeProps({ permissions: granted })} />);
+    const row = screen.getByRole("listitem", { name: "Screen Recording" });
+    expect(within(row).getByText(/granted/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Skip for now" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      screen.getByRole("heading", { name: /where should recordings go/i }),
+    ).toBeInTheDocument();
   });
 
-  it("calls onDefaultsChange when the fps is changed", () => {
+  it("maps S03 edits to onDefaultsChange and finishes", () => {
     const onDefaultsChange = vi.fn();
-    const { rerender } = render(<OnboardingFlow {...makeProps({ onDefaultsChange })} />);
+    const onFinish = vi.fn();
+    render(<OnboardingFlow {...makeProps({ onDefaultsChange, onFinish, permissions: granted })} />);
     fireEvent.click(screen.getByRole("button", { name: /get started/i }));
-    rerender(
-      <OnboardingFlow
-        {...makeProps({
-          onDefaultsChange,
-          permissions: { screen: "granted", microphone: "needed", accessibility: "needed" },
-        })}
-      />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
-
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("radio", { name: "60" }));
     expect(onDefaultsChange).toHaveBeenCalledWith({ fps: 60 });
+    fireEvent.click(screen.getByRole("switch", { name: /auto-delete raw/i }));
+    expect(onDefaultsChange).toHaveBeenCalledWith({ autoDeleteRawAfterExport: true });
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+    fireEvent.click(screen.getByRole("button", { name: /start recording/i }));
+    expect(onFinish).toHaveBeenCalledTimes(1);
   });
 
-  it("reaches Done and calls onFinish when Start recording is clicked", () => {
-    const onFinish = vi.fn();
-    const grantedPerms = {
-      screen: "granted" as const,
-      microphone: "needed" as const,
-      accessibility: "needed" as const,
-    };
-    render(<OnboardingFlow {...makeProps({ onFinish, permissions: grantedPerms })} />);
-
+  it("Back returns to the previous step", () => {
+    render(<OnboardingFlow {...makeProps({ permissions: granted })} />);
     fireEvent.click(screen.getByRole("button", { name: /get started/i }));
-    fireEvent.click(screen.getByRole("button", { name: /continue/i })); // permissions -> defaults
-    fireEvent.click(screen.getByRole("button", { name: /continue/i })); // defaults -> done
-
-    const start = screen.getByRole("button", { name: /start recording/i });
-    expect(start).toBeInTheDocument();
-    fireEvent.click(start);
-    expect(onFinish).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("heading", { name: /needs a few permissions/i })).toBeInTheDocument();
   });
 });

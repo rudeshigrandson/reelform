@@ -36,6 +36,8 @@ export const SettingsShape = {
   checkUpdates: z.boolean(),
   autoPrune: z.boolean(),
   autoPruneDays: z.number().int().min(1).max(365),
+  /** First-run onboarding finished (S01–S03); re-entered from Settings › General. */
+  onboardingCompleted: z.boolean(),
 
   // ---- Recording ----
   defaultSource: z.enum(["display", "window", "region"]),
@@ -110,6 +112,7 @@ export function createDefaultSettings(env: DefaultSettingsEnv): Settings {
     checkUpdates: true,
     autoPrune: true,
     autoPruneDays: 14,
+    onboardingCompleted: false,
 
     defaultSource: "display",
     defaultFps: 60,

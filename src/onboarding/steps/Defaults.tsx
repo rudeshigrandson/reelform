@@ -1,12 +1,15 @@
-import { Button, Input, Segmented } from "@design/components";
+import { Button, Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
-import type { Countdown, Fps, OnboardingDefaults } from "../types";
+import type { OnboardingDraft } from "../machine";
+import type { Fps } from "../types";
 
 export interface DefaultsProps {
-  defaults: OnboardingDefaults;
-  onDefaultsChange: (patch: Partial<OnboardingDefaults>) => void;
-  onChangeFolder: () => void;
-  onContinue: () => void;
+  draft: OnboardingDraft;
+  onDraft: (patch: Partial<OnboardingDraft>) => void;
+  onChangeFolder: (() => void) | undefined;
+  onFinish: () => void;
+  saving: boolean;
+  saveError: string | null;
 }
 
 const FPS_OPTIONS: ReadonlyArray<SegmentedOption<Fps>> = [
@@ -14,68 +17,115 @@ const FPS_OPTIONS: ReadonlyArray<SegmentedOption<Fps>> = [
   { value: 60, label: "60" },
 ];
 
-const COUNTDOWN_OPTIONS: ReadonlyArray<SegmentedOption<Countdown>> = [
-  { value: 0, label: "0" },
-  { value: 3, label: "3" },
-  { value: 5, label: "5" },
-  { value: 10, label: "10" },
-];
+function SwitchRow({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+}) {
+  return (
+    <label
+      style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", cursor: "pointer" }}
+    >
+      <input
+        type="checkbox"
+        role="switch"
+        aria-checked={checked}
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        style={{ accentColor: "var(--accent)" }}
+      />
+      <span>{label}</span>
+    </label>
+  );
+}
 
+/** S03 — save location & defaults; "Finish" writes them to settings. */
 export function Defaults({
-  defaults,
-  onDefaultsChange,
+  draft,
+  onDraft,
   onChangeFolder,
-  onContinue,
+  onFinish,
+  saving,
+  saveError,
 }: DefaultsProps) {
   return (
     <section
       aria-labelledby="onboarding-defaults-title"
-      style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}
+      style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)", textAlign: "left" }}
     >
-      <h2
-        id="onboarding-defaults-title"
-        style={{
-          fontFamily: "var(--font-heading)",
-          color: "var(--text-1)",
-          fontSize: "1.75rem",
-          margin: 0,
-        }}
-      >
-        Set your defaults
+      <h2 id="onboarding-defaults-title" style={{ fontSize: "22px", fontWeight: 600, margin: 0 }}>
+        Where should recordings go?
       </h2>
 
-      <div className="field">
-        <span id="onboarding-fps-label">Default frame rate</span>
-        <Segmented<Fps>
-          name="onboarding-fps"
-          value={defaults.fps}
-          options={FPS_OPTIONS}
-          onChange={(fps) => onDefaultsChange({ fps })}
-        />
-      </div>
-
-      <div className="field">
-        <span id="onboarding-countdown-label">Default countdown</span>
-        <Segmented<Countdown>
-          name="onboarding-countdown"
-          value={defaults.countdown}
-          options={COUNTDOWN_OPTIONS}
-          onChange={(countdown) => onDefaultsChange({ countdown })}
-        />
-      </div>
-
-      <div style={{ display: "flex", alignItems: "flex-end", gap: "var(--space-2)" }}>
-        <div style={{ flex: 1 }}>
-          <Input label="Recordings folder" value={defaults.recordingsFolder} readOnly />
-        </div>
-        <Button variant="secondary" onClick={onChangeFolder}>
+      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+        <code
+          aria-label="Recordings folder"
+          style={{
+            flex: 1,
+            fontFamily: "var(--font-mono)",
+            fontSize: "13px",
+            padding: "var(--space-2) var(--space-3)",
+            background: "var(--bg-sunken)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {draft.recordingsFolder}
+        </code>
+        <Button variant="secondary" onClick={onChangeFolder} disabled={!onChangeFolder || saving}>
           Change…
         </Button>
       </div>
 
-      <Button variant="primary" onClick={onContinue}>
-        Continue
-      </Button>
+      <SwitchRow
+        checked={draft.autoDeleteRawAfterExport}
+        onChange={(autoDeleteRawAfterExport) => onDraft({ autoDeleteRawAfterExport })}
+        label="Auto-delete raw recordings after export (keep project)"
+      />
+
+      <div className="field">
+        <span
+          style={{
+            display: "block",
+            fontSize: "12px",
+            color: "var(--text-2)",
+            marginBottom: "5px",
+          }}
+        >
+          Default frame rate
+        </span>
+        <Segmented<Fps>
+          name="onboarding-fps"
+          value={draft.defaultFps}
+          options={FPS_OPTIONS}
+          onChange={(defaultFps) => onDraft({ defaultFps })}
+        />
+      </div>
+
+      <SwitchRow
+        checked={draft.openEditorAfterRecording}
+        onChange={(openEditorAfterRecording) => onDraft({ openEditorAfterRecording })}
+        label="Open editor automatically after recording"
+      />
+
+      {saveError ? (
+        <p role="alert" style={{ margin: 0, color: "var(--danger)", fontSize: "13px" }}>
+          {saveError}
+        </p>
+      ) : null}
+
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <Button variant="primary" onClick={onFinish} disabled={saving}>
+          {saving ? "Saving…" : "Finish"}
+        </Button>
+      </div>
     </section>
   );
 }
