@@ -4,10 +4,12 @@ import { diagnosticsContracts } from "../diagnostics/contracts";
 import { exportContracts } from "../export/contracts";
 import { mediaContracts } from "../media/contracts";
 import { permissionsContracts, permissionsEvents } from "../permissions/contracts";
-import { projectContracts } from "../project/contracts";
+import { projectContracts, projectEvents } from "../project/contracts";
 import { recordingContracts, recordingEvents } from "../recording/contracts";
+import { isAllowedExternalUrl } from "../security/hardening";
 import { settingsContracts, settingsEvents } from "../settings/contracts";
 import { systemFileContracts, systemProjectFileContracts } from "../system/contracts";
+import { telemetryContracts } from "../telemetry/contracts";
 import { updaterContracts, updaterEvents } from "../updater/contracts";
 import { windowsContracts } from "../windows/contracts";
 
@@ -48,7 +50,12 @@ const systemContracts = {
   ),
   "system:openExternal": channel(
     "system:openExternal",
-    z.object({ url: z.string().url() }),
+    z.object({
+      // Only web and mail links reach the OS; file:, smb:, custom app schemes are refused (§13).
+      url: z.string().url().refine(isAllowedExternalUrl, {
+        message: "Only https, http and mailto links can be opened",
+      }),
+    }),
     z.object({ ok: z.boolean() }),
   ),
 } as const;
@@ -68,11 +75,13 @@ export const contracts = {
   ...systemFileContracts,
   ...systemProjectFileContracts,
   ...windowsContracts,
+  ...telemetryContracts,
 } as const;
 
 /** Main → renderer push events, delivered through `ReelformApi.on`. */
 export const events = {
   ...recordingEvents,
+  ...projectEvents,
   ...captionsEvents,
   ...permissionsEvents,
   ...settingsEvents,

@@ -54,6 +54,8 @@ export const SettingsShape = {
   autoDeleteRawAfterExport: z.boolean(),
   maxLengthHours: z.number().min(0.1).max(24),
   diskWarningThresholdGb: z.number().min(0.5).max(1000),
+  /** §9.7 "Record typed text badges": keep plain typing in telemetry. Off by default (§13). */
+  recordTypedTextBadges: z.boolean(),
 
   // ---- Editor ----
   defaultFramePreset: z.string().min(1).max(64),
@@ -128,6 +130,7 @@ export function createDefaultSettings(env: DefaultSettingsEnv): Settings {
     autoDeleteRawAfterExport: false,
     maxLengthHours: 3,
     diskWarningThresholdGb: 2,
+    recordTypedTextBadges: false,
 
     defaultFramePreset: "default",
     defaultAspect: "auto",

@@ -1,5 +1,37 @@
 import { describe, expect, it, vi } from "vitest";
-import { type GlobalShortcutApi, createGlobalShortcutManager } from "./globalShortcuts";
+import {
+  type GlobalShortcutApi,
+  createGlobalShortcutManager,
+  routeGlobalShortcut,
+  shortcutContextForRecordingEvent,
+} from "./globalShortcuts";
+
+describe("shortcutContextForRecordingEvent", () => {
+  it("maps session phases to context patches", () => {
+    expect(shortcutContextForRecordingEvent("countdown")).toEqual({ countdown: true });
+    for (const t of ["started", "resumed", "paused"]) {
+      expect(shortcutContextForRecordingEvent(t)).toEqual({ recording: true, countdown: false });
+    }
+    for (const t of ["stopped", "interrupted", "discarded", "error"]) {
+      expect(shortcutContextForRecordingEvent(t)).toEqual({ recording: false, countdown: false });
+    }
+    for (const t of ["stats", "diskLow", "deviceLost"]) {
+      expect(shortcutContextForRecordingEvent(t)).toBeNull();
+    }
+  });
+});
+
+describe("routeGlobalShortcut", () => {
+  it("opens the HUD for start/stop only when nothing is open or running", () => {
+    const idle = { hudOpen: false, sessionActive: false };
+    expect(routeGlobalShortcut("record.toggle", idle)).toBe("open-hud");
+    expect(routeGlobalShortcut("record.toggle", { ...idle, hudOpen: true })).toBe("broadcast");
+    expect(routeGlobalShortcut("record.toggle", { ...idle, sessionActive: true })).toBe(
+      "broadcast",
+    );
+    expect(routeGlobalShortcut("record.pause", idle)).toBe("broadcast");
+  });
+});
 
 class FakeGlobalShortcut implements GlobalShortcutApi {
   registered = new Map<string, () => void>();
@@ -32,11 +64,41 @@ const setup = (platform: "mac" | "win" = "mac") => {
 };
 
 describe("createGlobalShortcutManager", () => {
-  it("registers nothing while idle (HUD closed, not recording)", () => {
+  it("registers only the always-scoped start/stop key while idle (HUD closed, not recording)", () => {
+    const { gs, manager, onTrigger } = setup();
+    manager.setOverrides({});
+    expect([...gs.registered.keys()]).toEqual(["Command+Shift+R"]);
+    expect(manager.getStatus().registered).toEqual([{ id: "record.toggle", accelerator: "⇧⌘R" }]);
+    gs.press("Command+Shift+R");
+    expect(onTrigger).toHaveBeenCalledWith("record.toggle");
+  });
+
+  it("always scope survives context changes and follows overrides", () => {
+    const { gs, manager } = setup();
+    manager.setContext({ hudOpen: true });
+    manager.setContext({ hudOpen: false, recording: false, countdown: false });
+    expect([...gs.registered.keys()]).toEqual(["Command+Shift+R"]);
+    manager.setOverrides({ "record.toggle": "Ctrl+Alt+9" });
+    expect([...gs.registered.keys()]).toEqual(["Control+Alt+9"]);
+    manager.setOverrides({ "record.toggle": "" });
+    expect(gs.registered.size).toBe(0);
+  });
+
+  it("registers pause and region after setContext({ recording: true })", () => {
     const { gs, manager } = setup();
     manager.setOverrides({});
-    expect(gs.register).not.toHaveBeenCalled();
-    expect(manager.getStatus().registered).toEqual([]);
+    expect(gs.registered.has("Command+Shift+P")).toBe(false);
+    manager.setContext({ recording: true });
+    expect([...gs.registered.keys()].sort()).toEqual([
+      "Command+Alt+Shift+R",
+      "Command+Shift+P",
+      "Command+Shift+R",
+    ]);
+    expect(manager.getStatus().context).toEqual({
+      hudOpen: false,
+      recording: true,
+      countdown: false,
+    });
   });
 
   it("registers start/stop, pause and region while the HUD is open and unregisters on close", () => {
@@ -57,7 +119,7 @@ describe("createGlobalShortcutManager", () => {
     manager.setContext({ hudOpen: false, recording: true });
     expect(gs.registered.size).toBe(3);
     manager.setContext({ recording: false });
-    expect(gs.registered.size).toBe(0);
+    expect([...gs.registered.keys()]).toEqual(["Command+Shift+R"]);
   });
 
   it("uses Control on Windows/Linux", () => {
