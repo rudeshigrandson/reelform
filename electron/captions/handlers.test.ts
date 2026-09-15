@@ -5,7 +5,7 @@ import type { CaptionsProgress } from "./contracts";
 import { partialPathFor } from "./download";
 import { type CaptionsDeps, DOWNLOAD_EMIT_BYTES, createCaptionsHandlers } from "./handlers";
 import { type ModelSpec, findModel } from "./models";
-import { MemFs, argAfter, bytes, fakeServer, fakeSpawn, realHasher } from "./testUtils";
+import { MemFs, argAfter, bytes, fakeServer, fakeSpawn, realHasher, sha256Hex } from "./testUtils";
 
 const fixture = readFileSync(new URL("./__fixtures__/whisper-full.json", import.meta.url), "utf8");
 const MODELS = "/userData/models";
@@ -32,7 +32,6 @@ function setup(opts: { whisper?: string | null; gate?: Promise<void> } = {}) {
     downloadFs: fs,
     // Real catalog hashes can't match fake bytes: tests patch the catalog entry via withFakeHash.
     createHash: realHasher,
-    allowUnverified: true,
     resolveWhisperBinary: () => (opts.whisper === undefined ? "/bin/whisper-cli" : opts.whisper),
     emit: (e) => events.push(e),
     fs,
@@ -48,7 +47,7 @@ function setup(opts: { whisper?: string | null; gate?: Promise<void> } = {}) {
 }
 
 /** Temporarily point a catalog entry at the fake payload's hash. */
-function withFakeHash<T>(model: ModelSpec, sha: string | null, fn: () => Promise<T>): Promise<T> {
+function withFakeHash<T>(model: ModelSpec, sha: string, fn: () => Promise<T>): Promise<T> {
   const original = model.sha256;
   model.sha256 = sha;
   return fn().finally(() => {
@@ -115,9 +114,7 @@ describe("createCaptionsHandlers", () => {
 
   it("downloads into userData/models, emits valid throttled progress, dedupes concurrent calls", async () => {
     const s = setup();
-    const { createHash } = await import("node:crypto");
-    const sha = createHash("sha256").update(payload).digest("hex");
-    await withFakeHash(tiny, sha, async () => {
+    await withFakeHash(tiny, sha256Hex(payload), async () => {
       const [a, b] = await Promise.all([
         s.handlers["captions:download"]({ model: "tiny.en-q5_1" }),
         s.handlers["captions:download"]({ model: "tiny.en-q5_1" }),
@@ -154,7 +151,9 @@ describe("createCaptionsHandlers", () => {
       return { ...res, headers: { get: () => null } };
     };
     const handlers = createCaptionsHandlers(s.deps);
-    await withFakeHash(tiny, null, () => handlers["captions:download"]({ model: "tiny.en-q5_1" }));
+    await withFakeHash(tiny, sha256Hex(big), () =>
+      handlers["captions:download"]({ model: "tiny.en-q5_1" }),
+    );
     const received = s.events.map((e) => (e.kind === "download" ? e.receivedBytes : -1));
     // First event plus one per MiB: not one per 64 KiB chunk, and not stuck at the first.
     expect(received[0]).toBe(0);
@@ -163,20 +162,23 @@ describe("createCaptionsHandlers", () => {
     for (const e of s.events) expect(e).toMatchObject({ totalBytes: null, progress: null });
   });
 
-  it("alreadyInstalled reports verified only when the catalog pins a sha256", async () => {
+  it("alreadyInstalled reports verified (files only land after sha256 verification)", async () => {
     const s = setup();
     s.fs.writeText(`${MODELS}/ggml-tiny.en-q5_1.bin`, "x");
     expect(await s.handlers["captions:download"]({ model: "tiny.en-q5_1" })).toMatchObject({
       alreadyInstalled: true,
       verified: true,
     });
-    await withFakeHash(tiny, null, async () => {
-      expect(await s.handlers["captions:download"]({ model: "tiny.en-q5_1" })).toMatchObject({
-        alreadyInstalled: true,
-        verified: false,
-      });
-    });
     expect(s.server.requests).toHaveLength(0);
+  });
+
+  it("enforces the real catalog sha256: bytes that do not match are rejected, not installed", async () => {
+    const s = setup();
+    await expect(s.handlers["captions:download"]({ model: "tiny.en-q5_1" })).rejects.toMatchObject({
+      code: "checksum-mismatch",
+    });
+    expect(s.fs.files.has(`${MODELS}/ggml-tiny.en-q5_1.bin`)).toBe(false);
+    expect(s.fs.files.has(partialPathFor(`${MODELS}/ggml-tiny.en-q5_1.bin`))).toBe(false);
   });
 
   it("cancelDownload aborts and keeps the partial; next download resumes", async () => {
@@ -186,7 +188,7 @@ describe("createCaptionsHandlers", () => {
     });
     const s = setup({ gate });
     s.fs.files.set(partialPathFor(`${MODELS}/ggml-tiny.en-q5_1.bin`), payload.slice(0, 5000));
-    await withFakeHash(tiny, null, async () => {
+    await withFakeHash(tiny, sha256Hex(payload), async () => {
       const pending = s.handlers["captions:download"]({ model: "tiny.en-q5_1" });
       await Promise.resolve();
       const models = await s.handlers["captions:models"]();
@@ -203,7 +205,7 @@ describe("createCaptionsHandlers", () => {
       });
 
       const res = await s.handlers["captions:download"]({ model: "tiny.en-q5_1" });
-      expect(res.verified).toBe(false);
+      expect(res.verified).toBe(true);
       expect(s.server.requests.at(-1)).toEqual({ Range: "bytes=5000-" });
     });
   });
