@@ -1,0 +1,185 @@
+# Release build (ENGINEERING_SPEC §14.2 / §14.3): on a version tag, build the
+# native helpers and whisper runtime, fetch pinned ffmpeg, package with
+# electron-builder per OS (signed + notarized when secrets are configured) and
+# upload to a draft GitHub Release. Stable = vX.Y.Z, Beta = vX.Y.Z-beta.N.
+name: Build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  native-mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build Swift helpers (arm64 + x64)
+        run: node scripts/build-native-helpers.mjs --arch arm64,x64
+      - name: Protocol self-check
+        working-directory: electron/native/mac
+        run: swift run -c release reelform-protocol-selfcheck
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-darwin
+          path: electron/native/bin/darwin-*
+          if-no-files-found: error
+
+  native-win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build C++ helpers (x64)
+        run: node scripts/build-native-helpers.mjs --arch x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-win32
+          path: electron/native/bin/win32-*
+          if-no-files-found: error
+
+  whisper:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, arch: arm64, name: darwin-arm64, flags: "" }
+          - { os: macos-14, arch: x64, name: darwin-x64, flags: "" }
+          - { os: windows-latest, arch: x64, name: win32-x64, flags: "" }
+          - { os: ubuntu-22.04, arch: x64, name: linux-x64, flags: "" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build whisper-cli
+        run: node scripts/build-whisper-runtime.mjs --arch ${{ matrix.arch }} ${{ matrix.flags }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whisper-${{ matrix.name }}
+          path: resources/whisper/${{ matrix.name }}
+          if-no-files-found: error
+
+  package:
+    needs: [native-mac, native-win, whisper]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, platform: mac, ffmpeg: "darwin-arm64 darwin-x64" }
+          - { os: windows-latest, platform: win, ffmpeg: "win32-x64" }
+          - { os: ubuntu-22.04, platform: linux, ffmpeg: "linux-x64" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Download native helpers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: electron/native/bin
+          merge-multiple: true
+
+      # upload-artifact does not preserve the executable bit.
+      - name: Restore helper permissions
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: chmod +x electron/native/bin/darwin-*/reelform-*
+
+      - name: Download whisper runtimes
+        uses: actions/download-artifact@v4
+        with:
+          pattern: whisper-*
+          path: resources/whisper-artifacts
+
+      - name: Stage whisper runtimes
+        shell: bash
+        run: |
+          mkdir -p resources/whisper
+          for d in resources/whisper-artifacts/whisper-*; do
+            name="${d##*/whisper-}"
+            mkdir -p "resources/whisper/$name"
+            cp -R "$d"/. "resources/whisper/$name/"
+          done
+          chmod +x resources/whisper/*/whisper-cli* || true
+
+      # Fails with a clear message until PINS in scripts/fetch-ffmpeg.mjs are filled.
+      - name: Fetch pinned ffmpeg
+        shell: bash
+        run: |
+          for t in ${{ matrix.ffmpeg }}; do node scripts/fetch-ffmpeg.mjs --target "$t"; done
+
+      # bash (not pwsh on Windows) so a tsc failure stops the step.
+      - name: Build app
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx tsc --noEmit
+          npx vite build
+
+      # electron-builder wants APPLE_API_KEY as a path to the .p8 key file.
+      - name: Write App Store Connect API key
+        if: matrix.platform == 'mac'
+        shell: bash
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [ -n "$APPLE_API_KEY_P8" ]; then
+            printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+            echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+          fi
+
+      - name: Package (electron-builder)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS signing + notarization (placeholders — configure in repo secrets)
+          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          # Windows signing (placeholders — EV cert / Azure Key Vault per §14.2)
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ matrix.platform == 'mac' && 'true' || 'false' }}
+        run: npx electron-builder --${{ matrix.platform }} --publish always
+
+      - name: Smoke-run packaged app
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          echo "TODO(release): run the packaged binary with --smoke once main.ts implements it (SPEC §14.2)."
+
+      - name: Checksums
+        shell: bash
+        run: |
+          cd release
+          find . -maxdepth 2 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' \) -print0 \
+            | xargs -0 shasum -a 256 > "SHA256SUMS-${{ matrix.platform }}.txt" || true
+          cat "SHA256SUMS-${{ matrix.platform }}.txt" || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: |
+            release/**/*.dmg
+            release/**/*.zip
+            release/**/*.exe
+            release/**/*.AppImage
+            release/**/latest*.yml
+            release/**/beta*.yml
+            release/SHA256SUMS-*.txt

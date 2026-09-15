@@ -17,15 +17,46 @@
  * <html> by `applyThemePreference` in theme.ts.
  *
  * Fonts: no remote @import — the renderer CSP blocks font hosts and the app is
- * local-first. Caprasimo/Figtree resolve only if installed; otherwise the
- * system-ui fallbacks apply. TODO: bundle them as local @font-face woff2 files.
+ * local-first. Figtree 400/600/700 and Caprasimo 400 (latin subset, SIL OFL 1.1,
+ * see NOTICE.md) are bundled from ./fonts and resolved by Vite; `font-display:
+ * swap` keeps the system-ui fallbacks visible until they load.
  */
+
+/* ── Bundled fonts ─────────────────────────────────────────────────────── */
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/figtree-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./fonts/figtree-latin-600-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./fonts/figtree-latin-700-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Caprasimo";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/caprasimo-latin-400-normal.woff2") format("woff2");
+}
 
 /* ── Theme-independent ─────────────────────────────────────────────────── */
 :root {
-  --font-heading: "Caprasimo", system-ui, sans-serif;
+  --font-heading: "Caprasimo", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-heading-weight: 400;
-  --font-body: "Figtree", system-ui, sans-serif;
+  --font-body: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
 
   --space-1: 4.4px;

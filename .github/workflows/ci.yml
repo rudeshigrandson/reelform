@@ -1,0 +1,51 @@
+# Pull-request gate (ENGINEERING_SPEC §14.2): lint, typecheck, unit tests and a
+# renderer/main build on all three desktop OSes.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    env:
+      # Packaging deps are not needed to test; skip the Electron binary download.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint (Biome)
+        run: npx biome ci .
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npx vitest run
+
+      # Generated assets (sounds, cursors, icons) are checked for reproducibility
+      # by src/design/packaging.test.ts during "Unit tests".
+      - name: Build (vite)
+        run: npx vite build

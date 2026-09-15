@@ -1,0 +1,67 @@
+{
+  "name": "Dot",
+  "viewBox": [0, 0, 64, 64],
+  "scale": 2,
+  "hotspots": {
+    "arrow": [32, 32],
+    "ibeam": [32, 32],
+    "hand": [32, 32],
+    "grab": [32, 32],
+    "resize-ew": [32, 32],
+    "resize-ns": [32, 32],
+    "resize-nesw": [32, 32],
+    "resize-nwse": [32, 32]
+  },
+  "files": {
+    "arrow": "arrow.svg",
+    "ibeam": "ibeam.svg",
+    "hand": "hand.svg",
+    "grab": "grab.svg",
+    "resize-ew": "resize-ew.svg",
+    "resize-ns": "resize-ns.svg",
+    "resize-nesw": "resize-nesw.svg",
+    "resize-nwse": "resize-nwse.svg"
+  },
+  "cursors": {
+    "arrow": {
+      "file": "arrow.svg",
+      "hotspot": [32, 32],
+      "size": [64, 64]
+    },
+    "ibeam": {
+      "file": "ibeam.svg",
+      "hotspot": [32, 32],
+      "size": [64, 64]
+    },
+    "hand": {
+      "file": "hand.svg",
+      "hotspot": [32, 32],
+      "size": [64, 64]
+    },
+    "grab": {
+      "file": "grab.svg",
+      "hotspot": [32, 32],
+      "size": [64, 64]
+    },
+    "resize-ew": {
+      "file": "resize-ew.svg",
+      "hotspot": [32, 32],
+      "size": [64, 64]
+    },
+    "resize-ns": {
+      "file": "resize-ns.svg",
+      "hotspot": [32, 32],
+      "size": [64, 64]
+    },
+    "resize-nesw": {
+      "file": "resize-nesw.svg",
+      "hotspot": [32, 32],
+      "size": [64, 64]
+    },
+    "resize-nwse": {
+      "file": "resize-nwse.svg",
+      "hotspot": [32, 32],
+      "size": [64, 64]
+    }
+  }
+}

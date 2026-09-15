@@ -1,0 +1,151 @@
+// Reelform packaging (ENGINEERING_SPEC §0, §11, §14.2; PLAN §4 App).
+// Parsed by electron-builder 26. Kept to a strict JSON5 subset (quoted keys,
+// line comments, trailing commas) so src/design/packaging.test.ts can parse it
+// without a JSON5 dependency.
+//
+// Signing / notarization / publishing credentials come ONLY from the
+// environment (CI secrets) — nothing secret lives here:
+//   mac:  CSC_LINK, CSC_KEY_PASSWORD, APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER
+//   win:  WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD (or Azure Trusted Signing, see build.yml)
+//   publish: GH_TOKEN
+{
+  "appId": "app.reelform.desktop",
+  "productName": "Reelform",
+  "copyright": "Copyright © 2026 Reelform contributors",
+  "directories": {
+    "output": "release/${version}",
+    "buildResources": "build",
+  },
+  // Vite renderer bundle + CJS main/preload. package.json is always included.
+  "files": ["dist/**/*", "dist-electron/**/*", "!**/*.map"],
+  "asar": true,
+  // Executables cannot run from inside app.asar (electron/media/ffmpegPaths.ts
+  // maps these paths to app.asar.unpacked).
+  "asarUnpack": ["node_modules/ffmpeg-static/**", "node_modules/ffprobe-static/**", "**/*.node"],
+  "extraMetadata": {
+    "main": "dist-electron/main.cjs",
+  },
+  // Re-hashes bin/<platform>-<arch>/manifest.json after Windows signing and
+  // signs + re-hashes the mac helpers (see mac.signIgnore).
+  "afterPack": "scripts/after-pack.cjs",
+  "protocols": [
+    {
+      "name": "Reelform",
+      "schemes": ["reelform"],
+    },
+  ],
+  "fileAssociations": [
+    {
+      "ext": "reelform",
+      "name": "Reelform Project",
+      "description": "Reelform Project",
+      "role": "Editor",
+      "rank": "Owner",
+      "isPackage": true,
+      "icon": "icon",
+    },
+  ],
+  "publish": [
+    {
+      "provider": "github",
+      // TODO(release): set the real GitHub owner/repo before the first tag.
+      "owner": "reelform",
+      "repo": "reelform",
+      "releaseType": "draft",
+    },
+  ],
+  // Stable = x.y.z, Beta = x.y.z-beta.n; electron-updater picks the channel
+  // from allowPrerelease (electron/updater).
+  "generateUpdatesFilesForAllChannels": true,
+  "detectUpdateChannel": true,
+
+  "mac": {
+    "category": "public.app-category.video",
+    "icon": "build/icon.png",
+    "target": [
+      { "target": "dmg", "arch": ["universal"] },
+      { "target": "zip", "arch": ["universal"] },
+    ],
+    "minimumSystemVersion": "14.0",
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "build/entitlements.mac.plist",
+    "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+    // Uses APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER (or APPLE_ID /
+    // APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID); skipped when unset.
+    "notarize": true,
+    // Per-arch helper binaries are copied into both halves of the universal
+    // build; they are thin Mach-O files, so exclude them from the lipo merge.
+    "x64ArchFiles": "Contents/Resources/{bin,whisper,ffmpeg}/**",
+    // Helpers are signed by scripts/after-pack.cjs BEFORE their sha256 manifest
+    // is written; re-signing here would change their bytes after hashing.
+    "signIgnore": ["/Contents/Resources/bin/"],
+    "extraResources": [
+      { "from": "electron/native/bin", "to": "bin", "filter": ["darwin-*/**/*"] },
+      { "from": "resources/whisper", "to": "whisper", "filter": ["darwin-*/**/*"] },
+      { "from": "resources/ffmpeg", "to": "ffmpeg", "filter": ["darwin-*/**/*"] },
+    ],
+    "extendInfo": {
+      "NSCameraUsageDescription": "Reelform uses your camera to record a webcam bubble alongside your screen.",
+      "NSMicrophoneUsageDescription": "Reelform uses your microphone to record narration.",
+      "NSScreenCaptureUsageDescription": "Reelform records your screen so you can turn it into a demo video.",
+      "NSInputMonitoringUsageDescription": "Reelform records clicks and keystroke badges while you record, so it can auto-zoom and show shortcuts. Characters are never stored.",
+      "NSAccessibilityUsageDescription": "Reelform follows the cursor and clicks while you record to power auto-zoom.",
+      "NSHighResolutionCapable": true,
+      "LSMinimumSystemVersion": "14.0",
+      "UTExportedTypeDeclarations": [
+        {
+          "UTTypeIdentifier": "app.reelform.project",
+          "UTTypeDescription": "Reelform Project",
+          "UTTypeConformsTo": ["com.apple.package", "public.composite-content"],
+          "UTTypeTagSpecification": {
+            "public.filename-extension": ["reelform"],
+          },
+        },
+      ],
+    },
+  },
+  "dmg": {
+    "sign": false,
+    "contents": [
+      { "x": 180, "y": 170, "type": "file" },
+      { "x": 480, "y": 170, "type": "link", "path": "/Applications" },
+    ],
+  },
+
+  "win": {
+    "icon": "build/icon.png",
+    // x64 only in 1.0: arm64 helpers/whisper/ffmpeg are not built in CI yet.
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "signtoolOptions": {
+      // TODO(release): must match the signing certificate's subject CN.
+      "publisherName": ["Reelform Publisher Placeholder"],
+      "signingHashAlgorithms": ["sha256"],
+    },
+    "extraResources": [
+      { "from": "electron/native/bin", "to": "bin", "filter": ["win32-x64/**/*"] },
+      { "from": "resources/whisper", "to": "whisper", "filter": ["win32-x64/**/*"] },
+      { "from": "resources/ffmpeg", "to": "ffmpeg", "filter": ["win32-x64/**/*"] },
+    ],
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "deleteAppDataOnUninstall": false,
+  },
+
+  "linux": {
+    "icon": "build/icons",
+    "category": "AudioVideo",
+    "target": [{ "target": "AppImage", "arch": ["x64"] }],
+    "synopsis": "Screen recorder and demo-video editor",
+    "mimeTypes": ["x-scheme-handler/reelform", "application/x-reelform-project"],
+    "extraResources": [
+      { "from": "resources/whisper", "to": "whisper", "filter": ["linux-x64/**/*"] },
+      { "from": "resources/ffmpeg", "to": "ffmpeg", "filter": ["linux-x64/**/*"] },
+    ],
+  },
+}
