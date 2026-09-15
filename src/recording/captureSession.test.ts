@@ -1,6 +1,7 @@
 import {
   type CaptureDeps,
   type CaptureOptions,
+  NO_CAPTURE_TRACKS,
   SYSTEM_AUDIO_UNAVAILABLE,
   startCapture,
 } from "./captureSession";
@@ -331,5 +332,79 @@ describe("startCapture", () => {
     expect(levels[1]).toBeGreaterThan(levels[0] ?? 0);
     await s.stop();
     expect(ctx.closed).toBe(true);
+  });
+});
+
+describe("device-only capture (webcam beside a native helper)", () => {
+  const webcamOnly: CaptureOptions = {
+    sessionId: "sess",
+    platform: "darwin",
+    fps: 60,
+    systemAudio: true,
+    webcam: { deviceId: "cam-1" },
+  };
+
+  it("records only the webcam, ignores system audio and sends its timing with chunk 0", async () => {
+    const { env, deps, port, advance } = setup();
+    advance(100);
+    const s = await startCapture(deps, webcamOnly);
+    expect(s.tracks).toEqual(["webcam"]);
+    expect(env.requests).toHaveLength(1);
+    expect(env.requests[0]?.audio).toBe(false);
+    expect(env.requests[0]?.video).toMatchObject({ deviceId: { exact: "cam-1" } });
+    advance(250);
+    env.recorders[0]?.emit(fakeBlob(4));
+    env.recorders[0]?.emit(fakeBlob(2));
+    await drain(20);
+    expect(port.writes.map((w) => [w.track, w.seq])).toEqual([
+      ["webcam", 0],
+      ["webcam", 1],
+    ]);
+    expect(port.writes[0]?.timing).toEqual({
+      timeOriginMs: 1_700_000_000_000,
+      recorderStartMs: 100,
+      firstDataMs: 350,
+      timesliceMs: 250,
+    });
+    expect(port.writes[1]?.timing).toBeUndefined();
+    expect(s.timing().firstDataEpochMs).toBe(1_700_000_000_350);
+    const stopped = await s.stop();
+    expect(stopped.tracks).toEqual([
+      { track: "webcam", mimeType: "video/webm;codecs=vp9", chunkCount: 2 },
+    ]);
+    expect(port.ended).toEqual([
+      { sessionId: "sess", track: "webcam", chunkCount: 2, mimeType: "video/webm;codecs=vp9" },
+    ]);
+  });
+
+  it("refuses a capture with nothing to record", async () => {
+    const { deps } = setup();
+    await expect(
+      startCapture(deps, { sessionId: "s", platform: "linux", fps: 30, systemAudio: true }),
+    ).rejects.toMatchObject({ code: NO_CAPTURE_TRACKS });
+  });
+});
+
+describe("setMicMuted", () => {
+  it("disables and re-enables only the mic tracks while recording", async () => {
+    const { env, deps } = setup();
+    const s = await startCapture(deps, { ...baseOpts, mic: { deviceId: "m1" } });
+    const [desktop, mic] = env.streams;
+    s.setMicMuted?.(true);
+    expect(mic?.tracks.every((t) => t.enabled === false)).toBe(true);
+    expect(desktop?.tracks.every((t) => t.enabled)).toBe(true);
+    s.pause();
+    s.setMicMuted?.(false);
+    expect(mic?.tracks.every((t) => t.enabled)).toBe(true);
+    await s.stop();
+    s.setMicMuted?.(true);
+    expect(mic?.tracks.every((t) => t.enabled)).toBe(true);
+  });
+
+  it("is a no-op without a mic", async () => {
+    const { env, deps } = setup();
+    const s = await startCapture(deps, baseOpts);
+    s.setMicMuted?.(true);
+    expect(env.streams[0]?.tracks.every((t) => t.enabled)).toBe(true);
   });
 });

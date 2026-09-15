@@ -23,6 +23,7 @@ import {
   type PausedRange,
   canStartWithFreeBytes,
   diskStatus,
+  diskWarningBytes,
   effectiveMaxLengthMs,
   maxLengthReached,
   recordedDurationMs,
@@ -70,6 +71,12 @@ export interface RecordingSettings {
   /** §9.7 "Record typed text badges" — off by default. */
   keepTypedText: boolean;
   backendOverride?: BackendId | null | undefined;
+  /**
+   * Settings "Warn when free disk space is below" (GB, §11). Below it a running
+   * recording emits `diskLow` once; below 500MB it is interrupted. Main-shell:
+   * pass `settings.get().diskWarningThresholdGb`. Missing → 2GB.
+   */
+  diskWarningThresholdGb?: number | undefined;
 }
 
 export interface RecordingDeps {
@@ -103,6 +110,11 @@ export interface RecordingDeps {
   onDisplayRemoved?: ((listener: (displayId: string) => void) => () => void) | undefined;
   /** Remux / thumbnail / waveform step; may rewrite refs (e.g. screen.webm → screen.mp4). */
   postProcess?: ((res: FinalizeResponse) => Promise<FinalizeResponse>) | undefined;
+  /**
+   * Write the duration into a MediaRecorder WebM header so the file is seekable
+   * even when it is never remuxed (§5.2). Best effort; failures keep the file.
+   */
+  fixWebmDuration?: ((path: string, durationMs: number) => Promise<void>) | undefined;
   statsIntervalMs?: number | undefined;
 }
 
@@ -182,6 +194,9 @@ interface Rec {
   startMs: number;
   paused: PausedRange[];
   recordedMs: number;
+  micMuted: boolean;
+  /** Mic mutes the backend could not apply live, in recorded ms (silenced in post). */
+  mutedRanges: PausedRange[];
   firstFramePtsNs: bigint | null;
   lastStats: { fps: number; droppedFrames: number; fileBytes: number; micRms?: number | undefined };
   diskLowWarned: boolean;
@@ -202,6 +217,16 @@ function toRecordingError(err: unknown, fallbackCode: string): RecordingError {
   const e = err as { code?: unknown; details?: unknown } | null;
   const code = e && typeof e.code === "string" ? e.code : fallbackCode;
   return new RecordingError(code, errMessage(err), e?.details);
+}
+
+/** Closed, non-empty ranges; `undefined` when there are none. */
+function closedRanges(
+  ranges: readonly PausedRange[],
+): { startMs: number; endMs: number }[] | undefined {
+  const out = ranges
+    .filter((r): r is { startMs: number; endMs: number } => r.endMs !== null && r.endMs > r.startMs)
+    .map((r) => ({ startMs: r.startMs, endMs: r.endMs }));
+  return out.length > 0 ? out : undefined;
 }
 
 export interface RecordingController {
@@ -260,6 +285,8 @@ export function createRecordingController(deps: RecordingDeps): RecordingControl
     const now = deps.nowMs();
     closePause(rec, now);
     rec.recordedMs = recordedDurationMs(rec.startMs, now, rec.paused);
+    const muted = rec.mutedRanges[rec.mutedRanges.length - 1];
+    if (muted && muted.endMs === null) muted.endMs = rec.recordedMs;
   };
 
   // ---- interruption / stop ------------------------------------------------
@@ -319,7 +346,7 @@ export function createRecordingController(deps: RecordingDeps): RecordingControl
         // Unknown free space never interrupts a recording.
       }
       if (!isCapturing(rec.state)) return;
-      const status = diskStatus(free);
+      const status = diskStatus(free, diskWarningBytes(deps.settings().diskWarningThresholdGb));
       if (status === "critical") {
         await interrupt(rec, "diskLow");
       } else if (status === "low" && !rec.diskLowWarned) {
@@ -436,6 +463,17 @@ export function createRecordingController(deps: RecordingDeps): RecordingControl
     const session = rec.session;
     if (!session) throw new RecordingError("NO_MEDIA", "nothing was recorded");
     const stop = await session.close();
+    const durationMs = stop.durationMs ?? rec.recordedMs;
+
+    if (deps.fixWebmDuration) {
+      for (const [track, path] of Object.entries(stop.paths) as [Track, string][]) {
+        if (!/\.webm$/i.test(path)) continue;
+        // A renderer track that started after the helper's first frame is shorter.
+        const offsetMs = Math.max(0, stop.trackOffsetsMs?.[track] ?? 0);
+        const trackMs = Math.max(0, durationMs - offsetMs);
+        await deps.fixWebmDuration(path, trackMs).catch(() => {});
+      }
+    }
 
     const refs: Partial<Record<Track, MediaRef>> = {};
     for (const [track, path] of Object.entries(stop.paths) as [Track, string][]) {
@@ -479,7 +517,7 @@ export function createRecordingController(deps: RecordingDeps): RecordingControl
       scaleFactor: rec.area.scaleFactor,
       recordedFps: rec.req.fps,
       hideCursor: rec.req.hideCursor,
-      durationMs: stop.durationMs ?? rec.recordedMs,
+      durationMs,
       pausedRanges: rec.paused
         .filter((p): p is { startMs: number; endMs: number } => p.endMs !== null)
         .map((p) => ({ startMs: p.startMs - rec.startMs, endMs: p.endMs - rec.startMs })),
@@ -489,6 +527,8 @@ export function createRecordingController(deps: RecordingDeps): RecordingControl
       interruptedDetail: rec.interrupted?.detail,
       stopReason: rec.stopReason ?? undefined,
       incompleteTracks: stop.incompleteTracks,
+      webcamOffsetMs: refs.webcam ? stop.trackOffsetsMs?.webcam : undefined,
+      micMutedRanges: refs.mic ? closedRanges(rec.mutedRanges) : undefined,
     };
     await deps.writeFile(
       deps.join(rec.outDir, "meta.json"),
@@ -585,6 +625,8 @@ export function createRecordingController(deps: RecordingDeps): RecordingControl
         startMs: 0,
         paused: [],
         recordedMs: 0,
+        micMuted: false,
+        mutedRanges: [],
         firstFramePtsNs: null,
         lastStats: { fps: 0, droppedFrames: 0, fileBytes: 0 },
         diskLowWarned: false,
@@ -690,6 +732,28 @@ export function createRecordingController(deps: RecordingDeps): RecordingControl
       await deps.removeDir(rec.outDir).catch(() => {});
       deps.emit({ sessionId, type: "discarded" });
       return { ok: true as const };
+    },
+
+    "recording:setMicMuted": async ({ sessionId, muted }) => {
+      const rec = get(sessionId);
+      if (!isCapturing(rec.state) || !rec.session) {
+        throw new RecordingError("INVALID_STATE", `cannot change the mic while ${rec.state}`);
+      }
+      if (!rec.req.audio.mic) return { ok: true as const, applied: true };
+      let applied: boolean;
+      try {
+        applied = (await rec.session.setMicMuted?.(muted)) ?? false;
+      } catch (err) {
+        throw toRecordingError(err, "MIC_MUTE_FAILED");
+      }
+      if (rec.micMuted !== muted) {
+        rec.micMuted = muted;
+        const at = liveRecordedMs(rec);
+        const open = rec.mutedRanges[rec.mutedRanges.length - 1];
+        if (muted && !applied) rec.mutedRanges.push({ startMs: at, endMs: null });
+        else if (!muted && open && open.endMs === null) open.endMs = at;
+      }
+      return { ok: true as const, applied };
     },
 
     "recording:writeChunk": async ({ sessionId, track, seq, chunk, timing }) => {

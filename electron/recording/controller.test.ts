@@ -867,3 +867,109 @@ describe("recording controller — Electron backend", () => {
     expect(fin.video.bytes).toBe(1);
   });
 });
+
+describe("recording controller — disk threshold, mic mute, webcam alignment", () => {
+  it("warns at the configured disk threshold instead of 2 GB", async () => {
+    const t = harness();
+    t.settings.diskWarningThresholdGb = 10;
+    await t.startRecording();
+    t.env.free = 5 * GIB;
+    await t.timers.advanceAsync(2000);
+    expect(t.types().filter((x) => x === "diskLow")).toHaveLength(1);
+    expect(t.controller.stateOf("s1")).toBe("recording");
+  });
+
+  it("a live mute is applied by the backend and leaves no ranges to silence", async () => {
+    const t = harness();
+    const setMicMuted = vi.fn(async () => true);
+    t.native.session.setMicMuted = setMicMuted;
+    t.native.ctl.paths = { screen: "/rec/s1/screen.mp4", mic: "/rec/s1/mic.m4a" };
+    t.sizes.set("/rec/s1/mic.m4a", 10);
+    await t.startRecording({ ...REQ, audio: { system: false, mic: "default" } });
+    await expect(t.h["recording:setMicMuted"]({ sessionId: "s1", muted: true })).resolves.toEqual({
+      ok: true,
+      applied: true,
+    });
+    expect(setMicMuted).toHaveBeenCalledWith(true);
+    await t.h["recording:stop"]({ sessionId: "s1" });
+    const fin = await t.h["recording:finalize"]({ sessionId: "s1" });
+    expect(fin.meta.micMutedRanges).toBeUndefined();
+  });
+
+  it("an unsupported mute is recorded in recorded time and closed at stop", async () => {
+    const t = harness();
+    t.native.session.setMicMuted = vi.fn(async () => false);
+    t.native.ctl.paths = { screen: "/rec/s1/screen.mp4", mic: "/rec/s1/mic.m4a" };
+    t.sizes.set("/rec/s1/mic.m4a", 10);
+    await t.startRecording({ ...REQ, audio: { system: false, mic: "default" } });
+    await t.timers.advanceAsync(1000);
+    await t.h["recording:setMicMuted"]({ sessionId: "s1", muted: true });
+    await t.timers.advanceAsync(1000);
+    await t.h["recording:setMicMuted"]({ sessionId: "s1", muted: false });
+    await t.timers.advanceAsync(1000);
+    await expect(t.h["recording:setMicMuted"]({ sessionId: "s1", muted: true })).resolves.toEqual({
+      ok: true,
+      applied: false,
+    });
+    await t.timers.advanceAsync(500);
+    await t.h["recording:stop"]({ sessionId: "s1" });
+    const fin = await t.h["recording:finalize"]({ sessionId: "s1" });
+    expect(fin.meta.micMutedRanges).toEqual([
+      { startMs: 1000, endMs: 2000 },
+      { startMs: 3000, endMs: 3500 },
+    ]);
+  });
+
+  it("mute needs a capturing session; without a mic it is a no-op", async () => {
+    const t = harness();
+    const setMicMuted = vi.fn(async () => true);
+    t.native.session.setMicMuted = setMicMuted;
+    await expect(
+      t.h["recording:setMicMuted"]({ sessionId: "nope", muted: true }),
+    ).rejects.toMatchObject({ code: "NO_SESSION" });
+    await t.h["recording:start"]({ ...REQ, countdown: 3 });
+    await expect(
+      t.h["recording:setMicMuted"]({ sessionId: "s1", muted: true }),
+    ).rejects.toMatchObject({ code: "INVALID_STATE" });
+    await t.timers.advanceAsync(3000);
+    await expect(t.h["recording:setMicMuted"]({ sessionId: "s1", muted: true })).resolves.toEqual({
+      ok: true,
+      applied: true,
+    });
+    expect(setMicMuted).not.toHaveBeenCalled();
+  });
+
+  it("webcam offset reaches meta; WebM durations are fixed before sizes are read", async () => {
+    const fixed: [string, number][] = [];
+    const t = harness({
+      deps: {
+        fixWebmDuration: async (path, ms) => {
+          fixed.push([path, ms]);
+          if (path.endsWith("broken.webm")) throw new Error("bad header");
+        },
+      },
+    });
+    t.native.session.close = vi.fn(async () => ({
+      durationMs: 4000,
+      paths: {
+        screen: "/rec/s1/screen.mp4",
+        webcam: "/rec/s1/webcam.webm",
+        system: "/rec/s1/broken.webm",
+      },
+      trackOffsetsMs: { webcam: 87 },
+    }));
+    t.sizes.set("/rec/s1/webcam.webm", 20);
+    t.sizes.set("/rec/s1/broken.webm", 5);
+    await t.startRecording();
+    await t.h["recording:stop"]({ sessionId: "s1" });
+    const fin = await t.h["recording:finalize"]({ sessionId: "s1" });
+    expect(fixed).toEqual([
+      // The webcam started 87ms after the screen: its file is that much shorter.
+      ["/rec/s1/webcam.webm", 3913],
+      ["/rec/s1/broken.webm", 4000],
+    ]);
+    expect(fin.meta.webcamOffsetMs).toBe(87);
+    expect(fin.webcam?.path).toBe("/rec/s1/webcam.webm");
+    expect(fin.system?.path).toBe("/rec/s1/broken.webm");
+  });
+});

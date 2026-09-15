@@ -62,8 +62,18 @@ export const RecordingMeta = z.object({
   interrupted: InterruptReason.optional(),
   interruptedDetail: z.string().optional(),
   stopReason: z.enum(["user", "maxLength"]).optional(),
-  /** Electron backend: tracks whose final chunks never arrived (file kept as written). */
+  /** Renderer-streamed tracks whose final chunks never arrived (file kept as written). */
   incompleteTracks: z.array(Track).optional(),
+  /**
+   * Native backends: webcam start relative to the screen's first frame, in ms
+   * (positive = the webcam starts later), measured from the first chunk's timing.
+   */
+  webcamOffsetMs: z.number().optional(),
+  /**
+   * Mic ranges muted mid-recording that the backend could not silence live, in
+   * recorded (pause-free) ms. Post-process writes silence over them.
+   */
+  micMutedRanges: z.array(z.object({ startMs: z.number(), endMs: z.number() })).optional(),
 });
 export type RecordingMeta = z.infer<typeof RecordingMeta>;
 
@@ -78,6 +88,8 @@ export const FinalizeResponse = z.object({
   webcam: MediaRef.optional(),
   telemetry: TelemetryRef,
   meta: RecordingMeta,
+  /** `<dir>/thumbnail.jpg` (640px wide) when post-process could render one. */
+  thumbnailPath: z.string().optional(),
 });
 export type FinalizeResponse = z.infer<typeof FinalizeResponse>;
 
@@ -100,6 +112,15 @@ export const recordingContracts = {
   "recording:resume": { name: "recording:resume", request: SessionRequest, response: Ok },
   "recording:stop": { name: "recording:stop", request: SessionRequest, response: Ok },
   "recording:discard": { name: "recording:discard", request: SessionRequest, response: Ok },
+  "recording:setMicMuted": {
+    name: "recording:setMicMuted",
+    request: z.object({ sessionId: z.string(), muted: z.boolean() }),
+    /**
+     * `applied: false` when the backend cannot mute live; the muted range is then
+     * silenced after stop (`meta.micMutedRanges`).
+     */
+    response: z.object({ ok: z.literal(true), applied: z.boolean() }),
+  },
   "recording:writeChunk": {
     name: "recording:writeChunk",
     request: z.object({
@@ -111,7 +132,10 @@ export const recordingContracts = {
        */
       seq: z.number().int().nonnegative(),
       chunk: ChunkBytes,
-      /** Sent with the first screen chunk (Electron backend alignment, §5.6). */
+      /**
+       * Sent with the first screen chunk (Electron backend) or the first webcam
+       * chunk next to a native helper (alignment, §5.6).
+       */
       timing: ChunkTiming.optional(),
     }),
     response: Ok,
@@ -181,6 +205,26 @@ export const RecordingEvent = z.discriminatedUnion("type", [
 ]);
 export type RecordingEvent = z.infer<typeof RecordingEvent>;
 
+/** Background VP9→H.264 transcode of a finalized recording's screen video (§5.2). */
+export const TranscodeProgress = z.object({
+  sessionId: z.string(),
+  /** 0..1. */
+  progress: z.number().min(0).max(1),
+  done: z.boolean(),
+  /**
+   * H.264 file. Equals the finalized `video.path` when swapped in place; a
+   * different path when the original had already moved (e.g. into a project).
+   * `null` until done, and when the transcode failed (`error` set).
+   */
+  outputPath: z.string().nullable(),
+  error: z.string().optional(),
+});
+export type TranscodeProgress = z.infer<typeof TranscodeProgress>;
+
 export const recordingEvents = {
   "recording:event": { name: "recording:event", payload: RecordingEvent },
+  "recording:transcodeProgress": {
+    name: "recording:transcodeProgress",
+    payload: TranscodeProgress,
+  },
 } as const;

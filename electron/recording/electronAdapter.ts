@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, stat, statfs, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, open, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
 import { release } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
+import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
 import { gzip as zGzip } from "node:zlib";
 import { type BrowserWindow, app, screen, systemPreferences } from "electron";
@@ -16,8 +18,43 @@ import {
 } from "./controller";
 import { createCursorPollHook } from "./cursorPollHook";
 import type { InputHook } from "./telemetry";
+import { type WebmFileOps, fixWebmDurationFile } from "./webmDurationFile";
 
 /** Thin, untested adapter: wires the recording controller to Electron + node. */
+
+/** Node file ops for the WebM duration patch (head rewrite streams the rest). */
+export const nodeWebmFileOps: WebmFileOps = {
+  readHead: async (path, maxBytes) => {
+    const fh = await open(path, "r");
+    try {
+      const buf = new Uint8Array(maxBytes);
+      const { bytesRead } = await fh.read(buf, 0, maxBytes, 0);
+      return buf.subarray(0, bytesRead);
+    } finally {
+      await fh.close();
+    }
+  },
+  writeHead: async (path, bytes) => {
+    const fh = await open(path, "r+");
+    try {
+      await fh.write(bytes, 0, bytes.length, 0);
+    } finally {
+      await fh.close();
+    }
+  },
+  replaceHead: async (path, replacedBytes, head) => {
+    const tmp = `${path}.duration.tmp`;
+    try {
+      const out = createWriteStream(tmp);
+      out.write(head);
+      await pipeline(createReadStream(path, { start: replacedBytes }), out);
+      await rename(tmp, path);
+    } catch (err) {
+      await rm(tmp, { force: true }).catch(() => {});
+      throw err;
+    }
+  },
+};
 
 const gzipAsync = promisify(zGzip);
 
@@ -28,7 +65,10 @@ export interface RecordingMainOptions {
   targets(): BrowserWindow[];
   /** Main-process observer of every `recording:event` (e.g. the tray). */
   onEvent?: ((event: RecordingEvent) => void) | undefined;
-  /** After finalize, e.g. WebM → MP4 remux (see remuxPostProcess.ts). */
+  /**
+   * After finalize. Main-shell: `composePostProcess(remux, thumbnail, transcode)`
+   * from remuxPostProcess.ts / thumbnailPostProcess.ts / transcodeJob.ts.
+   */
   postProcess?: ((res: FinalizeResponse) => Promise<FinalizeResponse>) | undefined;
   recordingsDir?: string | undefined;
   /**
@@ -66,6 +106,9 @@ export function createRecordingMain(opts: RecordingMainOptions): RecordingContro
     },
     recordingsDir,
     postProcess: opts.postProcess,
+    fixWebmDuration: async (path, durationMs) => {
+      await fixWebmDurationFile(nodeWebmFileOps, path, durationMs);
+    },
     join,
     mkdir: async (p) => {
       await mkdir(p, { recursive: true });

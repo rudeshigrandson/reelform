@@ -6,6 +6,7 @@ import {
   MIN_FREE_BYTES_TO_START,
   canStartWithFreeBytes,
   diskStatus,
+  diskWarningBytes,
   effectiveMaxLengthMs,
   maxLengthReached,
   recordedDurationMs,
@@ -23,6 +24,19 @@ describe("disk thresholds", () => {
     expect(diskStatus(Number.NaN)).toBe("ok");
     expect(canStartWithFreeBytes(2 * 1024 ** 3)).toBe(true);
     expect(canStartWithFreeBytes(2 * 1024 ** 3 - 1)).toBe(false);
+  });
+
+  it("honours the warning threshold setting without changing interrupt or start limits", () => {
+    const tenGb = diskWarningBytes(10);
+    expect(tenGb).toBe(10 * 1024 ** 3);
+    expect(diskStatus(5 * 1024 ** 3, tenGb)).toBe("low");
+    expect(diskStatus(10 * 1024 ** 3, tenGb)).toBe("ok");
+    expect(diskStatus(INTERRUPT_FREE_BYTES - 1, tenGb)).toBe("critical");
+    // A threshold below the interrupt level never hides "critical".
+    expect(diskStatus(INTERRUPT_FREE_BYTES, diskWarningBytes(0.1))).toBe("ok");
+    expect(diskWarningBytes(undefined)).toBe(MIN_FREE_BYTES_TO_START);
+    expect(diskWarningBytes(-1)).toBe(MIN_FREE_BYTES_TO_START);
+    expect(canStartWithFreeBytes(5 * 1024 ** 3)).toBe(true);
   });
 });
 

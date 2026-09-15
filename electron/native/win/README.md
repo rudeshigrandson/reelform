@@ -63,6 +63,13 @@ emitted by the C++ builders (`tests/fixtures/protocol-sample.txt`, regenerate wi
   - `region` is in physical pixels, relative to the captured monitor's top-left.
   - Cursor coordinates are physical virtual-desktop pixels.
 
+Main-process integration (`electron/capture/helperBackend.ts`, `electron/capture/electronAdapter.ts`):
+main sends `audio.micLabel` (and `audio.micEndpointId` when known) with every `start`, and for display
+sources `source.bounds = screen.dipToScreenRect(null, display.bounds)`. The webcam is recorded by the
+renderer (`webcam.webm`), not by this helper. Mic mute is sent as `{"t":"setMicMuted","muted":bool}` only
+to a helper advertising the `micMute` capability; this helper does not yet, so main silences the muted
+ranges after stop (`meta.micMutedRanges`).
+
 ## Build (Windows)
 
 Requirements:

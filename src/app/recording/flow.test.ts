@@ -560,3 +560,143 @@ describe("recording flow — pre-record HUD start requests", () => {
     expect(t.port.calls).not.toContain("start");
   });
 });
+
+describe("recording flow — native webcam, mic label, mute, editor defaults", () => {
+  const nativeStart = async (t: ReturnType<typeof harness>, setup: RecordingSetup) => {
+    t.port.startResult = { sessionId: "s1", backend: "sck", backendReasons: [] };
+    await t.flow.start({ ...setup, countdown: 0 });
+    t.emit({ sessionId: "s1", type: "started", backend: "sck" });
+    await drain();
+  };
+
+  it("records the webcam in the renderer beside a native helper and flushes it before finalize", async () => {
+    const t = harness();
+    await nativeStart(t, { ...SETUP, webcam: true, webcamDeviceId: "cam-1", systemAudio: true });
+    expect(t.capture.sessions).toHaveLength(1);
+    expect(t.capture.sessions[0]?.options).toEqual({
+      sessionId: "s1",
+      platform: "darwin",
+      fps: 60,
+      systemAudio: false,
+      webcam: { deviceId: "cam-1" },
+    });
+    t.emit({ sessionId: "s1", type: "paused", elapsedMs: 10 });
+    await drain();
+    expect(t.log).toContain("capture.pause");
+    t.emit({ sessionId: "s1", type: "stopped", elapsedMs: 20, reason: "user" });
+    await drain(60);
+    expect(t.log.slice(-3)).toEqual(["capture.stop", "finalize", "create"]);
+    expect(t.state().phase).toBe("done");
+  });
+
+  it("a failed native webcam capture is a warning; the recording still finalizes", async () => {
+    const t = harness();
+    t.capture.fail({ code: "NotReadableError", message: "camera busy" });
+    await nativeStart(t, { ...SETUP, webcam: true });
+    expect(t.state().phase).toBe("recording");
+    expect(t.state().warnings.length).toBe(1);
+    expect(t.port.calls).not.toContain("discard:s1");
+    t.emit({ sessionId: "s1", type: "stopped", elapsedMs: 20, reason: "user" });
+    await drain(60);
+    expect(t.state().phase).toBe("done");
+  });
+
+  it("resolves the mic label before recording:start", async () => {
+    const t = harness({
+      enumerateDevices: async () => [
+        { deviceId: "default", kind: "audioinput", label: "Default - MacBook Pro Microphone" },
+        { deviceId: "mic-usb", kind: "audioinput", label: "Shure MV7" },
+      ],
+    });
+    await t.flow.start(SETUP);
+    expect(t.port.lastStart?.audio).toEqual({
+      system: false,
+      mic: "mic-usb",
+      micLabel: "Shure MV7",
+    });
+    expect(t.state().setup?.micLabel).toBe("Shure MV7");
+  });
+
+  it("starts without a label when devices cannot be listed", async () => {
+    const t = harness({
+      enumerateDevices: async () => {
+        throw new Error("denied");
+      },
+    });
+    await t.flow.start(SETUP);
+    expect(t.port.lastStart?.audio).toEqual({ system: false, mic: "mic-usb" });
+  });
+
+  it("HUD mute on the Electron backend disables the renderer mic, also when requested before capture", async () => {
+    const muted: boolean[] = [];
+    const base = fakeCaptureFactory([]);
+    const t = harness({
+      startCapture: async (options, hooks) => {
+        const session = await base.startCapture(options, hooks);
+        return Object.assign(session, { setMicMuted: (m: boolean) => muted.push(m) });
+      },
+    });
+    await t.flow.start(SETUP);
+    t.other.post({ type: "hud:setMicMuted", muted: true } as unknown as RecordingBusMessage);
+    await drain();
+    expect(muted).toEqual([]);
+    t.emit({ sessionId: "s1", type: "started", backend: "electron" });
+    await drain();
+    expect(muted).toEqual([true]);
+    t.other.post({ type: "hud:setMicMuted", muted: false } as unknown as RecordingBusMessage);
+    await drain();
+    expect(muted).toEqual([true, false]);
+  });
+
+  it("native mute goes through recording:setMicMuted once the helper started; failures warn", async () => {
+    const t = harness();
+    const calls: [string, boolean][] = [];
+    let fail = false;
+    Object.assign(t.port, {
+      setMicMuted: async (id: string, m: boolean) => {
+        calls.push([id, m]);
+        if (fail) throw { code: "MIC_MUTE_FAILED", message: "nope" };
+      },
+    });
+    t.port.startResult = { sessionId: "s1", backend: "sck", backendReasons: [] };
+    await t.flow.start(SETUP);
+    await t.flow.setMicMuted(true);
+    expect(calls).toEqual([]);
+    t.emit({ sessionId: "s1", type: "started", backend: "sck" });
+    await drain();
+    expect(calls).toEqual([["s1", true]]);
+    fail = true;
+    await t.flow.setMicMuted(false);
+    expect(calls).toEqual([
+      ["s1", true],
+      ["s1", false],
+    ]);
+    expect(t.state().warnings).toHaveLength(1);
+  });
+
+  it("applies the settings frame preset and aspect to the created project", async () => {
+    const t = harness({ editorDefaults: () => ({ framePreset: "minimal", aspect: "9:16" }) });
+    await toRecording(t);
+    t.emit({ sessionId: "s1", type: "stopped", elapsedMs: 5, reason: "user" });
+    await drain(60);
+    const doc = t.projects.created[0]?.document as {
+      frame: { aspect: { preset: string }; background: { kind: string } };
+    };
+    expect(projectV1Schema.safeParse(doc).success).toBe(true);
+    expect(doc.frame.aspect.preset).toBe("9:16");
+    expect(doc.frame.background.kind).toBe("color");
+  });
+
+  it("imports the finalize thumbnail with the project", async () => {
+    const t = harness();
+    t.port.finalizeResult = { ...finalizeFixture(), thumbnailPath: "/rec/s1/thumbnail.jpg" };
+    await toRecording(t);
+    t.emit({ sessionId: "s1", type: "stopped", elapsedMs: 5, reason: "user" });
+    await drain(60);
+    expect(t.projects.created[0]?.media?.at(-1)).toMatchObject({
+      sourcePath: "/rec/s1/thumbnail.jpg",
+      fileName: "thumbnail.jpg",
+    });
+    expect(t.state().phase).toBe("done");
+  });
+});

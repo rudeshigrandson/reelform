@@ -1,3 +1,5 @@
+import { applyPreset } from "../../editor/inspector/frame/frameLogic";
+import { BUILT_IN_FRAME_PRESETS, type FramePreset } from "../../editor/inspector/frame/types";
 import type { ProjectV1 } from "../../editor/model/v1";
 import type { MediaSourceV1 } from "../../editor/model/v1";
 import { toProjectDocument } from "../../editor/persistence";
@@ -6,6 +8,7 @@ import type { PickerSource, RecordOptions, SourceItem, SourceMode } from "../../
 import type { CaptureOptions } from "../../recording/captureSession";
 import { type Platform, sourcePixelSize } from "../../recording/constraints";
 import type { TrackKind } from "../../recording/port";
+import type { DefaultAspect } from "../../settings/types";
 import type { RegionRect } from "./bus";
 import type {
   CreateProjectRequest,
@@ -23,6 +26,11 @@ import type {
 /** Launcher options plus the region picked on the overlay (display-local DIP). */
 export interface RecordingSetup extends RecordOptions {
   region?: RegionRect | undefined;
+  /**
+   * `MediaDeviceInfo.label` of the chosen mic. Native helpers resolve the mic by
+   * label (Chromium deviceIds are hashed); the flow fills it in at start.
+   */
+  micLabel?: string | undefined;
 }
 
 type Display = SourcesResult["displays"][number];
@@ -40,7 +48,10 @@ export function toStartRequest(setup: RecordingSetup): StartRecordingRequest {
     hideCursor: setup.hideCursor,
   };
   // An empty id means "system default" for getUserMedia; main only needs presence.
-  if (setup.mic) req.audio.mic = setup.micDeviceId ?? "default";
+  if (setup.mic) {
+    req.audio.mic = setup.micDeviceId ?? "default";
+    if (setup.micLabel) req.audio.micLabel = setup.micLabel;
+  }
   if (setup.webcam) req.webcam = setup.webcamDeviceId ?? "default";
   if (setup.mode === "region" && setup.region) req.region = { ...setup.region };
   return req;
@@ -186,9 +197,48 @@ export function captureOptionsFor(
   return { ok: true, options };
 }
 
+/**
+ * Webcam-only renderer capture beside a native helper (§5.7): the helper records
+ * screen, mic and system audio; the renderer records only the camera. `null`
+ * when the webcam is off.
+ */
+export function webcamCaptureOptionsFor(
+  sessionId: string,
+  setup: RecordingSetup,
+  platform: Platform,
+): CaptureOptions | null {
+  if (!setup.webcam) return null;
+  return {
+    sessionId,
+    platform,
+    fps: setup.fps,
+    systemAudio: false,
+    webcam: { deviceId: setup.webcamDeviceId },
+  };
+}
+
+/** Label of the mic the setup selected (its deviceId, else the system default entry). */
+export function micLabelFor(
+  setup: RecordingSetup,
+  devices: readonly { deviceId: string; kind: string; label: string }[],
+): string | undefined {
+  if (!setup.mic) return undefined;
+  const inputs = devices.filter((d) => d.kind === "audioinput");
+  const id = setup.micDeviceId || "default";
+  const label = (inputs.find((d) => d.deviceId === id) ?? inputs[0])?.label;
+  return label ? label : undefined;
+}
+
 // ---- finalized recording → project -------------------------------------------
 
 export const TELEMETRY_FILE_NAME = "telemetry.json.gz";
+/** Library thumbnail, imported into the project root (next to project.json). */
+export const THUMBNAIL_FILE_NAME = "thumbnail.jpg";
+
+/** A `project:create` media import; `destination: "root"` places it beside project.json. */
+export type RecordingMediaImport = NonNullable<CreateProjectRequest["media"]>[number] & {
+  destination?: "media" | "root" | undefined;
+};
 const AUDIO_TRACKS = ["mic", "system"] as const;
 
 function extOf(path: string): string {
@@ -198,12 +248,15 @@ function extOf(path: string): string {
 }
 
 export interface MediaPlan {
-  imports: NonNullable<CreateProjectRequest["media"]>;
+  imports: RecordingMediaImport[];
   /** Requested `media/` file name per track (and telemetry). */
   fileNames: Partial<Record<TrackKind | "telemetry", string>>;
 }
 
-/** Move every finalized file into the new project's `media/` folder. */
+/**
+ * Move every finalized file into the new project's `media/` folder, and the
+ * thumbnail (when post-process rendered one) into the project root.
+ */
 export function planMedia(fin: FinalizeResult): MediaPlan {
   const imports: MediaPlan["imports"] = [];
   const fileNames: MediaPlan["fileNames"] = {};
@@ -218,6 +271,15 @@ export function planMedia(fin: FinalizeResult): MediaPlan {
   }
   if (fin.webcam) add("webcam", fin.webcam.path, `webcam${extOf(fin.webcam.path) || ".webm"}`);
   add("telemetry", fin.telemetry.path, TELEMETRY_FILE_NAME);
+  if (fin.thumbnailPath) {
+    const thumbnail: RecordingMediaImport = {
+      sourcePath: fin.thumbnailPath,
+      fileName: THUMBNAIL_FILE_NAME,
+      move: true,
+      destination: "root",
+    };
+    imports.push(thumbnail);
+  }
   return { imports, fileNames };
 }
 
@@ -290,6 +352,35 @@ export interface BuildDocumentInput {
   name: string;
   nowIso: string;
   appVersion: string;
+  /** Settings "Default frame preset" / "Default aspect" (§11). */
+  defaults?: RecordingDocumentDefaults | undefined;
+}
+
+export interface RecordingDocumentDefaults {
+  /** Built-in or user preset id; unknown ids keep the default frame. */
+  framePreset?: string | undefined;
+  /** `auto` keeps the preset's aspect. */
+  aspect?: DefaultAspect | undefined;
+  /** User presets from settings, searched after the built-ins. */
+  presets?: readonly FramePreset[] | undefined;
+}
+
+/** Apply the settings defaults to a fresh document's frame. */
+export function applyFrameDefaults<T extends ReturnType<typeof initialEditorData>["frame"]>(
+  frame: T,
+  defaults: RecordingDocumentDefaults | undefined,
+): T {
+  if (!defaults) return frame;
+  let next = frame;
+  const id = defaults.framePreset;
+  const preset = id
+    ? [...BUILT_IN_FRAME_PRESETS, ...(defaults.presets ?? [])].find((p) => p.id === id)
+    : undefined;
+  if (preset) next = applyPreset(next, preset) as T;
+  if (defaults.aspect && defaults.aspect !== "auto") {
+    next = { ...next, aspect: { ...next.aspect, preset: defaults.aspect } };
+  }
+  return next;
 }
 
 const WEBCAM_SIZE = { width: 1280, height: 720 };
@@ -380,6 +471,7 @@ export function buildRecordingDocument(input: BuildDocumentInput): ProjectV1 {
   const data = initialEditorData();
   data.durationMs = durationMs;
   data.cursorPointCount = fin.telemetry.pointCount;
+  data.frame = applyFrameDefaults(data.frame, input.defaults);
   data.frame.crop = initialRegionCrop(fin, input.sources);
 
   return toProjectDocument(data, {
