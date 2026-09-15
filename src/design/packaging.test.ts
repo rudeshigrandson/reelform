@@ -691,7 +691,25 @@ describe("after-pack hook (helper manifests survive code signing)", () => {
 describe("fetch-ffmpeg", async () => {
   const ffmpeg = await importScript("fetch-ffmpeg.mjs");
 
-  it("refuses unpinned targets with a clear error and never fabricates hashes", () => {
+  it("pins every packaged target to a versioned https archive with a real sha256", () => {
+    const tools = new Map<string, Set<string>>();
+    for (const target of ["darwin-arm64", "darwin-x64", "win32-x64", "linux-x64"]) {
+      const entries = ffmpeg.assertPinned(target) as {
+        tool: string;
+        url: string;
+        license: string;
+      }[];
+      const have = new Set<string>();
+      for (const e of entries) {
+        expect(e.url, target).not.toMatch(/latest/i);
+        expect(e.url, target).toContain(ffmpeg.FFMPEG_VERSION);
+        expect(e.license, target).toMatch(/^(L?GPL)-/);
+        for (const t of ffmpeg.toolsIn(e)) have.add(t);
+      }
+      tools.set(target, have);
+    }
+    for (const [target, have] of tools)
+      expect([...have].sort(), target).toEqual(["ffmpeg", "ffprobe"]);
     for (const [target, entries] of Object.entries(ffmpeg.PINS) as [
       string,
       { sha256: string | null }[],
@@ -699,14 +717,72 @@ describe("fetch-ffmpeg", async () => {
       for (const e of entries)
         expect(e.sha256 === null || /^[0-9a-f]{64}$/.test(e.sha256), target).toBe(true);
     }
-    expect(() => ffmpeg.assertPinned("linux-x64")).toThrow(/not pinned/);
+  });
+
+  it("refuses unpinned targets with a clear error", () => {
+    const pins = {
+      "linux-x64": [{ tool: "both", url: "https://x/a.tar.xz", sha256: null, archive: "tar.xz" }],
+    };
+    expect(() => ffmpeg.assertPinned("linux-x64", { pins })).toThrow(/not pinned/);
+    expect(() => ffmpeg.assertPinned("linux-x64", { pins, requireHash: false })).not.toThrow();
+    const noUrl = { t: [{ tool: "ffmpeg", url: null, sha256: null, archive: "zip" }] };
+    expect(() => ffmpeg.assertPinned("t", { pins: noUrl })).toThrow(
+      /not pinned.*Refusing to download an unverified binary/,
+    );
+    const http = {
+      t: [{ tool: "ffmpeg", url: "http://x/a.zip", sha256: "0".repeat(64), archive: "zip" }],
+    };
+    expect(() => ffmpeg.assertPinned("t", { pins: http })).toThrow(/https/);
     expect(() => ffmpeg.assertPinned("plan9-mips")).toThrow(/unknown ffmpeg target/);
   });
 
-  it("CLI exits non-zero without downloading when unpinned", () => {
-    const r = runNode(["scripts/fetch-ffmpeg.mjs", "--target", "darwin-arm64"]);
+  it("CLI exits non-zero without downloading for an unknown target", () => {
+    const r = runNode(["scripts/fetch-ffmpeg.mjs", "--target", "plan9-mips"]);
     expect(r.status).toBe(1);
-    expect(r.stderr).toMatch(/not pinned.*Refusing to download an unverified binary/);
+    expect(r.stderr).toMatch(/unknown ffmpeg target plan9-mips/);
+  });
+
+  it("extracts zip with bsdtar or unzip (Linux) and tar.xz with tar", () => {
+    expect(ffmpeg.extractCommand("zip", "/a.zip", "/d", "darwin")).toEqual([
+      "tar",
+      ["-xf", "/a.zip", "-C", "/d"],
+    ]);
+    expect(ffmpeg.extractCommand("zip", "/a.zip", "/d", "win32")[0]).toBe("tar");
+    expect(ffmpeg.extractCommand("zip", "/a.zip", "/d", "linux")).toEqual([
+      "unzip",
+      ["-q", "-o", "/a.zip", "-d", "/d"],
+    ]);
+    expect(ffmpeg.extractCommand("tar.xz", "/a.tar.xz", "/d", "linux")).toEqual([
+      "tar",
+      ["-xf", "/a.tar.xz", "-C", "/d"],
+    ]);
+    expect(() => ffmpeg.extractCommand("rar", "/a", "/d")).toThrow(/unsupported/);
+  });
+
+  it("verifySha256File rejects a tampered archive before extraction", async () => {
+    const p = join(tmpdir(), `reelform-ffmpeg-test-${process.pid}.zip`);
+    writeFileSync(p, "archive");
+    try {
+      const hex = createHash("sha256").update("archive").digest("hex");
+      await expect(ffmpeg.verifySha256File(p, hex)).resolves.toBe(hex);
+      await expect(ffmpeg.verifySha256File(p, "f".repeat(64))).rejects.toThrow(/sha256 mismatch/);
+    } finally {
+      rmSync(p, { force: true });
+    }
+  });
+
+  it("manifest records version, sources, licenses and staged file hashes", () => {
+    const m = ffmpeg.buildManifest({
+      target: "win32-x64",
+      entries: ffmpeg.PINS["win32-x64"],
+      files: { "ffmpeg.exe": { sha256: "a".repeat(64), size: 1 } },
+      fetchedAt: "2026-09-15T00:00:00.000Z",
+    });
+    expect(m.ffmpegVersion).toBe(ffmpeg.FFMPEG_VERSION);
+    expect(m.sources[0].tools).toEqual(["ffmpeg", "ffprobe"]);
+    expect(m.sources[0].sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(m.sources[0].license).toMatch(/GPL/);
+    expect(m.files["ffmpeg.exe"].size).toBe(1);
   });
 
   it("verifySha256 accepts matching bytes (case-insensitive) and rejects mismatches", () => {
