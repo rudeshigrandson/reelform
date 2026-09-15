@@ -6,6 +6,7 @@ import { usePlaybackStore } from "../../playback";
 import { useEditorStore } from "../../store";
 import { AudioInspector, WAVEFORM_BARS, addRegion } from "../audio";
 import type { AvailableTracks } from "../audio/types";
+import { useInspectorT, withDetail } from "../i18n";
 import { fileNameOf, peaksFromAudio } from "./audioPeaks";
 import { decodeCached, errorMessage, hostId, useDecodedAudio } from "./hooks";
 import type { InspectorHost } from "./types";
@@ -35,6 +36,7 @@ export function regionUrl(mediaBaseUrl: string | null, path: string): string | n
 }
 
 export function AudioTab({ host }: { host: InspectorHost }): ReactElement {
+  const t = useInspectorT();
   const audio = useEditorStore((s) => s.audio);
   const durationMs = useEditorStore((s) => s.durationMs);
   const meta = useProjectSession((s) => s.meta);
@@ -107,13 +109,16 @@ export function AudioTab({ host }: { host: InspectorHost }): ReactElement {
   const addAudio = async () => {
     setError(null);
     try {
-      const picked = await host.pickFile({ title: "Add audio", filters: AUDIO_FILTERS });
+      const picked = await host.pickFile({
+        title: t("inspector.audio.add"),
+        filters: AUDIO_FILTERS,
+      });
       if (!picked) return;
       setAdding(true);
       const media = await host.importMedia("audio", picked);
       const decoded = await decodeCached(host, media.url);
       const lengthMs = media.durationMs ?? decoded?.durationMs ?? 0;
-      if (!(lengthMs > 0)) throw new Error("The file has no readable audio.");
+      if (!(lengthMs > 0)) throw new Error(t("inspector.audio.error.noAudio"));
       const startMs = Math.min(usePlaybackStore.getState().currentMs, Math.max(0, durationMs - 1));
       const id = hostId("audio");
       const next = addRegion(useEditorStore.getState().audio, {
@@ -124,9 +129,9 @@ export function AudioTab({ host }: { host: InspectorHost }): ReactElement {
         endMs: Math.min(durationMs, startMs + lengthMs),
       });
       if (decoded) setRegionPeaks((p) => ({ ...p, [id]: peaksFromAudio(decoded, PEAK_BUCKETS) }));
-      host.documentUpdate("Add audio", { audio: next });
+      host.documentUpdate(t("inspector.audio.add"), { audio: next });
     } catch (err) {
-      setError(`Couldn't add audio. ${errorMessage(err, "")}`.trim());
+      setError(withDetail(t, "inspector.audio.error.add", errorMessage(err, "")));
     } finally {
       setAdding(false);
     }
@@ -140,7 +145,24 @@ export function AudioTab({ host }: { host: InspectorHost }): ReactElement {
   return (
     <AudioInspector
       value={audio}
-      onChange={(next) => host.documentUpdate("Audio settings", { audio: next }, "audio-settings")}
+      onChange={(next) => {
+        // "Clicks" mirrors the Cursor tab's click sound volume (one undo entry).
+        // `cursor` is always in the patch (same reference when unchanged): a coalesced
+        // entry undoes with its first patch's keys and redoes with its last, so the
+        // key set must not vary within a drag or the two volumes drift apart.
+        const { audio: current, cursor } = useEditorStore.getState();
+        host.documentUpdate(
+          t("inspector.audio.history.settings"),
+          {
+            audio: next,
+            cursor:
+              next.clickVolume === current.clickVolume
+                ? cursor
+                : { ...cursor, clickSound: { ...cursor.clickSound, volume: next.clickVolume } },
+          },
+          "audio-settings",
+        );
+      }}
       availableTracks={available}
       waveforms={waveforms}
       trackDurationMs={durationMs}

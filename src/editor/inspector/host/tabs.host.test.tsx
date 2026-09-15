@@ -6,7 +6,7 @@ import { useProjectSession } from "../../../app/project/session";
 import { useAppSettings } from "../../../app/settings/store";
 import { parseWallpaperPack } from "../../../design/wallpapers";
 import { useLoudnessStore } from "../../audio/loudnessStore";
-import { createHistory } from "../../state";
+import { createDocumentUpdate, createHistory } from "../../state";
 import { type EditorState, useEditorStore } from "../../store";
 import { DEFAULT_CURSOR_SETTINGS } from "../cursor/types";
 import { DEFAULT_FRAME_SETTINGS } from "../frame/types";
@@ -239,6 +239,60 @@ describe("Cursor tab", () => {
     expect(host.importMedia).toHaveBeenCalledWith("sound", "/Users/me/click.wav");
   });
 
+  it("mirrors the click sound volume into the Audio clicks volume in one entry", () => {
+    const host = fakeHost();
+    render(<CursorTab host={host} />);
+    fireEvent.change(screen.getByLabelText("Volume"), { target: { value: "25" } });
+    const s = useEditorStore.getState();
+    expect(s.cursor.clickSound.volume).toBe(25);
+    expect(s.audio.clickVolume).toBe(25);
+    expect(host.labels).toEqual(["Cursor"]);
+    expect(host.documentUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves audio untouched when the click volume doesn't change", () => {
+    const host = fakeHost();
+    const audio = useEditorStore.getState().audio;
+    render(<CursorTab host={host} />);
+    fireEvent.click(screen.getAllByRole("radio")[0] as HTMLElement);
+    expect(host.documentUpdate).toHaveBeenCalled();
+    for (const call of vi.mocked(host.documentUpdate).mock.calls) {
+      expect(call[1].audio).toBe(audio);
+    }
+    expect(useEditorStore.getState().audio).toBe(audio);
+  });
+
+  it("undo and redo keep both volumes in sync across a coalesced run", () => {
+    const history = createHistory<EditorState>({
+      getState: () => useEditorStore.getState(),
+      setState: (s) => useEditorStore.setState(s, true),
+      now: () => 0,
+    });
+    const host = fakeHost({ documentUpdate: createDocumentUpdate(history) });
+    const before = useEditorStore.getState();
+    render(<CursorTab host={host} />);
+    // A non-volume slider first, then the volume, within the same coalesce window.
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Size"), { target: { value: "150" } });
+    });
+    act(() => {
+      fireEvent.change(screen.getByLabelText("Volume"), { target: { value: "25" } });
+    });
+    expect(useEditorStore.getState().audio.clickVolume).toBe(25);
+    act(() => {
+      history.undo();
+    });
+    expect(useEditorStore.getState().cursor.clickSound.volume).toBe(
+      before.cursor.clickSound.volume,
+    );
+    expect(useEditorStore.getState().audio.clickVolume).toBe(before.audio.clickVolume);
+    act(() => {
+      history.redo();
+    });
+    expect(useEditorStore.getState().cursor.clickSound.volume).toBe(25);
+    expect(useEditorStore.getState().audio.clickVolume).toBe(25);
+  });
+
   it("shows import errors and does nothing when the pick is cancelled", async () => {
     const importMedia = vi.fn(async () => Promise.reject(new Error("nope")));
     const pick = vi.fn<() => Promise<string | null>>().mockResolvedValueOnce(null);
@@ -336,6 +390,20 @@ describe("Captions tab custom fonts", () => {
     expect(await screen.findByText("Couldn't load broken.ttf as a font.")).toBeInTheDocument();
     expect(useEditorStore.getState().captionStyle.customFonts).toEqual([]);
     expect(host.labels).toEqual([]);
+  });
+});
+
+describe("Audio tab clicks", () => {
+  it("mirrors the clicks volume into the cursor click sound volume in one entry", () => {
+    const host = fakeHost();
+    render(<AudioTab host={host} />);
+    fireEvent.change(screen.getByLabelText("Cursor click sounds"), { target: { value: "30" } });
+    const s = useEditorStore.getState();
+    expect(s.audio.clickVolume).toBe(30);
+    expect(s.cursor.clickSound.volume).toBe(30);
+    expect(s.cursor.clickSound.type).toBe(DEFAULT_CURSOR_SETTINGS.clickSound.type);
+    expect(host.labels).toEqual(["Audio settings"]);
+    expect(host.documentUpdate).toHaveBeenCalledTimes(1);
   });
 });
 

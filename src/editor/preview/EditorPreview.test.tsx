@@ -7,7 +7,12 @@ import { useEditorStore } from "../store";
 import { EditorPreview } from "./EditorPreview";
 import { drag } from "./overlays/testPointer";
 import type { CreatePreviewStage, PreviewStage } from "./pixiStage";
-import type { SceneState } from "./scene";
+import { type SceneInput, type SceneState, evaluateScene } from "./scene";
+
+vi.mock("./scene", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./scene")>();
+  return { ...actual, evaluateScene: vi.fn(actual.evaluateScene) };
+});
 
 function fakeStage() {
   const stage = {
@@ -76,6 +81,17 @@ describe("EditorPreview", () => {
     expect(
       [...(comp?.annotations.frame ?? []), ...(comp?.annotations.content ?? [])].map((i) => i.id),
     ).toEqual(["t"]);
+  });
+
+  it("passes the project camera follow settings to the scene", async () => {
+    const { stage, create } = fakeStage();
+    const camera = { smoothing: 0.9, maxZoomSpeed: 1.5 };
+    const { zoom: zoomSettings } = useEditorStore.getState();
+    useEditorStore.getState().update({ zoom: { ...zoomSettings, camera } });
+    render(<EditorPreview createStage={create} fetchJson={noWallpapers} />);
+    await waitFor(() => expect(stage.render).toHaveBeenCalled());
+    const input = vi.mocked(evaluateScene).mock.lastCall?.[0] as SceneInput | undefined;
+    expect(input?.camera).toEqual(camera);
   });
 
   it("zoom reticle drag writes the focus through the injected update", async () => {

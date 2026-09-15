@@ -86,6 +86,7 @@ export function EditorPreview({
 }: EditorPreviewProps): ReactElement {
   const frame = useEditorStore((e) => e.frame);
   const zoomRegions = useEditorStore((e) => e.zoomRegions);
+  const camera = useEditorStore((e) => e.zoom.camera);
   const cursor = useEditorStore((e) => e.cursor);
   const annotations = useEditorStore((e) => e.annotations);
   const selectedZoomId = useEditorStore((e) => e.selectedZoomId);
@@ -158,6 +159,7 @@ export function EditorPreview({
     <PreviewCanvas
       frame={frame}
       zoomRegions={zoomRegions}
+      camera={camera}
       cursor={cursor}
       cursorTrack={cursorTrack}
       currentMs={currentMs}

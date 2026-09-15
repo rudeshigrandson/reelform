@@ -1,6 +1,8 @@
 import { type ReactElement, useState } from "react";
 import { useEditorStore } from "../../store";
+import { setClickVolume } from "../audio";
 import { CursorInspector } from "../cursor";
+import { useInspectorT, withDetail } from "../i18n";
 import { AUDIO_FILTERS } from "./AudioTab";
 import { fileNameOf } from "./audioPeaks";
 import { pathForFile } from "./filePaths";
@@ -12,6 +14,7 @@ import type { InspectorHost } from "./types";
 export const CURSOR_FILTERS = [{ name: "Cursor image", extensions: ["png", "svg"] }];
 
 export function CursorTab({ host }: { host: InspectorHost }): ReactElement {
+  const t = useInspectorT();
   const cursor = useEditorStore((s) => s.cursor);
   const cursorPointCount = useEditorStore((s) => s.cursorPointCount);
   const [error, setError] = useState<string | null>(null);
@@ -20,14 +23,14 @@ export function CursorTab({ host }: { host: InspectorHost }): ReactElement {
     setError(null);
     try {
       const path = await pathForFile(host, file, {
-        title: "Custom cursor",
+        title: t("inspector.cursor.customCursor"),
         filters: CURSOR_FILTERS,
       });
       if (!path) return;
       const media = await host.importMedia("cursor", path);
       const fileName = file.name || fileNameOf(path);
       const current = useEditorStore.getState().cursor;
-      host.documentUpdate("Custom cursor", {
+      host.documentUpdate(t("inspector.cursor.customCursor"), {
         cursor: {
           ...current,
           style: "custom",
@@ -39,18 +42,21 @@ export function CursorTab({ host }: { host: InspectorHost }): ReactElement {
         },
       });
     } catch (err) {
-      setError(`Couldn't add the cursor. ${errorMessage(err, "")}`.trim());
+      setError(withDetail(t, "inspector.cursor.error.add", errorMessage(err, "")));
     }
   };
 
   const uploadSound = async (file: File) => {
     setError(null);
     try {
-      const path = await pathForFile(host, file, { title: "Click sound", filters: AUDIO_FILTERS });
+      const path = await pathForFile(host, file, {
+        title: t("inspector.cursor.clickSound"),
+        filters: AUDIO_FILTERS,
+      });
       if (!path) return;
       const media = await host.importMedia("sound", path);
       const current = useEditorStore.getState().cursor;
-      host.documentUpdate("Custom click sound", {
+      host.documentUpdate(t("inspector.cursor.history.customSound"), {
         cursor: {
           ...current,
           clickSound: {
@@ -61,7 +67,7 @@ export function CursorTab({ host }: { host: InspectorHost }): ReactElement {
         },
       });
     } catch (err) {
-      setError(`Couldn't add the click sound. ${errorMessage(err, "")}`.trim());
+      setError(withDetail(t, "inspector.cursor.error.addSound", errorMessage(err, "")));
     }
   };
 
@@ -81,7 +87,24 @@ export function CursorTab({ host }: { host: InspectorHost }): ReactElement {
       )}
       <CursorInspector
         value={cursor}
-        onChange={(next) => host.documentUpdate("Cursor", { cursor: next }, "cursor-settings")}
+        onChange={(next) => {
+          // The Audio tab's "Clicks" slider mirrors the click sound volume (one undo entry).
+          // `audio` is always in the patch (same reference when unchanged): a coalesced
+          // entry undoes with its first patch's keys and redoes with its last, so the
+          // key set must not vary within a drag or the two volumes drift apart.
+          const { cursor: current, audio } = useEditorStore.getState();
+          host.documentUpdate(
+            t("inspector.cursor.history.settings"),
+            {
+              cursor: next,
+              audio:
+                next.clickSound.volume === current.clickSound.volume
+                  ? audio
+                  : setClickVolume(audio, next.clickSound.volume),
+            },
+            "cursor-settings",
+          );
+        }}
         cursorPointCount={cursorPointCount}
         onUploadCustomCursor={(file) => void uploadCursor(file)}
         onUploadCustomSound={(file) => void uploadSound(file)}
