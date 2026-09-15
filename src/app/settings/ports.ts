@@ -1,8 +1,8 @@
 import type { OnboardingPort } from "../../onboarding/types";
-import type { DeviceOption, SystemPort } from "../../settings/services";
+import type { DeviceOption, GlobalShortcutStatus, SystemPort } from "../../settings/services";
 import type { SettingsPatch } from "../../settings/types";
 import type { ShortcutPlatform } from "../../shortcuts/accelerator";
-import { invoke } from "../ipc";
+import { invoke, onEvent } from "../ipc";
 
 /** IPC adapters for the Settings / onboarding ports. All resolve safely outside Electron. */
 
@@ -14,6 +14,19 @@ export const ipcSystemPort: SystemPort = {
     const res = await invoke("system:openExternal", { url });
     if (res === null && typeof window !== "undefined") window.open(url, "_blank", "noopener");
   },
+};
+
+/** Source of main's global shortcut registration status (SPEC §11 conflicts). */
+export interface GlobalStatusPort {
+  /** Current status; null outside Electron. */
+  get(): Promise<GlobalShortcutStatus | null>;
+  /** Pushes on every registration change; returns an unsubscribe. */
+  subscribe(cb: (status: GlobalShortcutStatus) => void): () => void;
+}
+
+export const ipcGlobalStatusPort: GlobalStatusPort = {
+  get: () => invoke("shortcuts:globalStatus", undefined),
+  subscribe: (cb) => onEvent("shortcuts:globalStatusChanged", cb),
 };
 
 export async function pickFolderViaIpc(

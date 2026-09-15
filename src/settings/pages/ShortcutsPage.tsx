@@ -1,5 +1,6 @@
 import { Button, Tag } from "@design/components";
 import { Fragment, type KeyboardEvent as ReactKeyboardEvent, useMemo, useState } from "react";
+import { type Translate, useT } from "../../i18n";
 import { kbdStyle } from "../../shortcuts/ShortcutsOverlay";
 import { detectConflicts } from "../../shortcuts/conflicts";
 import {
@@ -15,6 +16,7 @@ import {
   setShortcutOverride,
 } from "../../shortcuts/registry";
 import { PageHeading, StatusText, helpStyle } from "../controls";
+import type { GlobalShortcutStatus } from "../services";
 import type { SettingsProps } from "../types";
 
 type Notice = { id: string; tone: "danger" | "warning"; text: string } | null;
@@ -22,12 +24,26 @@ type Notice = { id: string; tone: "danger" | "warning"; text: string } | null;
 function conflictText(
   outcome: Extract<RecordOutcome, { kind: "candidate" }>,
   resolved: readonly ResolvedShortcut[],
+  t: Translate,
 ) {
-  const others = outcome.conflicts.map((c) => `“${shortcutLabelFor(c.ids[1], resolved)}”`);
-  return others.join(", ");
+  return outcome.conflicts
+    .map((c) => t("settings.shortcuts.quoted", { label: shortcutLabelFor(c.ids[1], resolved) }))
+    .join(", ");
+}
+
+/** id → accelerator (display string) of shortcuts another app already owns. */
+export function osConflictsById(
+  status: GlobalShortcutStatus | null | undefined,
+): ReadonlyMap<string, string> {
+  const out = new Map<string, string>();
+  for (const f of status?.failures ?? []) {
+    if (f.reason === "os-conflict") out.set(f.id, f.accelerator);
+  }
+  return out;
 }
 
 export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
+  const t = useT();
   const platform = services?.platform ?? "mac";
   const resolved = useMemo(
     () => resolveShortcuts(platform, settings.shortcuts),
@@ -38,6 +54,8 @@ export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
     () => detectConflicts(resolved).filter((c) => c.kind === "duplicate"),
     [resolved],
   );
+  const globalStatus = services?.globalStatus;
+  const osConflicts = useMemo(() => osConflictsById(globalStatus), [globalStatus]);
   const [recordingId, setRecordingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
 
@@ -60,7 +78,10 @@ export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
       setNotice({
         id: row.id,
         tone: "danger",
-        text: `${outcome.display} can't be used. ${outcome.message} Press different keys, or Esc to cancel.`,
+        text: t("settings.shortcuts.notice.invalid", {
+          keys: outcome.display,
+          reason: outcome.message,
+        }),
       });
       return;
     }
@@ -73,7 +94,10 @@ export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
       setNotice({
         id: row.id,
         tone: "danger",
-        text: `${outcome.display} is already used by ${conflictText(outcome, resolved)}. Press different keys, or Esc to cancel.`,
+        text: t("settings.shortcuts.notice.blocking", {
+          keys: outcome.display,
+          others: conflictText(outcome, resolved, t),
+        }),
       });
       return;
     }
@@ -85,7 +109,10 @@ export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
         ? {
             id: row.id,
             tone: "warning",
-            text: `${outcome.display} is also used by ${conflictText(outcome, resolved)}; the more specific area wins while it has focus.`,
+            text: t("settings.shortcuts.notice.shadow", {
+              keys: outcome.display,
+              others: conflictText(outcome, resolved, t),
+            }),
           }
         : null,
     );
@@ -94,7 +121,7 @@ export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
 
   return (
     <div>
-      <PageHeading>Shortcuts</PageHeading>
+      <PageHeading>{t("settings.section.shortcuts")}</PageHeading>
       <div
         style={{
           display: "flex",
@@ -104,7 +131,7 @@ export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
           marginBottom: "var(--space-4)",
         }}
       >
-        <p style={helpStyle}>Click a shortcut, then press the new keys. Esc cancels.</p>
+        <p style={helpStyle}>{t("settings.shortcuts.help")}</p>
         <Button
           variant="ghost"
           disabled={Object.keys(settings.shortcuts).length === 0}
@@ -114,26 +141,23 @@ export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
             onChange({ shortcuts: {} });
           }}
         >
-          Reset all
+          {t("settings.shortcuts.resetAll")}
         </Button>
       </div>
 
       {existingDuplicates.length > 0 ? (
         <StatusText tone="warning">
-          {existingDuplicates.length === 1
-            ? "One shortcut conflict"
-            : `${existingDuplicates.length} shortcut conflicts`}{" "}
-          — only one of the actions will run.
+          {t("settings.shortcuts.conflicts", { count: existingDuplicates.length })}
         </StatusText>
       ) : null}
 
-      <table className="table" aria-label="Keyboard shortcuts">
+      <table className="table" aria-label={t("settings.shortcuts.table")}>
         <thead>
           <tr>
-            <th scope="col">Action</th>
-            <th scope="col">Shortcut</th>
+            <th scope="col">{t("settings.shortcuts.column.action")}</th>
+            <th scope="col">{t("settings.shortcuts.column.shortcut")}</th>
             <th scope="col" style={{ textAlign: "right" }}>
-              Reset
+              {t("settings.shortcuts.column.reset")}
             </th>
           </tr>
         </thead>
@@ -152,6 +176,7 @@ export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
               {rows.map((row) => {
                 const recording = recordingId === row.id;
                 const rowNotice = notice?.id === row.id ? notice : null;
+                const osConflict = osConflicts.get(row.id);
                 return (
                   <tr key={row.id}>
                     <td>
@@ -161,11 +186,25 @@ export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
                           <StatusText tone={rowNotice.tone}>{rowNotice.text}</StatusText>
                         </div>
                       ) : null}
+                      {osConflict !== undefined && !rowNotice ? (
+                        <div style={{ marginTop: "var(--space-1)" }}>
+                          <StatusText tone="warning">
+                            {t("settings.shortcuts.osConflict", {
+                              keys: osConflict || row.display,
+                            })}
+                          </StatusText>
+                        </div>
+                      ) : null}
                     </td>
                     <td style={{ whiteSpace: "nowrap" }}>
                       <button
                         type="button"
-                        aria-label={`${row.def.label} shortcut: ${recording ? "recording" : row.display || "unassigned"}`}
+                        aria-label={t("settings.shortcuts.buttonLabel", {
+                          label: row.def.label,
+                          state: recording
+                            ? t("settings.shortcuts.state.recording")
+                            : row.display || t("settings.shortcuts.state.unassigned"),
+                        })}
                         aria-pressed={recording}
                         onClick={() => {
                           setNotice(null);
@@ -184,19 +223,20 @@ export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
                         }}
                       >
                         {recording ? (
-                          <span style={{ color: "var(--accent)" }}>Press keys…</span>
+                          <span style={{ color: "var(--accent)" }}>
+                            {t("settings.shortcuts.pressKeys")}
+                          </span>
                         ) : row.display ? (
                           <kbd style={kbdStyle}>{row.display}</kbd>
                         ) : (
-                          <span style={{ color: "var(--text-3)" }}>Unassigned</span>
+                          <span style={{ color: "var(--text-3)" }}>
+                            {t("settings.shortcuts.unassigned")}
+                          </span>
                         )}
                       </button>
                       {row.source === "invalid-override" ? (
-                        <Tag
-                          variant="outline"
-                          title="The saved shortcut was invalid; using the default"
-                        >
-                          Invalid
+                        <Tag variant="outline" title={t("settings.shortcuts.invalid.title")}>
+                          {t("settings.shortcuts.invalid")}
                         </Tag>
                       ) : null}
                       {recording ? (
@@ -217,14 +257,14 @@ export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
                             stop();
                           }}
                         >
-                          Unassign
+                          {t("settings.shortcuts.unassign")}
                         </button>
                       ) : null}
                     </td>
                     <td style={{ textAlign: "right" }}>
                       <Button
                         variant="ghost"
-                        aria-label={`Reset ${row.def.label}`}
+                        aria-label={t("settings.shortcuts.resetRow", { label: row.def.label })}
                         disabled={row.source === "default"}
                         onClick={() => {
                           setNotice(null);
@@ -233,7 +273,7 @@ export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
                           });
                         }}
                       >
-                        Reset
+                        {t("settings.shortcuts.reset")}
                       </Button>
                     </td>
                   </tr>

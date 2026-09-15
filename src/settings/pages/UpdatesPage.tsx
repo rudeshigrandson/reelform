@@ -1,42 +1,54 @@
 import { Button, Segmented } from "@design/components";
-import type { SegmentedOption } from "@design/components";
 import { useState } from "react";
+import { type MessageKey, type Translate, createTranslator, useT } from "../../i18n";
 import { PageHeading, Row, StatusText } from "../controls";
 import { releaseNotesToText } from "../releaseNotes";
 import type { SettingsProps, UpdateChannel, UpdaterState } from "../types";
 
-const CHANNEL_OPTIONS: ReadonlyArray<SegmentedOption<UpdateChannel>> = [
-  { value: "stable", label: "Stable" },
-  { value: "beta", label: "Beta" },
+const CHANNEL_OPTIONS: ReadonlyArray<{ value: UpdateChannel; labelKey: MessageKey }> = [
+  { value: "stable", labelKey: "settings.updates.channel.stable" },
+  { value: "beta", labelKey: "settings.updates.channel.beta" },
 ];
 
-export function updateStatusText(state: UpdaterState, formatTime: (ms: number) => string): string {
-  const v = state.info?.version ?? "";
+const english = createTranslator("en");
+
+export function updateStatusText(
+  state: UpdaterState,
+  formatTime: (ms: number) => string,
+  t: Translate = english,
+): string {
+  const version = state.info?.version ?? "";
   switch (state.phase) {
     case "idle":
       return state.lastCheckedAt === null
-        ? "Not checked yet."
-        : `Reelform is up to date. Last checked ${formatTime(state.lastCheckedAt)}.`;
+        ? t("settings.updates.status.notChecked")
+        : t("settings.updates.status.upToDate", { time: formatTime(state.lastCheckedAt) });
     case "checking":
-      return "Checking for updates…";
+      return t("settings.updates.status.checking");
     case "available":
-      return `Reelform ${v} is available. Downloading in the background…`;
+      return t("settings.updates.status.available", { version });
     case "downloading":
-      return `Downloading Reelform ${v} — ${Math.round(state.progress?.percent ?? 0)}%`;
+      return t("settings.updates.status.downloading", {
+        version,
+        percent: String(Math.round(state.progress?.percent ?? 0)),
+      });
     case "downloaded":
-      return `Reelform ${v} is ready. Restart to update.`;
+      return t("settings.updates.status.downloaded", { version });
     case "error":
-      return `Update check failed: ${state.error ?? "unknown error"}`;
+      return t("settings.updates.status.error", {
+        error: state.error ?? t("settings.updates.status.unknownError"),
+      });
   }
 }
 
 export function ReleaseNotes({ html, version }: { html: string | null; version: string }) {
+  const t = useT();
   const lines = releaseNotesToText(html);
   if (lines.length === 0) return null;
   return (
     <details style={{ marginBottom: "var(--space-5)" }}>
       <summary style={{ cursor: "pointer", color: "var(--text-2)" }}>
-        Release notes for {version}
+        {t("settings.updates.releaseNotes", { version })}
       </summary>
       <div
         style={{
@@ -65,6 +77,7 @@ export function UpdatesPage({
   services,
   formatTime = (ms) => new Date(ms).toLocaleString(),
 }: SettingsProps & { formatTime?: ((ms: number) => string) | undefined }) {
+  const t = useT();
   const updater = services?.updater;
   const state = updater?.state ?? null;
   const [busy, setBusy] = useState<"check" | "restart" | null>(null);
@@ -87,28 +100,25 @@ export function UpdatesPage({
 
   return (
     <div>
-      <PageHeading>Updates</PageHeading>
+      <PageHeading>{t("settings.section.updates")}</PageHeading>
 
-      <Row label="Current version">
-        <span style={{ fontFamily: "var(--font-mono)" }}>{version ?? "Unknown"}</span>
+      <Row label={t("settings.updates.currentVersion")}>
+        <span style={{ fontFamily: "var(--font-mono)" }}>{version ?? t("common.unknown")}</span>
       </Row>
 
-      <Row
-        label="Channel"
-        help="Beta gets new features about a week early. Switching to Stable never downgrades."
-      >
+      <Row label={t("settings.updates.channel")} help={t("settings.updates.channel.help")}>
         <Segmented<UpdateChannel>
           name="settings-update-channel"
           value={settings.updateChannel}
-          options={CHANNEL_OPTIONS}
+          options={CHANNEL_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
           onChange={(updateChannel) => onChange({ updateChannel })}
         />
       </Row>
 
       {!updater ? (
-        <StatusText>Updates are unavailable in this build.</StatusText>
+        <StatusText>{t("settings.updates.unavailable")}</StatusText>
       ) : state === null ? (
-        <StatusText>Loading update status…</StatusText>
+        <StatusText>{t("settings.updates.loading")}</StatusText>
       ) : (
         <>
           <Row>
@@ -121,13 +131,13 @@ export function UpdatesPage({
                     : "muted"
               }
             >
-              {updateStatusText(state, formatTime)}
+              {updateStatusText(state, formatTime, t)}
             </StatusText>
             {state.phase === "downloading" ? (
               <progress
                 max={100}
                 value={state.progress?.percent ?? 0}
-                aria-label="Download progress"
+                aria-label={t("settings.updates.downloadProgress")}
                 style={{ width: "100%", maxWidth: "320px", accentColor: "var(--accent)" }}
               />
             ) : null}
@@ -137,7 +147,9 @@ export function UpdatesPage({
               disabled={busy !== null || inFlight}
               onClick={() => void run("check", updater.check)}
             >
-              {state.phase === "checking" || busy === "check" ? "Checking…" : "Check now"}
+              {state.phase === "checking" || busy === "check"
+                ? t("settings.updates.checking")
+                : t("settings.updates.checkNow")}
             </Button>
             {state.phase === "downloaded" ? (
               <Button
@@ -145,7 +157,7 @@ export function UpdatesPage({
                 disabled={busy !== null}
                 onClick={() => void run("restart", updater.restart)}
               >
-                Restart to update
+                {t("settings.updates.restart")}
               </Button>
             ) : null}
           </div>

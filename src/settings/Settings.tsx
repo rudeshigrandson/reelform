@@ -1,4 +1,5 @@
 import { type CSSProperties, useState } from "react";
+import { useT } from "../i18n";
 import { AboutPage } from "./pages/AboutPage";
 import { AdvancedPage } from "./pages/AdvancedPage";
 import { AppearancePage } from "./pages/AppearancePage";
@@ -15,7 +16,13 @@ export { sampleSettings } from "./types";
 export type { SettingsProps, SettingsState, SettingsPatch } from "./types";
 export { SETTINGS_SECTIONS } from "./sections";
 export type { SectionId } from "./sections";
-export type { SettingsServices, SystemPort, DeviceOption, UpdaterControls } from "./services";
+export type {
+  SettingsServices,
+  SystemPort,
+  DeviceOption,
+  UpdaterControls,
+  GlobalShortcutStatus,
+} from "./services";
 
 const shellStyle: CSSProperties = {
   display: "grid",
@@ -58,11 +65,12 @@ function navItemStyle(active: boolean): CSSProperties {
 
 /** S24 Settings window: left nav + one page. Presentational; see `src/app/settings` for wiring. */
 export function Settings(props: SettingsProps) {
+  const t = useT();
   const [active, setActive] = useState<SectionId>(props.initialSection ?? "general");
 
   return (
     <div style={shellStyle}>
-      <nav style={navStyle} aria-label="Settings sections">
+      <nav style={navStyle} aria-label={t("settings.nav.label")}>
         {SETTINGS_SECTIONS.map((s) => (
           <button
             key={s.id}
@@ -71,7 +79,7 @@ export function Settings(props: SettingsProps) {
             aria-current={s.id === active ? "page" : undefined}
             onClick={() => setActive(s.id)}
           >
-            {s.label}
+            {t(s.labelKey)}
           </button>
         ))}
       </nav>

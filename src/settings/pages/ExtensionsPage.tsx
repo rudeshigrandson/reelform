@@ -1,11 +1,13 @@
 import { Button } from "@design/components";
+import { useT } from "../../i18n";
 import { PageHeading } from "../controls";
 
 /** S24 Extensions — the platform ships in 1.2 (SPEC §12); 1.0 shows the empty state. */
 export function ExtensionsPage() {
+  const t = useT();
   return (
     <div>
-      <PageHeading>Extensions</PageHeading>
+      <PageHeading>{t("settings.section.extensions")}</PageHeading>
       <div
         style={{
           display: "flex",
@@ -21,16 +23,17 @@ export function ExtensionsPage() {
         <div aria-hidden="true" style={{ fontSize: "48px", lineHeight: 1, color: "var(--text-3)" }}>
           ⧉
         </div>
-        <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 600 }}>Extensions arrive in 1.2</h3>
+        <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 600 }}>
+          {t("settings.extensions.emptyTitle")}
+        </h3>
         <p style={{ margin: 0, fontSize: "13px", color: "var(--text-2)", maxWidth: "420px" }}>
-          Wallpapers, cursor packs, sounds and render extensions will be installable here. No
-          extensions are installed.
+          {t("settings.extensions.emptyBody")}
         </p>
         <div style={{ display: "flex", gap: "var(--space-2)" }}>
           <Button variant="primary" disabled>
-            Browse marketplace
+            {t("settings.extensions.browse")}
           </Button>
-          <Button disabled>Install from file…</Button>
+          <Button disabled>{t("settings.extensions.installFromFile")}</Button>
         </div>
       </div>
     </div>

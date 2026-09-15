@@ -3,8 +3,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveShortcuts } from "../shortcuts/registry";
 import { Settings, sampleSettings } from "./Settings";
 import { formatBytes, parseSettingNumber } from "./controls";
+import { osConflictsById } from "./pages/ShortcutsPage";
 import type { SectionId } from "./sections";
-import type { SettingsServices, SystemPort } from "./services";
+import {
+  type GlobalShortcutStatus,
+  LICENSES_URL,
+  PRIVACY_URL,
+  REPOSITORY_URL,
+  type SettingsServices,
+  type SystemPort,
+} from "./services";
 import type { SettingsPatch, SettingsState, UpdaterState } from "./types";
 
 afterEach(cleanup);
@@ -73,6 +81,7 @@ describe("General page", () => {
     expect(onChange).toHaveBeenCalledWith({ showInTray: false });
     fireEvent.click(screen.getByRole("switch", { name: "Send anonymous usage stats" }));
     expect(onChange).toHaveBeenCalledWith({ sendUsageStats: true });
+    expect(screen.getByText(/has no effect for now/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("switch", { name: /auto-prune/i }));
     expect(onChange).toHaveBeenCalledWith({ autoPrune: false });
     fireEvent.change(screen.getByLabelText("Language"), { target: { value: "en" } });
@@ -158,10 +167,50 @@ describe("Recording page", () => {
     expect(onChange).toHaveBeenCalledWith({ defaultFps: 30 });
     fireEvent.click(screen.getByRole("radio", { name: "10s" }));
     expect(onChange).toHaveBeenCalledWith({ defaultCountdown: 10 });
-    fireEvent.click(screen.getByRole("switch", { name: "Do Not Disturb while recording" }));
-    expect(onChange).toHaveBeenCalledWith({ doNotDisturbWhileRecording: true });
+    fireEvent.click(screen.getByRole("switch", { name: "Hide cursor by default" }));
+    expect(onChange).toHaveBeenCalledWith({ hideCursorByDefault: true });
     fireEvent.change(screen.getByLabelText("Max recording length"), { target: { value: "1.5" } });
     expect(onChange).toHaveBeenCalledWith({ maxLengthHours: 1.5 });
+  });
+
+  it("disables capture options no platform helper implements yet", () => {
+    setup({ section: "recording" });
+    for (const name of [
+      "Hide desktop icons",
+      "Do Not Disturb while recording",
+      "Show clicks during capture",
+    ]) {
+      expect(screen.getByRole("switch", { name }), name).toBeDisabled();
+    }
+    expect(screen.getByRole("switch", { name: "Hide HUD while recording" })).toBeEnabled();
+    expect(screen.getAllByText("Not available yet.")).toHaveLength(3);
+    // Nothing applies it after export yet, so its toggle is hidden.
+    expect(screen.queryByRole("switch", { name: /Auto-delete raw recordings/ })).toBeNull();
+  });
+
+  it("record typed text badges is off by default, explains privacy and links the policy", () => {
+    const openExternal = vi.fn(async () => {});
+    const { onChange } = setup({
+      section: "recording",
+      services: {
+        system: {
+          openExternal,
+          openLogsFolder: async () => true,
+          getCacheSize: async () => 0,
+          clearCache: async () => true,
+        },
+      },
+    });
+    const toggle = screen.getByRole("switch", { name: "Record typed text badges" });
+    expect(toggle).not.toBeChecked();
+    expect(
+      screen.getByText(/Keeps the text you type so keystroke badges can show it\./),
+    ).toHaveTextContent("Off by default; stays on this device.");
+    fireEvent.click(toggle);
+    expect(onChange).toHaveBeenCalledWith({ recordTypedTextBadges: true });
+    fireEvent.click(screen.getByRole("button", { name: "Privacy policy" }));
+    expect(openExternal).toHaveBeenCalledWith(PRIVACY_URL);
+    expect(PRIVACY_URL).toMatch(/docs\/PRIVACY\.md$/);
   });
 });
 
@@ -259,6 +308,50 @@ describe("Shortcuts page", () => {
     expect(onChange).toHaveBeenLastCalledWith({
       shortcuts: { "editor.undo": "Meta+U", "editor.redo": "", "editor.save": "" },
     });
+  });
+
+  const globalStatus = (failures: GlobalShortcutStatus["failures"]): GlobalShortcutStatus => ({
+    context: { hudOpen: true, recording: false, countdown: false },
+    registered: [],
+    failures,
+  });
+
+  it("warns inline on rows another app owns (os-conflict), not on duplicates", () => {
+    setup({
+      section: "shortcuts",
+      services: {
+        ...services,
+        globalStatus: globalStatus([
+          { id: "record.toggle", accelerator: "⇧⌘R", reason: "os-conflict" },
+          { id: "record.pause", accelerator: "⇧⌘P", reason: "duplicate" },
+        ]),
+      },
+    });
+    const row = (label: string) => button(label).closest("tr") as HTMLElement;
+    expect(within(row("Start / stop recording")).getByRole("status")).toHaveTextContent(
+      "⇧⌘R is taken by another app, so this shortcut won't work outside Reelform.",
+    );
+    expect(within(row("Pause / resume recording")).queryByRole("status")).toBeNull();
+    expect(screen.getAllByText(/taken by another app/)).toHaveLength(1);
+  });
+
+  it("shows no OS warnings when the status is unknown or clean", () => {
+    setup({ section: "shortcuts", services: { ...services, globalStatus: null } });
+    expect(screen.queryByText(/taken by another app/)).not.toBeInTheDocument();
+    cleanup();
+    setup({ section: "shortcuts", services: { ...services, globalStatus: globalStatus([]) } });
+    expect(screen.queryByText(/taken by another app/)).not.toBeInTheDocument();
+  });
+
+  it("osConflictsById keeps only os-conflict failures", () => {
+    expect(osConflictsById(undefined).size).toBe(0);
+    const map = osConflictsById(
+      globalStatus([
+        { id: "a", accelerator: "X", reason: "os-conflict" },
+        { id: "b", accelerator: "Y", reason: "duplicate" },
+      ]),
+    );
+    expect([...map]).toEqual([["a", "X"]]);
   });
 
   it("reports existing conflicts and invalid overrides", () => {
@@ -468,7 +561,9 @@ describe("About page", () => {
     });
     expect(screen.getByText("Version 1.0.3")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Licenses" }));
-    expect(openExternal).toHaveBeenCalledWith(expect.stringContaining("NOTICE"));
+    expect(openExternal).toHaveBeenCalledWith(LICENSES_URL);
+    expect(LICENSES_URL).toMatch(/NOTICE\.md$/);
+    expect(screen.getByText(/includes no OpenScreen code/)).toBeInTheDocument();
     await act(async () =>
       fireEvent.click(screen.getByRole("button", { name: "Copy diagnostics" })),
     );
@@ -491,6 +586,17 @@ describe("About page", () => {
     cleanup();
     setup({ section: "about" });
     expect(screen.getByRole("button", { name: "Copy diagnostics" })).toBeDisabled();
+  });
+});
+
+describe("links", () => {
+  it("privacy and licenses point at the package.json repository", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const pkg = JSON.parse(readFileSync(join(__dirname, "../../package.json"), "utf8"));
+    expect(`${REPOSITORY_URL}.git`).toBe(pkg.repository.url);
+    expect(PRIVACY_URL.startsWith(`${REPOSITORY_URL}/blob/main/`)).toBe(true);
+    expect(LICENSES_URL.startsWith(`${REPOSITORY_URL}/blob/main/`)).toBe(true);
   });
 });
 

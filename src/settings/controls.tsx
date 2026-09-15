@@ -1,4 +1,6 @@
 import { type CSSProperties, type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { useT } from "../i18n";
+import type { SystemPort } from "./services";
 
 /** Shared building blocks for Settings pages (semantic tokens only). */
 
@@ -183,6 +185,7 @@ export function NumberField({
   suffix?: string | undefined;
 }) {
   const id = useId();
+  const t = useT();
   const [text, setText] = useState(String(value));
   const focused = useRef(false);
   // Follow external changes (rollback, other windows) unless the user is typing.
@@ -224,7 +227,10 @@ export function NumberField({
       </div>
       {parsed === null ? (
         <p role="alert" style={{ ...helpStyle, color: "var(--danger)" }}>
-          Enter {integer ? "a whole number" : "a number"} from {min} to {max}.
+          {t(integer ? "settings.number.invalidInteger" : "settings.number.invalid", {
+            min: String(min),
+            max: String(max),
+          })}
         </p>
       ) : null}
     </div>
@@ -252,6 +258,29 @@ export function formatBytes(bytes: number): string {
     i++;
   }
   return `${v >= 10 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
+}
+
+/** Inline text-style button that opens a URL in the browser (disabled without `system`). */
+export function ExternalLink({
+  url,
+  system,
+  children,
+}: {
+  url: string;
+  system: SystemPort | undefined;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className="btn btn-ghost"
+      style={{ padding: 0, minHeight: 0, fontSize: "inherit" }}
+      onClick={() => void system?.openExternal(url)}
+      disabled={!system}
+    >
+      {children}
+    </button>
+  );
 }
 
 /** Inline status line (loading / error / success). */

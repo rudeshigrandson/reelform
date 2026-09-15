@@ -6,6 +6,8 @@
  *   resources/ffmpeg/<platform>-<arch>/ffmpeg[.exe]
  *   resources/ffmpeg/<platform>-<arch>/ffprobe[.exe]
  *   resources/ffmpeg/<platform>-<arch>/manifest.json
+ *   resources/ffmpeg/<platform>-<arch>/LICENSE.txt   (GPLv3 text, scripts/licenses/GPL-3.0.txt)
+ *   resources/ffmpeg/<platform>-<arch>/SOURCE.txt    (written source offer + upstream links)
  *
  * Every archive is downloaded from a versioned, immutable URL and verified
  * against a pinned sha256 BEFORE it is extracted. A target whose pins are
@@ -28,6 +30,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   rmSync,
   statSync,
@@ -38,6 +41,7 @@ import { dirname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
+import { LICENSE_TEXTS, projectInfo } from "./licenses/project.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -211,6 +215,113 @@ export function buildManifest({ target, entries, files, fetchedAt }) {
   };
 }
 
+// ── GPL compliance (LICENSE.txt + SOURCE.txt next to the binaries) ──────────
+
+/** Upstream FFmpeg source for FFMPEG_VERSION. */
+export const FFMPEG_SOURCE = {
+  release: `https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz`,
+  tag: `https://github.com/FFmpeg/FFmpeg/tree/n${FFMPEG_VERSION}`,
+};
+
+/**
+ * Who built an archive, and where its exact source + build scripts live.
+ * Throws for an unknown host so a new pin cannot ship without a source offer.
+ */
+export function builderFor(url) {
+  if (url.startsWith("https://ffmpeg.martin-riedl.de/")) {
+    return {
+      name: "Martin Riedl FFmpeg Build Server",
+      buildScripts: "https://git.martin-riedl.de/ffmpeg/build-script",
+      source: FFMPEG_SOURCE.release,
+    };
+  }
+  if (url.startsWith("https://github.com/GyanD/codexffmpeg/")) {
+    const tag = /\/releases\/download\/([^/]+)\//.exec(url)?.[1] ?? FFMPEG_VERSION;
+    return {
+      name: "gyan.dev (GyanD/codexffmpeg)",
+      buildScripts: `https://github.com/GyanD/codexffmpeg/releases/tag/${tag}`,
+      source: FFMPEG_SOURCE.release,
+    };
+  }
+  if (url.startsWith("https://github.com/BtbN/FFmpeg-Builds/")) {
+    const tag = /\/releases\/download\/([^/]+)\//.exec(url)?.[1];
+    // Asset names embed `git describe` of the FFmpeg tree: n9.0.1-11-ge47273f4d9.
+    const commit = /-g([0-9a-f]{7,40})-/.exec(url)?.[1];
+    if (!tag) throw new Error(`cannot read the BtbN release tag from ${url}`);
+    return {
+      name: "BtbN/FFmpeg-Builds",
+      buildScripts: `https://github.com/BtbN/FFmpeg-Builds/tree/${tag}`,
+      source: commit ? `https://github.com/FFmpeg/FFmpeg/commit/${commit}` : FFMPEG_SOURCE.release,
+    };
+  }
+  throw new Error(`no source-offer mapping for ffmpeg archive host: ${url}`);
+}
+
+/** SOURCE.txt: GPLv3 §6 written offer plus the exact upstream source per archive. */
+export function buildSourceOffer({ target, entries, project }) {
+  const contact = [
+    project.contact ? `email ${project.contact}` : null,
+    `open an issue at ${project.issues}`,
+  ]
+    .filter(Boolean)
+    .join(" or ");
+  const lines = [
+    `FFmpeg ${FFMPEG_VERSION} for ${target} — corresponding source`,
+    "",
+    "The ffmpeg and ffprobe executables in this folder are unmodified builds of FFmpeg",
+    `${FFMPEG_VERSION}, licensed under the GNU General Public License version 3 or later`,
+    "(see LICENSE.txt). Reelform runs them as separate programs; it does not link to them.",
+    "",
+    "Upstream source:",
+    `  FFmpeg release tarball: ${FFMPEG_SOURCE.release}`,
+    `  FFmpeg git tag:         ${FFMPEG_SOURCE.tag}`,
+    "",
+    "Builds in this folder:",
+  ];
+  for (const e of entries) {
+    const b = builderFor(e.url);
+    lines.push(
+      `  ${toolsIn(e).join(" + ")} (${e.license ?? "GPL-3.0-or-later"})`,
+      `    archive:        ${e.url}`,
+      `    sha256:         ${e.sha256}`,
+      `    built by:       ${b.name}`,
+      `    source:         ${b.source}`,
+      `    build scripts:  ${b.buildScripts}`,
+    );
+  }
+  lines.push(
+    "",
+    "Written offer:",
+    `For at least three years after we last distribute this version of ${project.name ?? "Reelform"},`,
+    "anyone who received these binaries from us may obtain the complete corresponding",
+    "source code (the FFmpeg source and the build scripts listed above) on a medium",
+    "customarily used for software interchange, for no more than our cost of physically",
+    `performing the distribution. To ask for it, ${contact}.`,
+    "",
+    `Packaging script: ${project.repository}/blob/main/scripts/fetch-ffmpeg.mjs`,
+    "",
+  );
+  return lines.join("\n");
+}
+
+/** Write LICENSE.txt (GPLv3) and SOURCE.txt into a staged ffmpeg folder. */
+export function writeLicenseFiles(
+  outDir,
+  {
+    target,
+    entries,
+    project = projectInfo(),
+    gplText = readFileSync(LICENSE_TEXTS["GPL-3.0"], "utf8"),
+  },
+) {
+  if (!/GNU GENERAL PUBLIC LICENSE\s+Version 3/.test(gplText))
+    throw new Error("GPL-3.0 license text is missing or not GPLv3");
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(join(outDir, "LICENSE.txt"), gplText);
+  writeFileSync(join(outDir, "SOURCE.txt"), buildSourceOffer({ target, entries, project }));
+  return ["LICENSE.txt", "SOURCE.txt"];
+}
+
 async function download(url, dest) {
   const res = await fetch(url, { redirect: "follow" });
   if (!res.ok || !res.body) throw new Error(`download failed: HTTP ${res.status} ${url}`);
@@ -242,6 +353,8 @@ async function main() {
     ti > 0 && process.argv[ti + 1] ? process.argv[ti + 1] : `${process.platform}-${process.arch}`;
   const printHash = process.argv.includes("--print-hash");
   const entries = assertPinned(target, { requireHash: !printHash });
+  // Fail before downloading if a pin has no source-offer mapping.
+  for (const e of entries) builderFor(e.url);
   const exe = target.startsWith("win32") ? ".exe" : "";
   const out = join(ROOT, "resources", "ffmpeg", target);
   const work = mkdtempSync(join(tmpdir(), "reelform-ffmpeg-"));
@@ -281,7 +394,10 @@ async function main() {
       fetchedAt: new Date().toISOString(),
     });
     writeFileSync(join(out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-    console.log(`ffmpeg ${FFMPEG_VERSION} + ffprobe installed into ${out}`);
+    writeLicenseFiles(out, { target, entries });
+    console.log(
+      `ffmpeg ${FFMPEG_VERSION} + ffprobe (with LICENSE.txt, SOURCE.txt) installed into ${out}`,
+    );
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

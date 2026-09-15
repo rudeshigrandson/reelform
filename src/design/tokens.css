@@ -67,6 +67,11 @@
   --space-6: 26.4px;
   --space-8: 35.2px;
 
+  /* Control / list-row heights (buttons, inputs, table and list rows). */
+  --control-height: 36px;
+  --control-height-sm: 28px;
+  --row-height: 36px;
+
   --radius-xs: 6px;
   --radius-sm: 8px;
   --radius-md: 16px;
@@ -111,6 +116,25 @@
   --color-accent: var(--accent);
   --color-accent-2: var(--success);
   --color-divider: var(--border-strong);
+}
+
+/*
+ * UI density (Settings › Appearance, guide S24). `data-density` is set on
+ * <html> by src/app/settings/appearance.ts; compact scales spacing by 0.75 and
+ * tightens controls and rows. Theme-independent, so it composes with any theme.
+ */
+:root[data-density="compact"] {
+  --space-1: 3.3px;
+  --space-2: 6.6px;
+  --space-3: 9.9px;
+  --space-4: 13.2px;
+  --space-5: 16.5px;
+  --space-6: 19.8px;
+  --space-8: 26.4px;
+
+  --control-height: 30px;
+  --control-height-sm: 24px;
+  --row-height: 28px;
 }
 
 /* ── Light (default) — warm "Organic" ─────────────────────────────────── */

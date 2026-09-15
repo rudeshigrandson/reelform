@@ -6,6 +6,8 @@
  *
  *   resources/whisper/<platform>-<arch>/whisper-cli[.exe]
  *   resources/whisper/<platform>-<arch>/whisper-cli-vulkan[.exe]   (Windows, --vulkan)
+ *   resources/whisper/<platform>-<arch>/LICENSE.txt   (whisper.cpp MIT + Whisper model MIT)
+ *   resources/whisper/<platform>-<arch>/SOURCE.txt    (upstream tag, build flags, script)
  *
  * Flags: static libs (no dylib/dll to ship), Metal on macOS (embedded shader
  * library), CUDA off by default on Windows (CPU build + optional Vulkan build),
@@ -14,10 +16,18 @@
  * Usage: node scripts/build-whisper-runtime.mjs [--arch arm64|x64] [--vulkan] [--jobs 8]
  */
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { cpus } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { LICENSE_TEXTS, projectInfo } from "./licenses/project.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -54,6 +64,67 @@ export function cmakeFlags({ platform, arch, variant = "cpu" }) {
   }
   if (platform === "win32") flags.push("-A", arch === "arm64" ? "ARM64" : "x64");
   return flags;
+}
+
+/** `https://github.com/ggml-org/whisper.cpp` (no `.git`). */
+export const WHISPER_WEB = WHISPER_REPO.replace(/\.git$/, "");
+
+/** LICENSE.txt: whisper.cpp's MIT license, then the OpenAI Whisper model weights' MIT license. */
+export function buildWhisperLicense({
+  runtimeText = readFileSync(LICENSE_TEXTS["whisper.cpp-MIT"], "utf8"),
+  modelText = readFileSync(LICENSE_TEXTS["whisper-models-MIT"], "utf8"),
+} = {}) {
+  for (const [name, text] of [
+    ["whisper.cpp", runtimeText],
+    ["Whisper models", modelText],
+  ]) {
+    if (!/^MIT License/.test(text.trim())) throw new Error(`${name} license text is not MIT`);
+  }
+  return [
+    `whisper.cpp ${WHISPER_TAG} (${WHISPER_WEB})`,
+    "=".repeat(60),
+    runtimeText.trim(),
+    "",
+    "",
+    "Whisper model weights (downloaded on demand into userData/models from",
+    "https://huggingface.co/ggerganov/whisper.cpp; converted from https://github.com/openai/whisper)",
+    "=".repeat(60),
+    modelText.trim(),
+    "",
+  ].join("\n");
+}
+
+/** SOURCE.txt: where this exact runtime came from and how it was built. */
+export function buildWhisperSourceNotice({ target, variants, project }) {
+  const lines = [
+    `whisper.cpp ${WHISPER_TAG} for ${target} — source`,
+    "",
+    `Source tag:     ${WHISPER_WEB}/tree/${WHISPER_TAG}`,
+    `Source archive: ${WHISPER_WEB}/archive/refs/tags/${WHISPER_TAG}.tar.gz`,
+    `Build script:   ${project.repository}/blob/main/scripts/build-whisper-runtime.mjs`,
+    "",
+    "Unmodified upstream source, built as a static Release `whisper-cli` with:",
+  ];
+  const [platform, arch] = target.split("-");
+  for (const variant of variants) {
+    lines.push(`  ${variant}: cmake ${cmakeFlags({ platform, arch, variant }).join(" ")}`);
+  }
+  lines.push("", "License: MIT (see LICENSE.txt).", "");
+  return lines.join("\n");
+}
+
+/** Write LICENSE.txt + SOURCE.txt into a staged whisper runtime folder. */
+export function writeWhisperLicenseFiles(
+  outDir,
+  { target, variants, project = projectInfo(), texts },
+) {
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(join(outDir, "LICENSE.txt"), buildWhisperLicense(texts));
+  writeFileSync(
+    join(outDir, "SOURCE.txt"),
+    buildWhisperSourceNotice({ target, variants, project }),
+  );
+  return ["LICENSE.txt", "SOURCE.txt"];
 }
 
 function run(cmd, args, cwd) {
@@ -103,6 +174,8 @@ function main() {
     if (!exe) chmodSync(join(out, name), 0o755);
     console.log(`staged ${join(out, name)}`);
   }
+  writeWhisperLicenseFiles(out, { target: `${platform}-${arch}`, variants });
+  console.log(`staged ${join(out, "LICENSE.txt")} and SOURCE.txt`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

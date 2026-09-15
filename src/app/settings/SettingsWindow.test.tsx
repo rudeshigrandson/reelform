@@ -226,6 +226,61 @@ describe("OnboardingGate", () => {
   });
 });
 
+describe("global shortcut status", () => {
+  type Status = NonNullable<SettingsServices["globalStatus"]>;
+  const status = (failures: Status["failures"]): Status => ({
+    context: { hudOpen: true, recording: false, countdown: false },
+    registered: [],
+    failures,
+  });
+
+  it("loads shortcuts:globalStatus and follows globalStatusChanged pushes", async () => {
+    let push: ((s: Status) => void) | null = null;
+    const unsubscribe = vi.fn();
+    const port = {
+      get: vi.fn(async () =>
+        status([{ id: "record.toggle", accelerator: "⇧⌘R", reason: "os-conflict" }]),
+      ),
+      subscribe: vi.fn((cb: (s: Status) => void) => {
+        push = cb;
+        return unsubscribe;
+      }),
+    };
+    const { unmount } = renderWindow(transport(), {
+      globalStatusPort: port,
+      initialSection: "shortcuts",
+    });
+    expect(await screen.findByText(/⇧⌘R is taken by another app/)).toBeInTheDocument();
+    expect(port.get).toHaveBeenCalledTimes(1);
+    act(() => push?.(status([])));
+    await waitFor(() => expect(screen.queryByText(/taken by another app/)).toBeNull());
+    act(() => push?.(status([{ id: "record.pause", accelerator: "⇧⌘P", reason: "os-conflict" }])));
+    expect(await screen.findByText(/⇧⌘P is taken by another app/)).toBeInTheDocument();
+    unmount();
+    expect(unsubscribe).toHaveBeenCalled();
+  });
+
+  it("a push that arrives before the initial fetch is not overwritten by it", async () => {
+    let resolveGet: (s: Status) => void = () => {};
+    const port = {
+      get: () =>
+        new Promise<Status>((r) => {
+          resolveGet = r;
+        }),
+      subscribe: (cb: (s: Status) => void) => {
+        queueMicrotask(() => cb(status([])));
+        return () => {};
+      },
+    };
+    renderWindow(transport(), { globalStatusPort: port, initialSection: "shortcuts" });
+    await screen.findByRole("table", { name: "Keyboard shortcuts" });
+    await act(async () => {
+      resolveGet(status([{ id: "record.toggle", accelerator: "⇧⌘R", reason: "os-conflict" }]));
+    });
+    expect(screen.queryByText(/taken by another app/)).toBeNull();
+  });
+});
+
 describe("appearance", () => {
   it("applies density, reduce motion and accent overrides; indigo clears them", () => {
     const root = document.createElement("div");

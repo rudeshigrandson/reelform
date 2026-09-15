@@ -1,5 +1,6 @@
 import { Button } from "@design/components";
 import { useState } from "react";
+import { useT } from "../../i18n";
 import { PageHeading, StatusText, helpStyle } from "../controls";
 import { LICENSES_URL } from "../services";
 import type { SettingsProps } from "../types";
@@ -7,13 +8,14 @@ import type { SettingsProps } from "../types";
 type CopyState = "idle" | "copying" | "copied" | "failed";
 
 export function AboutPage({ services }: SettingsProps) {
+  const t = useT();
   const [copy, setCopy] = useState<CopyState>("idle");
   const copyDiagnostics = services?.copyDiagnostics;
   const version = services?.updater?.state?.currentVersion ?? services?.appVersion ?? null;
 
   return (
     <div>
-      <PageHeading>About</PageHeading>
+      <PageHeading>{t("settings.section.about")}</PageHeading>
       <div
         style={{
           display: "flex",
@@ -41,14 +43,14 @@ export function AboutPage({ services }: SettingsProps) {
         <div>
           <div style={{ fontFamily: "var(--font-heading)", fontSize: "1.3rem" }}>Reelform</div>
           <div style={{ ...helpStyle, fontFamily: "var(--font-mono)" }}>
-            Version {version ?? "unknown"}
+            {t("settings.about.version", {
+              version: version ?? t("settings.about.versionUnknown"),
+            })}
           </div>
         </div>
       </div>
 
-      <p style={{ color: "var(--text-2)", maxWidth: "520px" }}>
-        Built with Electron, React and PixiJS. Includes portions of OpenScreen (MIT).
-      </p>
+      <p style={{ color: "var(--text-2)", maxWidth: "520px" }}>{t("settings.about.credits")}</p>
 
       <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-3)" }}>
         <Button
@@ -56,7 +58,7 @@ export function AboutPage({ services }: SettingsProps) {
           disabled={!services?.system}
           onClick={() => void services?.system?.openExternal(LICENSES_URL)}
         >
-          Licenses
+          {t("settings.about.licenses")}
         </Button>
         <Button
           disabled={!copyDiagnostics || copy === "copying"}
@@ -67,15 +69,15 @@ export function AboutPage({ services }: SettingsProps) {
             setCopy(ok ? "copied" : "failed");
           }}
         >
-          {copy === "copying" ? "Copying…" : "Copy diagnostics"}
+          {copy === "copying" ? t("settings.about.copying") : t("settings.about.copyDiagnostics")}
         </Button>
       </div>
       {copy === "copied" ? (
-        <StatusText tone="success">
-          Diagnostics copied. Paths and your user name are removed.
-        </StatusText>
+        <StatusText tone="success">{t("settings.about.copied")}</StatusText>
       ) : null}
-      {copy === "failed" ? <StatusText tone="danger">Couldn't copy diagnostics.</StatusText> : null}
+      {copy === "failed" ? (
+        <StatusText tone="danger">{t("settings.about.copyFailed")}</StatusText>
+      ) : null}
     </div>
   );
 }

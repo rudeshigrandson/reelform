@@ -80,12 +80,18 @@
     // is written; re-signing here would change their bytes after hashing.
     "signIgnore": ["/Contents/Resources/bin/"],
     // Platform extraResources replace any top-level list, so each platform
-    // repeats the tray icons (electron/main.ts reads resources/tray/).
+    // repeats the tray icons (electron/main.ts reads resources/tray/) and the
+    // license files (<resources>/licenses/; THIRD_PARTY_LICENSES.txt comes from
+    // scripts/generate-licenses.mjs). ffmpeg/whisper folders carry their own
+    // LICENSE.txt + SOURCE.txt (written by fetch-ffmpeg / build-whisper-runtime).
     "extraResources": [
       { "from": "electron/native/bin", "to": "bin", "filter": ["darwin-*/**/*"] },
       { "from": "resources/whisper", "to": "whisper", "filter": ["darwin-*/**/*"] },
       { "from": "resources/ffmpeg", "to": "ffmpeg", "filter": ["darwin-*/**/*"] },
       { "from": "build/tray", "to": "tray", "filter": ["*.png"] },
+      { "from": "LICENSE", "to": "licenses/LICENSE" },
+      { "from": "NOTICE.md", "to": "licenses/NOTICE.md" },
+      { "from": "THIRD_PARTY_LICENSES.txt", "to": "licenses/THIRD_PARTY_LICENSES.txt" },
     ],
     "extendInfo": {
       "NSCameraUsageDescription": "Reelform uses your camera to record a webcam bubble alongside your screen.",
@@ -129,6 +135,9 @@
       { "from": "resources/whisper", "to": "whisper", "filter": ["win32-x64/**/*"] },
       { "from": "resources/ffmpeg", "to": "ffmpeg", "filter": ["win32-x64/**/*"] },
       { "from": "build/tray", "to": "tray", "filter": ["*.png"] },
+      { "from": "LICENSE", "to": "licenses/LICENSE" },
+      { "from": "NOTICE.md", "to": "licenses/NOTICE.md" },
+      { "from": "THIRD_PARTY_LICENSES.txt", "to": "licenses/THIRD_PARTY_LICENSES.txt" },
     ],
   },
   "nsis": {
@@ -150,6 +159,9 @@
       { "from": "resources/whisper", "to": "whisper", "filter": ["linux-x64/**/*"] },
       { "from": "resources/ffmpeg", "to": "ffmpeg", "filter": ["linux-x64/**/*"] },
       { "from": "build/tray", "to": "tray", "filter": ["*.png"] },
+      { "from": "LICENSE", "to": "licenses/LICENSE" },
+      { "from": "NOTICE.md", "to": "licenses/NOTICE.md" },
+      { "from": "THIRD_PARTY_LICENSES.txt", "to": "licenses/THIRD_PARTY_LICENSES.txt" },
     ],
   },
 }

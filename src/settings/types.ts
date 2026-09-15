@@ -65,6 +65,7 @@ export const sampleSettings: SettingsState = {
   doNotDisturbWhileRecording: false,
   showClicksDuringCapture: false,
   hideCursorByDefault: false,
+  recordTypedTextBadges: false,
   autoDeleteRawAfterExport: false,
   maxLengthHours: 3,
   diskWarningThresholdGb: 2,

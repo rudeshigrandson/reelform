@@ -151,8 +151,8 @@ a {
   background: color-mix(in srgb, var(--danger) 20%, transparent);
 }
 .btn-icon {
-  width: 36px;
-  height: 36px;
+  width: var(--control-height);
+  height: var(--control-height);
   padding: 0;
 }
 .btn-block {
@@ -169,7 +169,7 @@ a {
 }
 .input {
   width: 100%;
-  min-height: 36px;
+  min-height: var(--control-height);
   padding: 6px 14px;
   font: inherit;
   font-size: 14px;
@@ -352,6 +352,7 @@ textarea.input {
   border-bottom: 1px solid var(--border-strong);
 }
 .table td {
+  height: var(--row-height);
   padding: var(--space-2);
   border-bottom: 1px solid var(--border);
 }
@@ -394,4 +395,29 @@ textarea.input {
   justify-content: flex-end;
   gap: var(--space-2);
   margin-top: var(--space-2);
+}
+
+/*
+ * — reduced motion (guide §5 Accessibility, S24 Appearance) —
+ * The in-app toggle sets data-reduce-motion on <html>; the OS setting applies
+ * with no toggle. Durations collapse (not `none`) so transitionend/animationend
+ * listeners still fire. Exports render through the export engine, not CSS.
+ */
+:root[data-reduce-motion="true"] *,
+:root[data-reduce-motion="true"] *::before,
+:root[data-reduce-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -1,50 +1,52 @@
 import { Segmented } from "@design/components";
-import type { SegmentedOption } from "@design/components";
+import { type MessageKey, useT } from "../../i18n";
 import { ACCENT_SWATCHES } from "../appearance";
 import { PageHeading, Row, Switch } from "../controls";
 import type { Density, SettingsProps, Theme } from "../types";
 
-const THEME_OPTIONS: ReadonlyArray<SegmentedOption<Theme>> = [
-  { value: "system", label: "System" },
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
+const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: MessageKey }> = [
+  { value: "system", labelKey: "settings.appearance.theme.system" },
+  { value: "light", labelKey: "settings.appearance.theme.light" },
+  { value: "dark", labelKey: "settings.appearance.theme.dark" },
 ];
 
-const DENSITY_OPTIONS: ReadonlyArray<SegmentedOption<Density>> = [
-  { value: "comfortable", label: "Comfortable" },
-  { value: "compact", label: "Compact" },
+const DENSITY_OPTIONS: ReadonlyArray<{ value: Density; labelKey: MessageKey }> = [
+  { value: "comfortable", labelKey: "settings.appearance.density.comfortable" },
+  { value: "compact", labelKey: "settings.appearance.density.compact" },
 ];
 
 export function AppearancePage({ settings, onChange }: SettingsProps) {
+  const t = useT();
   return (
     <div>
-      <PageHeading>Appearance</PageHeading>
+      <PageHeading>{t("settings.section.appearance")}</PageHeading>
 
-      <Row label="Theme" help="System follows your OS light/dark setting.">
+      <Row label={t("settings.appearance.theme")} help={t("settings.appearance.theme.help")}>
         <Segmented<Theme>
           name="settings-theme"
           value={settings.theme}
-          options={THEME_OPTIONS}
+          options={THEME_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
           onChange={(theme) => onChange({ theme })}
         />
       </Row>
 
-      <Row label="Accent color">
+      <Row label={t("settings.appearance.accent")}>
         <div
           role="radiogroup"
-          aria-label="Accent color"
+          aria-label={t("settings.appearance.accent")}
           style={{ display: "flex", gap: "var(--space-2)" }}
         >
           {ACCENT_SWATCHES.map((s) => {
             const selected = settings.accentColor === s.id;
+            const label = t(s.labelKey);
             return (
               <button
                 key={s.id}
                 type="button"
                 role="radio"
                 aria-checked={selected}
-                aria-label={s.label}
-                title={s.label}
+                aria-label={label}
+                title={label}
                 onClick={() => onChange({ accentColor: s.id })}
                 style={{
                   width: "28px",
@@ -65,11 +67,11 @@ export function AppearancePage({ settings, onChange }: SettingsProps) {
         </div>
       </Row>
 
-      <Row label="UI density">
+      <Row label={t("settings.appearance.density")}>
         <Segmented<Density>
           name="settings-density"
           value={settings.density}
-          options={DENSITY_OPTIONS}
+          options={DENSITY_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
           onChange={(density) => onChange({ density })}
         />
       </Row>
@@ -77,8 +79,8 @@ export function AppearancePage({ settings, onChange }: SettingsProps) {
       <Switch
         checked={settings.reduceMotion}
         onChange={(reduceMotion) => onChange({ reduceMotion })}
-        label="Reduce motion"
-        help="Replaces animated transitions with fades. Exported videos are unaffected."
+        label={t("settings.appearance.reduceMotion")}
+        help={t("settings.appearance.reduceMotion.help")}
       />
     </div>
   );

@@ -1,3 +1,4 @@
+import type { ResponseOf } from "@contracts";
 import type { ShortcutPlatform } from "../shortcuts/accelerator";
 import type { UpdaterState } from "./types";
 
@@ -28,12 +29,20 @@ export interface UpdaterControls {
   restart(): Promise<void>;
 }
 
+/** Main's global shortcut registration (`shortcuts:globalStatus` / `…Changed`). */
+export type GlobalShortcutStatus = ResponseOf<"shortcuts:globalStatus">;
+
 export interface SettingsServices {
   platform?: ShortcutPlatform | undefined;
   appVersion?: string | null | undefined;
   enumerateDevices?: (() => Promise<DeviceOption[]>) | undefined;
   system?: SystemPort | undefined;
   updater?: UpdaterControls | undefined;
+  /**
+   * Latest global shortcut status from main; `os-conflict` failures are shown
+   * inline on the Shortcuts page. Null/undefined = unknown (outside Electron).
+   */
+  globalStatus?: GlobalShortcutStatus | null | undefined;
   /** `system:copyDiagnostics`; resolves whether the clipboard was written. */
   copyDiagnostics?: (() => Promise<boolean>) | undefined;
   /** `settings:reset`. */
@@ -42,5 +51,7 @@ export interface SettingsServices {
   runOnboarding?: (() => void) | undefined;
 }
 
-export const PRIVACY_URL = "https://reelform.app/privacy";
-export const LICENSES_URL = "https://github.com/reelform/app/blob/main/NOTICE.md";
+/** package.json `repository`; docs and notices are served from its main branch. */
+export const REPOSITORY_URL = "https://github.com/rudeshigrandson/reelform";
+export const PRIVACY_URL = `${REPOSITORY_URL}/blob/main/docs/PRIVACY.md`;
+export const LICENSES_URL = `${REPOSITORY_URL}/blob/main/NOTICE.md`;

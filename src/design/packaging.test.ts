@@ -545,6 +545,25 @@ describe("electron-builder.json5", () => {
     expect(hit("/x/Reelform.app/Contents/Frameworks/Electron Framework.framework")).toBe(false);
   });
 
+  it("ships LICENSE, NOTICE.md and THIRD_PARTY_LICENSES.txt into <resources>/licenses on every OS", () => {
+    const expected = [
+      { from: "LICENSE", to: "licenses/LICENSE" },
+      { from: "NOTICE.md", to: "licenses/NOTICE.md" },
+      { from: "THIRD_PARTY_LICENSES.txt", to: "licenses/THIRD_PARTY_LICENSES.txt" },
+    ];
+    for (const os of ["mac", "win", "linux"]) {
+      expect(cfg[os].extraResources, os).toEqual(expect.arrayContaining(expected));
+      // ffmpeg + whisper folders (with their LICENSE.txt / SOURCE.txt) ship everywhere.
+      for (const to of ["ffmpeg", "whisper"]) {
+        expect(
+          cfg[os].extraResources.some((r: { to: string }) => r.to === to),
+          `${os} ${to}`,
+        ).toBe(true);
+      }
+    }
+    for (const { from } of expected.slice(0, 2)) expect(existsSync(at(from)), from).toBe(true);
+  });
+
   it("contains no inline secrets", () => {
     const text = readFileSync(at("electron-builder.json5"), "utf8");
     expect(text).not.toMatch(/"(password|cscKeyPassword|appleIdPassword|token)"\s*:/i);
@@ -785,6 +804,66 @@ describe("fetch-ffmpeg", async () => {
     expect(m.files["ffmpeg.exe"].size).toBe(1);
   });
 
+  it("every pin maps to a builder with source + build-script URLs (GPL source offer)", () => {
+    for (const [target, entries] of Object.entries(ffmpeg.PINS) as [string, { url: string }[]][]) {
+      for (const e of entries) {
+        const b = ffmpeg.builderFor(e.url);
+        expect(b.source, target).toMatch(/^https:\/\//);
+        expect(b.buildScripts, target).toMatch(/^https:\/\//);
+      }
+    }
+    const btbn = ffmpeg.builderFor(ffmpeg.PINS["linux-x64"][0].url);
+    expect(btbn.source).toBe("https://github.com/FFmpeg/FFmpeg/commit/e47273f4d9");
+    expect(btbn.buildScripts).toContain("/tree/autobuild-2026-08-31-13-27");
+    expect(() => ffmpeg.builderFor("https://example.com/ffmpeg.zip")).toThrow(/source-offer/);
+  });
+
+  it("writes the GPLv3 text and a written source offer next to the binaries", () => {
+    const out = join(tmp, "ffmpeg-licenses");
+    const project = {
+      name: "reelform",
+      repository: "https://github.com/rudeshigrandson/reelform",
+      issues: "https://github.com/rudeshigrandson/reelform/issues",
+      contact: "dev@example.com",
+    };
+    const written = ffmpeg.writeLicenseFiles(out, {
+      target: "win32-x64",
+      entries: ffmpeg.PINS["win32-x64"],
+      project,
+    });
+    expect(written).toEqual(["LICENSE.txt", "SOURCE.txt"]);
+    const license = readFileSync(join(out, "LICENSE.txt"), "utf8");
+    expect(license).toBe(readFileSync(at("scripts/licenses/GPL-3.0.txt"), "utf8"));
+    const source = readFileSync(join(out, "SOURCE.txt"), "utf8");
+    for (const s of [
+      `ffmpeg-${ffmpeg.FFMPEG_VERSION}.tar.xz`,
+      `n${ffmpeg.FFMPEG_VERSION}`,
+      ffmpeg.PINS["win32-x64"][0].url,
+      ffmpeg.PINS["win32-x64"][0].sha256,
+      "three years",
+      "dev@example.com",
+      project.issues,
+      "scripts/fetch-ffmpeg.mjs",
+    ])
+      expect(source).toContain(s);
+    expect(() =>
+      ffmpeg.writeLicenseFiles(out, {
+        target: "win32-x64",
+        entries: [],
+        project,
+        gplText: "MIT License",
+      }),
+    ).toThrow(/GPLv3/);
+  });
+
+  it("vendors the verbatim GNU GPLv3 text", () => {
+    const text = readFileSync(at("scripts/licenses/GPL-3.0.txt"));
+    // sha256 of https://www.gnu.org/licenses/gpl-3.0.txt
+    expect(createHash("sha256").update(text).digest("hex")).toBe(
+      "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+    );
+  });
+
   it("verifySha256 accepts matching bytes (case-insensitive) and rejects mismatches", () => {
     const bytes = Buffer.from("ffmpeg");
     const hex = createHash("sha256").update(bytes).digest("hex");
@@ -813,6 +892,32 @@ describe("build-whisper-runtime flags (SPEC §9.6)", async () => {
     expect(f).not.toContain("-DGGML_CUDA=OFF");
   });
 
+  it("writes whisper.cpp + model MIT licenses and a source notice with the exact build flags", () => {
+    const out = join(tmp, "whisper-licenses");
+    const project = {
+      name: "reelform",
+      repository: "https://github.com/rudeshigrandson/reelform",
+      issues: "https://github.com/rudeshigrandson/reelform/issues",
+      contact: null,
+    };
+    whisper.writeWhisperLicenseFiles(out, {
+      target: "win32-x64",
+      variants: ["cpu", "vulkan"],
+      project,
+    });
+    const license = readFileSync(join(out, "LICENSE.txt"), "utf8");
+    expect(license).toContain("Copyright (c) 2023-2024 The ggml authors");
+    expect(license).toContain("Copyright (c) 2022 OpenAI");
+    const source = readFileSync(join(out, "SOURCE.txt"), "utf8");
+    expect(source).toContain(`https://github.com/ggml-org/whisper.cpp/tree/${whisper.WHISPER_TAG}`);
+    expect(source).toContain(`${project.repository}/blob/main/scripts/build-whisper-runtime.mjs`);
+    expect(source).toContain("cpu: cmake");
+    expect(source).toContain("-DGGML_VULKAN=ON");
+    expect(() =>
+      whisper.buildWhisperLicense({ runtimeText: "GPL", modelText: "MIT License" }),
+    ).toThrow(/not MIT/);
+  });
+
   it("win: CUDA off by default, OpenMP on, Vulkan only for the vulkan variant", () => {
     const cpu: string[] = whisper.cmakeFlags({ platform: "win32", arch: "x64" });
     expect(cpu).toEqual(
@@ -823,6 +928,144 @@ describe("build-whisper-runtime flags (SPEC §9.6)", async () => {
       "-DGGML_VULKAN=ON",
     );
     expect(whisper.cmakeFlags({ platform: "linux", arch: "x64" })).not.toContain("-A");
+  });
+});
+
+// ── Third-party license notices ─────────────────────────────────────────────
+
+describe("generate-licenses", async () => {
+  const gen = await importScript("generate-licenses.mjs");
+  const project = await importScript("licenses/project.mjs");
+
+  /** Fake install: root → a (→ c@2 nested, d hoisted), b (optional missing e). */
+  function fakeTree() {
+    const root = mkdtempSync(join(tmp, "licenses-tree-"));
+    const pkg = (dir: string, json: object, files: Record<string, string> = {}) => {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "package.json"), JSON.stringify(json));
+      for (const [f, text] of Object.entries(files)) writeFileSync(join(dir, f), text);
+    };
+    pkg(root, {
+      name: "app",
+      version: "1.0.0",
+      dependencies: { a: "1", b: "1" },
+      devDependencies: { devonly: "1" },
+      repository: { url: "git+https://github.com/x/app.git" },
+    });
+    const nm = join(root, "node_modules");
+    pkg(
+      join(nm, "a"),
+      { name: "a", version: "1.0.0", license: "MIT", dependencies: { c: "2", d: "1" } },
+      {
+        LICENSE: "MIT a",
+      },
+    );
+    pkg(
+      join(nm, "a", "node_modules", "c"),
+      { name: "c", version: "2.0.0", license: "ISC" },
+      { "LICENSE.md": "ISC c2" },
+    );
+    pkg(join(nm, "c"), { name: "c", version: "1.0.0", license: "ISC" });
+    pkg(
+      join(nm, "d"),
+      { name: "d", version: "1.0.0", licenses: [{ type: "MIT" }, { type: "Apache-2.0" }] },
+      {
+        COPYING: "dual",
+        NOTICE: "notice d",
+      },
+    );
+    pkg(join(nm, "b"), {
+      name: "b",
+      version: "3.1.0",
+      license: { type: "BSD-3-Clause" },
+      optionalDependencies: { e: "1" },
+      repository: "git+ssh://git@github.com/x/b.git",
+    });
+    pkg(join(nm, "devonly"), { name: "devonly", version: "9.9.9", license: "MIT" });
+    return root;
+  }
+
+  it("walks production deps transitively with Node resolution, skipping dev and missing optional deps", () => {
+    const root = fakeTree();
+    const pkgs = gen.collectProductionPackages(root) as {
+      name: string;
+      version: string;
+      license: string;
+      licenseFiles: string[];
+    }[];
+    expect(pkgs.map((p) => `${p.name}@${p.version}`)).toEqual([
+      "a@1.0.0",
+      "b@3.1.0",
+      "c@2.0.0",
+      "d@1.0.0",
+    ]);
+    const byName = Object.fromEntries(pkgs.map((p) => [p.name, p]));
+    expect(byName.b?.license).toBe("BSD-3-Clause");
+    expect(byName.d?.license).toBe("(MIT OR Apache-2.0)");
+    expect(byName.d?.licenseFiles).toEqual(["COPYING", "NOTICE"]);
+    expect(byName.c?.licenseFiles).toEqual(["LICENSE.md"]);
+  });
+
+  it("fails loudly when a required dependency is not installed", () => {
+    const root = fakeTree();
+    rmSync(join(root, "node_modules", "d"), { recursive: true });
+    expect(() => gen.collectProductionPackages(root)).toThrow(
+      /d \(required by a@1.0.0\) is not installed/,
+    );
+  });
+
+  it("renders bundled components and every package with its license text", () => {
+    const root = fakeTree();
+    const text: string = gen.renderThirdPartyLicenses({
+      project: project.projectInfo(JSON.parse(readFileSync(join(root, "package.json"), "utf8"))),
+      packages: gen.collectProductionPackages(root),
+      bundled: gen.bundledComponents(ROOT),
+    });
+    for (const s of [
+      "Source: https://github.com/x/app",
+      "FFmpeg / FFprobe 9.0.1",
+      "GNU GENERAL PUBLIC LICENSE",
+      "whisper.cpp v1.7.6",
+      "Copyright (c) 2022 OpenAI",
+      "Electron",
+      "a 1.0.0",
+      "MIT a",
+      "--- COPYING ---\ndual",
+      "(No license file in the package; declared license: BSD-3-Clause.)",
+    ])
+      expect(text).toContain(s);
+    expect(text).not.toContain("devonly");
+    expect(text.endsWith("\n")).toBe(true);
+  });
+
+  it("normalizes repository URLs and reads project facts from package.json", () => {
+    expect(project.normalizeRepoUrl("git+https://github.com/a/b.git")).toBe(
+      "https://github.com/a/b",
+    );
+    expect(project.normalizeRepoUrl("git@github.com:a/b.git")).toBe("https://github.com/a/b");
+    expect(project.normalizeRepoUrl(undefined)).toBeNull();
+    const info = project.projectInfo();
+    const pkg = JSON.parse(readFileSync(at("package.json"), "utf8"));
+    expect(`${info.repository}.git`).toBe(pkg.repository.url);
+    expect(info.issues).toBe(`${info.repository}/issues`);
+    expect(() => project.projectInfo({ name: "x" })).toThrow(/repository/);
+  });
+
+  it("NOTICE.md covers every bundled/runtime component and reconciles OpenScreen", () => {
+    const notice = readFileSync(at("NOTICE.md"), "utf8");
+    for (const s of [
+      "mediabunny",
+      "MPL-2.0",
+      "whisper.cpp",
+      "Whisper model",
+      "Electron",
+      "Chromium",
+      "FFmpeg",
+      "THIRD_PARTY_LICENSES.txt",
+      "SOURCE.txt",
+    ])
+      expect(notice, s).toContain(s);
+    expect(notice).toMatch(/no OpenScreen (source )?code/i);
   });
 });
 
