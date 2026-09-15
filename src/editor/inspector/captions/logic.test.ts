@@ -325,6 +325,6 @@ describe("presets", () => {
       position: "top",
     });
     expect(applyPreset(base, "outline").outline).toBe(true);
-    expect(modelInfo("accurate").size).toBe("1.5 GB");
+    expect(modelInfo("accurate").size).toBe("540 MB");
   });
 });

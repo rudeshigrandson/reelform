@@ -40,6 +40,12 @@ export interface AudioInspectorProps {
   missingTrackReason?: Partial<Record<TrackKind, string>> | undefined;
   /** Opens the host's "Add audio…" file picker. */
   onAddAudio: () => void;
+  /** Decoded peaks (0..1) per extra audio region id. */
+  regionWaveforms?: Readonly<Record<string, number[]>> | undefined;
+  /** Inline error from the last "Add audio…". */
+  addAudioError?: string | null | undefined;
+  /** True while a picked file is being imported/decoded. */
+  addingAudio?: boolean | undefined;
 }
 
 export const WAVEFORM_BARS = 48;
@@ -149,7 +155,8 @@ function ToggleChip({ label, short, pressed, onToggle }: ToggleChipProps): React
 }
 
 interface MiniWaveformProps {
-  kind: TrackKind;
+  /** Track kind or `region-<id>`; used for the test id. */
+  kind: string;
   peaks: number[] | undefined;
   silent: boolean;
 }
@@ -198,6 +205,9 @@ export function AudioInspector({
   trackDurationMs,
   missingTrackReason,
   onAddAudio,
+  regionWaveforms,
+  addAudioError,
+  addingAudio,
 }: AudioInspectorProps): ReactElement {
   const noTracks = !availableTracks.mic && !availableTracks.system;
   const soloActive = anySolo(value, availableTracks);
@@ -308,6 +318,13 @@ export function AudioInspector({
             Remove
           </Button>
         </div>
+        {regionWaveforms?.[region.id] && (
+          <MiniWaveform
+            kind={`region-${region.id}`}
+            peaks={regionWaveforms[region.id]}
+            silent={region.volumeDb === Number.NEGATIVE_INFINITY}
+          />
+        )}
         <VolumeSlider
           label="Volume"
           db={region.volumeDb}
@@ -380,9 +397,20 @@ export function AudioInspector({
         ) : (
           value.regions.map(renderRegion)
         )}
-        <Button variant="secondary" block onClick={onAddAudio}>
-          Add audio…
+        <Button
+          variant="secondary"
+          block
+          disabled={addingAudio === true}
+          aria-busy={addingAudio === true}
+          onClick={onAddAudio}
+        >
+          {addingAudio === true ? "Adding audio…" : "Add audio…"}
         </Button>
+        {addAudioError ? (
+          <span role="alert" style={{ ...hintStyle, color: "var(--danger)" }}>
+            {addAudioError}
+          </span>
+        ) : null}
       </Section>
 
       <Section title="Master">

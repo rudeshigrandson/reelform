@@ -33,6 +33,10 @@ export interface WebcamInspectorProps {
   onRemove: () => void;
   /** "Auto-sync" — aligns webcam to mic by audio (§9.4). */
   onAutoSync: () => void;
+  /** True while auto-sync decodes and correlates audio. */
+  syncing?: boolean | undefined;
+  /** Result or failure line under the sync row. */
+  syncNotice?: string | null | undefined;
   /** Probed webcam dimensions; defaults to 1280×720. */
   sourceSize?: Size | undefined;
   /** Frame shown under the crop overlay in S16b. */
@@ -266,10 +270,20 @@ export function WebcamInspector(props: WebcamInspectorProps): ReactElement {
               disabled={off}
               onChange={(v) => set("syncOffsetMs", clampSyncOffset(v))}
             />
-            <Button variant="secondary" disabled={off} onClick={onAutoSync}>
-              Auto-sync
+            <Button
+              variant="secondary"
+              disabled={off || props.syncing === true}
+              aria-busy={props.syncing === true}
+              onClick={onAutoSync}
+            >
+              {props.syncing === true ? "Syncing…" : "Auto-sync"}
             </Button>
           </div>
+          {props.syncNotice ? (
+            <output style={{ display: "block", fontSize: "12px", color: "var(--text-2)" }}>
+              {props.syncNotice}
+            </output>
+          ) : null}
         </Section>
       </fieldset>
 

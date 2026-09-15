@@ -68,7 +68,9 @@ export function parseDurationLine(lines: readonly string[]): number | null {
 }
 
 /** Output length of a set of timeline ranges after speed regions, ms. */
-export function rangesOutputMs(ranges: ReadonlyArray<Span & { rate?: number | undefined }>): number {
+export function rangesOutputMs(
+  ranges: ReadonlyArray<Span & { rate?: number | undefined }>,
+): number {
   return ranges.reduce((sum, r) => {
     const rate = r.rate !== undefined && r.rate > 0 ? r.rate : 1;
     return sum + Math.max(0, r.endMs - r.startMs) / rate;

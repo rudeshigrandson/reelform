@@ -57,6 +57,12 @@ export interface CaptionsInspectorProps {
   onExportVtt: () => void;
   fonts?: readonly string[] | undefined;
   onAddCustomFont?: (() => void) | undefined;
+  /** "Cancel" while the model downloads; hidden when absent. */
+  onCancelDownload?: (() => void) | undefined;
+  /** "Import .srt/.vtt…"; hidden when absent. */
+  onImportSidecar?: (() => void) | undefined;
+  /** Transient note under the export buttons, e.g. "Saved captions.srt". */
+  exportNotice?: string | null | undefined;
 }
 
 const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
@@ -258,6 +264,11 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
               {info.size})
             </span>
             <ProgressBar value={status.progress} label="Model download" />
+            {props.onCancelDownload && (
+              <Button variant="ghost" onClick={props.onCancelDownload}>
+                Cancel
+              </Button>
+            )}
           </div>
         ) : status.kind === "transcribing" ? (
           <div
@@ -534,6 +545,14 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
             Export .vtt
           </Button>
         </div>
+        {props.onImportSidecar && (
+          <Button variant="ghost" disabled={busy} onClick={props.onImportSidecar}>
+            Import .srt/.vtt…
+          </Button>
+        )}
+        {props.exportNotice ? (
+          <output style={{ ...hintStyle, display: "block" }}>{props.exportNotice}</output>
+        ) : null}
       </Section>
     </div>
   );

@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL_FOR_TIER, findModel } from "../../../../electron/captions/models";
 import type { Caption, Word } from "../../captions";
 
 /**
@@ -43,16 +44,21 @@ export interface CaptionModelInfo {
   size: string;
 }
 
+/** Display size of the whisper model a tier downloads (SPEC §9.6 catalog). */
+function catalogSize(tier: CaptionModel): string {
+  return findModel(DEFAULT_MODEL_FOR_TIER[tier])?.displaySize ?? "";
+}
+
 export const CAPTION_MODELS: readonly CaptionModelInfo[] = [
-  { id: "fast", label: "Fast", size: "75 MB" },
-  { id: "balanced", label: "Balanced", size: "466 MB" },
-  { id: "accurate", label: "Accurate", size: "1.5 GB" },
+  { id: "fast", label: "Fast", size: catalogSize("fast") },
+  { id: "balanced", label: "Balanced", size: catalogSize("balanced") },
+  { id: "accurate", label: "Accurate", size: catalogSize("accurate") },
 ];
 
 export function modelInfo(model: CaptionModel): CaptionModelInfo {
   const found = CAPTION_MODELS.find((m) => m.id === model);
   // CAPTION_MODELS covers every CaptionModel member.
-  return found ?? { id: "balanced", label: "Balanced", size: "466 MB" };
+  return found ?? { id: "balanced", label: "Balanced", size: catalogSize("balanced") };
 }
 
 export interface CaptionLanguage {

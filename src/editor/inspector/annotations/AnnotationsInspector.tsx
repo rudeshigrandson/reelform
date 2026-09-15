@@ -35,6 +35,10 @@ export interface AnnotationsInspectorProps {
   onAddAllShortcuts: () => void;
   /** Used to clamp timing edits; defaults to unbounded. */
   timelineDurationMs?: number | undefined;
+  /** "Choose image…" for image annotations; hidden when absent. */
+  onPickImage?: ((annotation: AnnotationOf<"image">) => void) | undefined;
+  /** Inline error from the last image pick/import. */
+  imageError?: string | null | undefined;
 }
 
 const rootStyle: CSSProperties = {
@@ -265,7 +269,12 @@ function SelectedPanels(props: AnnotationsInspectorProps & { selected: Annotatio
         </span>
       </div>
 
-      <KindPanel a={a} onChange={onChange} />
+      <KindPanel
+        a={a}
+        onChange={onChange}
+        onPickImage={props.onPickImage}
+        imageError={props.imageError}
+      />
 
       <Section title="Animation">
         <AnimControls
@@ -410,7 +419,14 @@ function AnimControls({
 function KindPanel({
   a,
   onChange,
-}: { a: Annotation; onChange: (a: Annotation) => void }): ReactElement | null {
+  onPickImage,
+  imageError,
+}: {
+  a: Annotation;
+  onChange: (a: Annotation) => void;
+  onPickImage?: ((a: AnnotationOf<"image">) => void) | undefined;
+  imageError?: string | null | undefined;
+}): ReactElement | null {
   switch (a.kind) {
     case "text":
       return <TextPanel a={a} onChange={onChange} />;
@@ -524,6 +540,16 @@ function KindPanel({
       return (
         <Section title="Image">
           {a.src === "" && <EmptyState title="No image">Drop an image onto the canvas.</EmptyState>}
+          {onPickImage && (
+            <Button variant="secondary" block onClick={() => onPickImage(a)}>
+              {a.src === "" ? "Choose image…" : "Replace image…"}
+            </Button>
+          )}
+          {imageError ? (
+            <span role="alert" style={{ color: "var(--danger)", fontSize: "12px" }}>
+              {imageError}
+            </span>
+          ) : null}
           <OpacitySlider a={a} onChange={onChange} />
           <Row label="Fit">
             <Segmented

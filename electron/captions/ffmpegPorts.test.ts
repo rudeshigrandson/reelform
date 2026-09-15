@@ -26,7 +26,12 @@ describe("parseSilenceDetect", () => {
   });
 
   it("clamps negative starts, closes trailing silence at duration, ignores orphan ends", () => {
-    const lines = ["silence_end: 1", "silence_start: -0.02", "silence_end: 0.5", "silence_start: 8"];
+    const lines = [
+      "silence_end: 1",
+      "silence_start: -0.02",
+      "silence_end: 0.5",
+      "silence_start: 8",
+    ];
     expect(parseSilenceDetect(lines, 9000)).toEqual([
       { startMs: 0, endMs: 500 },
       { startMs: 8000, endMs: 9000 },
@@ -81,9 +86,11 @@ describe("createFfmpegWavExtractor", () => {
 
   it("throws a coded error when ffmpeg is missing", async () => {
     const extract = createFfmpegWavExtractor({
-      runner: { spawn: () => {
-        throw new Error("should not spawn");
-      } },
+      runner: {
+        spawn: () => {
+          throw new Error("should not spawn");
+        },
+      },
       resolveBinaries: () => null,
     });
     await expect(
@@ -101,7 +108,10 @@ describe("createFfmpegSilenceSplitter", () => {
       child.err("[silencedetect @ 0x] silence_start: 29\n");
       child.close(0);
     });
-    const splitter = createFfmpegSilenceSplitter({ runner: { spawn }, resolveBinaries: () => BINS });
+    const splitter = createFfmpegSilenceSplitter({
+      runner: { spawn },
+      resolveBinaries: () => BINS,
+    });
     await expect(splitter.detectSilences({ wavPath: "/tmp/a.wav" })).resolves.toEqual([
       { startMs: 12_000, endMs: 13_500 },
       { startMs: 29_000, endMs: 30_000 },
@@ -111,8 +121,16 @@ describe("createFfmpegSilenceSplitter", () => {
 
   it("cuts a 16 kHz mono PCM chunk for the requested range", async () => {
     const { spawn, calls } = scriptedSpawn(({ child }) => child.close(0));
-    const splitter = createFfmpegSilenceSplitter({ runner: { spawn }, resolveBinaries: () => BINS });
-    await splitter.cut({ input: "/tmp/a.wav", output: "/tmp/c0.wav", startMs: 1500, endMs: 301_250 });
+    const splitter = createFfmpegSilenceSplitter({
+      runner: { spawn },
+      resolveBinaries: () => BINS,
+    });
+    await splitter.cut({
+      input: "/tmp/a.wav",
+      output: "/tmp/c0.wav",
+      startMs: 1500,
+      endMs: 301_250,
+    });
     const args = calls[0]?.args ?? [];
     expect(args.slice(args.indexOf("-ss"), args.indexOf("-ss") + 4)).toEqual([
       "-ss",
@@ -129,7 +147,10 @@ describe("createFfmpegSilenceSplitter", () => {
       child.err("Invalid data found when processing input\n");
       child.close(1);
     });
-    const splitter = createFfmpegSilenceSplitter({ runner: { spawn }, resolveBinaries: () => BINS });
+    const splitter = createFfmpegSilenceSplitter({
+      runner: { spawn },
+      resolveBinaries: () => BINS,
+    });
     await expect(splitter.detectSilences({ wavPath: "/tmp/bad.wav" })).rejects.toThrow();
   });
 });
