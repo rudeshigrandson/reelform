@@ -24,6 +24,22 @@ export const TELEMETRY_JSON = {
   ],
 };
 
+/**
+ * Telemetry file with clicks at source 1s / 3s (clip k1) and 7s (clip k2), the
+ * cursor parked at each: enough for the auto-zoom engine to suggest zooms.
+ */
+export function clickTelemetryJson() {
+  const at = (t: number): [number, number] =>
+    t < 2000 ? [0.2, 0.3] : t < 5000 ? [0.7, 0.6] : [0.4, 0.8];
+  const points: [number, number, number, string][] = [];
+  for (let t = 0; t <= 10_000; t += 50) points.push([t, ...at(t), "arrow"]);
+  const clicks = [1000, 3000, 7000].flatMap((t) => [
+    [t, ...at(t), "left", "down"],
+    [t + 80, ...at(t), "left", "up"],
+  ]);
+  return { ...TELEMETRY_JSON, points, clicks };
+}
+
 /** A v1 document with two clips (8s of a 10s source), a stale stored duration and telemetry. */
 export function projectDocument(patch: Partial<ProjectV1> = {}): ProjectV1 {
   const base = loadProject(m0Fixture());

@@ -10,16 +10,26 @@ import {
   useState,
 } from "react";
 import { EditorWindow, type EditorWindowProps } from "../../editor/EditorWindow";
+import type { SuggestedZoom } from "../../editor/autozoom";
 import { type IntervalTimer, bindBlurAutosave } from "../../editor/persistence";
+import { usePlaybackStore } from "../../editor/playback/store";
 import type { CreatePreviewStage } from "../../editor/preview";
-import { createEditorHistory, useHistoryState } from "../../editor/state";
+import { createDocumentUpdate, createEditorHistory, useHistoryState } from "../../editor/state";
 import { invoke as appInvoke } from "../ipc";
+import { useAppSettings } from "../settings/store";
+import { AutoZoomSuggestionsToast } from "./AutoZoomSuggestionsToast";
+import {
+  type AutoZoomOnOpenPrefs,
+  autoZoomPrefsFromSettings,
+  runAutoZoomOnOpen,
+} from "./autoZoomOnOpen";
 import {
   type ProjectInvoke,
   type ProjectMediaPort,
   type RecoveryInfo,
   bindCursorTrack,
   browserMediaPort,
+  defaultProjectStores,
   openProject,
   releaseMediaRoots,
   restoreProjectBackup,
@@ -46,6 +56,11 @@ export interface ProjectEditorProps {
   onExport: () => void;
   /** Settings `undoHistorySize` (read once when the window opens). */
   undoHistorySize?: number | undefined;
+  /**
+   * Settings `autoZoomOnNewRecording` + `autoZoomSensitivity` (SPEC §6.1). Read
+   * when a project finishes opening; defaults to the window's settings mirror.
+   */
+  autoZoomOnOpen?: AutoZoomOnOpenPrefs | undefined;
   invoke?: ProjectInvoke | undefined;
   media?: ProjectMediaPort | undefined;
   windowPort?: EditorWindowPort | undefined;
@@ -123,6 +138,7 @@ export function ProjectEditor({
   projectId,
   onExport,
   undoHistorySize,
+  autoZoomOnOpen,
   invoke = appInvoke as ProjectInvoke,
   media = browserMediaPort,
   windowPort,
@@ -145,6 +161,11 @@ export function ProjectEditor({
   const [leaveError, setLeaveError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ text: string; tone: "info" | "error" } | null>(null);
+  const [zoomSuggestions, setZoomSuggestions] = useState<readonly SuggestedZoom[]>([]);
+  const documentUpdate = useMemo(() => createDocumentUpdate(history), [history]);
+  // Read at open time, not a dependency: a settings change must not re-open the project.
+  const autoZoomRef = useRef(autoZoomOnOpen);
+  autoZoomRef.current = autoZoomOnOpen;
 
   const saverRef = useRef<ProjectSaver | null>(null);
   const allowCloseRef = useRef(false);
@@ -162,6 +183,7 @@ export function ProjectEditor({
     let unbindBlur: (() => void) | null = null;
     setPhase({ kind: "loading" });
     setRecovery(null);
+    setZoomSuggestions([]);
     void openProject(projectId, { invoke, media, signal: controller.signal }).then((res) => {
       if (controller.signal.aborted) {
         if (res.status === "ready") void releaseMediaRoots(res.mediaRootIds, invoke);
@@ -178,6 +200,17 @@ export function ProjectEditor({
       saverRef.current = saver;
       unbindCursor = bindCursorTrack();
       if (target) unbindBlur = bindBlurAutosave(target, saver);
+      try {
+        const auto = runAutoZoomOnOpen({
+          stores: defaultProjectStores(),
+          documentUpdate: createDocumentUpdate(history),
+          prefs:
+            autoZoomRef.current ?? autoZoomPrefsFromSettings(useAppSettings.getState().settings),
+        });
+        if (auto.status === "applied") setZoomSuggestions(auto.suggestions);
+      } catch {
+        // Suggestions are a convenience: an engine failure never blocks opening.
+      }
       setRecovery(res.recovery);
       setPhase({ kind: "ready", path: res.path });
     });
@@ -428,6 +461,13 @@ export function ProjectEditor({
           </p>
         )}
       </Dialog>
+
+      <AutoZoomSuggestionsToast
+        suggestions={zoomSuggestions}
+        documentUpdate={documentUpdate}
+        seek={(ms) => usePlaybackStore.getState().seek(ms)}
+        onClose={() => setZoomSuggestions([])}
+      />
 
       {toast && (
         <div role={toast.tone === "error" ? "alert" : "status"} style={toastStyle}>
