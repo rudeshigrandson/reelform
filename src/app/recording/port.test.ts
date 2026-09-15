@@ -15,9 +15,9 @@ import {
   IPC_UNAVAILABLE,
   type IpcClient,
   type MainRecordingEvent,
+  createIpcHudWindowsPort,
   createIpcProjectPort,
   createIpcRecordingPort,
-  createIpcHudWindowsPort,
   createIpcSystemPort,
   createIpcWindowsPort,
   mapMainRecordingEvent,
@@ -166,6 +166,40 @@ describe("createIpcRecordingPort", () => {
     off();
     ipc.emit("recording:event", { sessionId: "s", type: "resumed", recordedMs: 5 });
     expect(seen).toEqual([{ sessionId: "s", type: "paused", elapsedMs: 5 }]);
+  });
+
+  it("setMicMuted sends recording:setMicMuted with the session and state", async () => {
+    const ipc = fakeIpc({ "recording:setMicMuted": async () => ({ ok: true, applied: false }) });
+    const port = createIpcRecordingPort(ipc.client);
+    await port.setMicMuted?.("s1", true);
+    await port.setMicMuted?.("s1", false);
+    expect(ipc.calls).toEqual([
+      { channel: "recording:setMicMuted", payload: { sessionId: "s1", muted: true } },
+      { channel: "recording:setMicMuted", payload: { sessionId: "s1", muted: false } },
+    ]);
+  });
+
+  it("onTranscodeProgress delivers recording:transcodeProgress payloads until unsubscribed", () => {
+    const ipc = fakeIpc();
+    const port = createIpcRecordingPort(ipc.client);
+    const seen: unknown[] = [];
+    const off = port.onTranscodeProgress?.((p) => seen.push(p));
+    const done = {
+      sessionId: "s1",
+      progress: 1,
+      done: true,
+      outputPath: "/rec/s1/screen.h264.mp4",
+    };
+    ipc.emit("recording:transcodeProgress", done);
+    off?.();
+    ipc.emit("recording:transcodeProgress", {
+      ...done,
+      progress: 0.5,
+      done: false,
+      outputPath: null,
+    });
+    expect(seen).toEqual([done]);
+    expect(ipc.listeners.get("recording:transcodeProgress")?.size).toBe(0);
   });
 
   it("sends the chunk ArrayBuffer itself, with timing only when present", async () => {
@@ -368,12 +402,36 @@ describe("windows / project / system ports", () => {
       }),
       "project:save": async () => ({ path: "/p.reelform", modifiedAt: "x", backupName: null }),
       "project:trash": async () => ({ trashed: true }),
+      "project:relink": async () => ({
+        path: "media/screen.h264.mp4",
+        probe: { durationMs: 42_000, width: 3024, height: 1964 },
+      }),
+      "project:open": async () => ({
+        path: "/p.reelform",
+        document: { v: 1 },
+        modifiedAt: null,
+        recovery: null,
+      }),
     });
     const projects = createIpcProjectPort(ipc.client);
     await expect(projects.create({ name: "R", document: {} })).resolves.toMatchObject({
       path: "/p.reelform",
     });
     await projects.save({ path: "/p.reelform", document: {} });
+    await expect(
+      projects.relink?.({
+        path: "/p.reelform",
+        filePath: "/rec/s1/screen.h264.mp4",
+        expected: { durationMs: 42_000 },
+        mode: "copy",
+      }),
+    ).resolves.toEqual({
+      path: "media/screen.h264.mp4",
+      probe: { durationMs: 42_000, width: 3024, height: 1964 },
+    });
+    await expect(projects.open?.({ path: "/p.reelform" })).resolves.toMatchObject({
+      document: { v: 1 },
+    });
     const reveal = vi.fn(async () => {});
     const system = createIpcSystemPort(reveal, ipc.client);
     await system.reveal("/p.reelform");
@@ -383,6 +441,8 @@ describe("windows / project / system ports", () => {
     expect(ipc.calls.map((c) => c.channel)).toEqual([
       "project:create",
       "project:save",
+      "project:relink",
+      "project:open",
       "project:trash",
       "permissions:openSettings",
     ]);

@@ -61,6 +61,11 @@ export type RecordingBusMessage =
   /** The recording pill's Mute mic toggle (guide S10); the flow mutes the mic track. */
   | { type: "hud:setMicMuted"; muted: boolean }
   /**
+   * The recording pill's Restart: the flow discards the live session and starts
+   * again with the same setup, keeping the HUD window open.
+   */
+  | { type: "hud:restart" }
+  /**
    * Outline of the selected window source for the source-outline overlay of
    * `displayId` (SPEC §5.7). `bounds` is display-local DIP; null hides it.
    */
@@ -136,6 +141,7 @@ export function isRecordingBusMessage(v: unknown): v is RecordingBusMessage {
   if (!isObj(v) || !isStr(v.type)) return false;
   switch (v.type) {
     case "snapshotRequest":
+    case "hud:restart":
       return true;
     case "snapshot":
       return v.snapshot === null || isSnapshot(v.snapshot);

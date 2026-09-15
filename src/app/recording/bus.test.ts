@@ -172,8 +172,9 @@ describe("createMemoryBusHub", () => {
 });
 
 describe("isRecordingBusMessage — HUD messages", () => {
-  it("accepts mic mute toggles and source outlines", () => {
+  it("accepts mic mute toggles, restart and source outlines", () => {
     expect(isRecordingBusMessage({ type: "hud:setMicMuted", muted: true })).toBe(true);
+    expect(isRecordingBusMessage({ type: "hud:restart" })).toBe(true);
     expect(
       isRecordingBusMessage({
         type: "hud:sourceOutline",

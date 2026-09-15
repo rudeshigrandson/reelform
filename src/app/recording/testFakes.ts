@@ -26,12 +26,17 @@ import type {
   HudSizeRequest,
   HudWindowPlan,
   HudWindowsPort,
+  OpenProjectRequest,
+  OpenProjectResult,
   ProjectPort,
+  RelinkProjectRequest,
+  RelinkProjectResult,
   SaveProjectRequest,
   SourcesResult,
   StartRecordingRequest,
   StartRecordingResult,
   SystemPort,
+  TranscodeProgressEvent,
   WindowsPort,
 } from "./port";
 
@@ -109,6 +114,7 @@ export class FakeAppPort implements AppRecordingPort {
   writes: WriteChunkRequest[] = [];
   ended: EndTrackRequest[] = [];
   listeners = new Set<(e: RecordingEvent) => void>();
+  transcodeListeners = new Set<(p: TranscodeProgressEvent) => void>();
   sources: SourcesResult = SOURCES;
   sourcesError: Failure | null = null;
   startError: Failure | null = null;
@@ -164,6 +170,13 @@ export class FakeAppPort implements AppRecordingPort {
   emit(e: RecordingEvent): void {
     for (const l of [...this.listeners]) l(e);
   }
+  onTranscodeProgress(listener: (p: TranscodeProgressEvent) => void): () => void {
+    this.transcodeListeners.add(listener);
+    return () => this.transcodeListeners.delete(listener);
+  }
+  emitTranscode(p: TranscodeProgressEvent): void {
+    for (const l of [...this.transcodeListeners]) l(p);
+  }
 }
 
 export class FakeWindows implements WindowsPort {
@@ -206,6 +219,8 @@ export class FakeProjects implements ProjectPort {
   created: CreateProjectRequest[] = [];
   saved: SaveProjectRequest[] = [];
   createErrors: Failure[] = [];
+  relinked: RelinkProjectRequest[] = [];
+  relinkError: Failure | null = null;
   /** Override media names main returns (uniquified on collision). */
   renameMedia: ((name: string) => string) | null = null;
 
@@ -222,6 +237,22 @@ export class FakeProjects implements ProjectPort {
   }
   async save(req: SaveProjectRequest): Promise<void> {
     this.saved.push(req);
+  }
+  async open(req: OpenProjectRequest): Promise<OpenProjectResult> {
+    const doc =
+      this.saved.findLast((s) => s.path === req.path)?.document ??
+      this.created.findLast((c) => `/Projects/${c.name}.reelform` === req.path)?.document;
+    if (doc === undefined) throw { code: "PROJECT_NOT_FOUND", message: req.path };
+    return { path: req.path, document: doc, modifiedAt: null, recovery: null };
+  }
+  async relink(req: RelinkProjectRequest): Promise<RelinkProjectResult> {
+    this.relinked.push(req);
+    if (this.relinkError) throw this.relinkError;
+    const name = req.filePath.split(/[\\/]/).at(-1) ?? "video";
+    return {
+      path: req.mode === "reference" ? req.filePath : `media/${name}`,
+      probe: { durationMs: req.expected.durationMs, width: 3024, height: 1964 },
+    };
   }
 }
 

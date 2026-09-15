@@ -36,8 +36,9 @@ import type { HudWindowsPort } from "./port";
  * - mic meter from the launcher's renderer meter over the bus (Electron
  *   backend) or helper RMS in `stats` (native),
  * - interrupted ("Recording saved up to 00:42") and disk-low warning states,
- * - overflow: Restart (discard, then start again with the same setup), Hide
- *   pill (the 20px dot), Mute mic (`hud:setMicMuted` on the bus).
+ * - overflow: Restart (`hud:restart`: the flow discards and starts again with
+ *   the same setup, keeping this window), Hide pill (the 20px dot), Mute mic
+ *   (`hud:setMicMuted` on the bus).
  *
  * The HUD is a separate window opened without a session id: it adopts the
  * session from the launcher's bus snapshot or the first live event. With no
@@ -135,7 +136,8 @@ export function HudContainer({
   const [micMuted, setMicMuted] = useState(false);
   const startRef = useRef<(() => void) | null>(null);
   const lastSetup = useRef<RecordOptions | null>(null);
-  const pendingRestart = useRef<RecordOptions | null>(null);
+  /** Restart posted: the flow's idle snapshot clears the discarded session for the next one. */
+  const restarting = useRef(false);
   const mounted = useRef(true);
   const useSession = store;
   const state = useSession();
@@ -171,13 +173,10 @@ export function HudContainer({
       switch (m.type) {
         case "snapshot": {
           setFlowPhase(m.snapshot?.phase ?? null);
-          const restart = pendingRestart.current;
           if (!m.snapshot) {
-            // The discarded session is gone in the flow: start again with the same setup.
-            if (restart) {
-              pendingRestart.current = null;
+            if (restarting.current) {
+              restarting.current = false;
               store.getState().reset();
-              bus.post({ type: "startRequest", setup: restart });
             }
             return;
           }
@@ -264,12 +263,13 @@ export function HudContainer({
     bus?.post({ type: "hud:setMicMuted", muted });
   }, [bus]);
 
+  // The launcher-hosted flow discards and starts again atomically; this window
+  // stays open and adopts the next session.
   const restart = useCallback(() => {
-    const setup = lastSetup.current;
-    if (!bus || !setup) return;
-    pendingRestart.current = setup;
-    void store.getState().discard();
-  }, [bus, store]);
+    if (!bus || !lastSetup.current) return;
+    restarting.current = true;
+    bus.post({ type: "hud:restart" });
+  }, [bus]);
 
   // ---- window size ------------------------------------------------------------------
 

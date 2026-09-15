@@ -241,9 +241,10 @@ describe("HudContainer — pre-record pill driven by the launcher flow", () => {
     const log: string[] = [];
     const port = new FakeAppPort();
     const hub = createMemoryBusHub();
+    const windows = new FakeWindows();
     const flow = createRecordingFlow({
       port,
-      windows: new FakeWindows(),
+      windows,
       projects: new FakeProjects(),
       system: new FakeSystem(),
       startCapture: fakeCaptureFactory(log).startCapture,
@@ -270,7 +271,7 @@ describe("HudContainer — pre-record pill driven by the launcher flow", () => {
         await drain(60);
       });
     };
-    return { port, flow, pre, shortcuts, flush, hub, ...utils };
+    return { port, flow, pre, windows, shortcuts, flush, hub, ...utils };
   }
 
   it("Record in the pill starts the flow; the HUD adopts the session into the live pill", async () => {
@@ -383,27 +384,57 @@ describe("HudContainer — pre-record pill driven by the launcher flow", () => {
     t.flow.dispose();
   });
 
-  it("Restart discards, then starts again with the same setup once the flow is idle", async () => {
+  it("Restart asks the flow to discard and start again with the same setup, keeping the HUD", async () => {
     const t = flowSetup();
+    const busSeen: RecordingBusMessage[] = [];
+    t.hub.endpoint().subscribe((m) => busSeen.push(m));
     await startRecording(t);
+    busSeen.length = 0;
     fireEvent.click(screen.getByRole("button", { name: "More recording options" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Restart" }));
     await t.flush();
+    expect(busSeen).toContainEqual({ type: "hud:restart" });
     expect(t.port.calls).toContain("discard:s1");
     const firstStart = t.port.lastStart;
-    // Main confirms the discard; the flow goes idle and the HUD asks for the same start.
+    // Main confirms the discard; the flow starts again itself without closing the HUD.
     await act(async () => {
       t.port.emit({ sessionId: "s1", type: "discarded" });
       await drain(80);
     });
     expect(t.port.calls.filter((c) => c === "start")).toHaveLength(2);
     expect(t.port.lastStart).toEqual(firstStart);
+    expect(t.windows.calls).not.toContain("closeKind:hud");
+    expect(busSeen.some((m) => m.type === "startRequest")).toBe(false);
     // The next session is adopted by the same HUD.
     await act(async () => {
       t.port.emit({ sessionId: "s1", type: "started", backend: "electron" });
       await drain(60);
     });
     expect(screen.getByRole("button", { name: "Stop recording" })).toBeInTheDocument();
+    t.flow.dispose();
+  });
+
+  it("Restart is offered for a recording started from the launcher (setup from the snapshot)", async () => {
+    const t = flowSetup();
+    await t.flush();
+    await act(async () => {
+      await t.flow.start({
+        sourceId: "d1",
+        mode: "screen",
+        mic: false,
+        systemAudio: false,
+        webcam: false,
+        fps: 30,
+        countdown: 0,
+        hideCursor: false,
+      });
+      t.port.emit({ sessionId: "s1", type: "started", backend: "electron" });
+      await drain(60);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "More recording options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Restart" }));
+    await t.flush();
+    expect(t.port.calls).toContain("discard:s1");
     t.flow.dispose();
   });
 

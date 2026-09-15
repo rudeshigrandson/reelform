@@ -26,6 +26,11 @@ export type FinalizeResult = ResponseOf<"recording:finalize">;
 export type CreateProjectRequest = RequestOf<"project:create">;
 export type CreateProjectResult = ResponseOf<"project:create">;
 export type SaveProjectRequest = RequestOf<"project:save">;
+export type RelinkProjectRequest = RequestOf<"project:relink">;
+export type RelinkProjectResult = ResponseOf<"project:relink">;
+export type OpenProjectRequest = RequestOf<"project:open">;
+export type OpenProjectResult = ResponseOf<"project:open">;
+export type TranscodeProgressEvent = EventPayloadOf<"recording:transcodeProgress">;
 export type ClosableWindowKind = RequestOf<"windows:closeKind">["kind"];
 export type HudExpansionSize = NonNullable<RequestOf<"windows:setHudExpansion">["size"]>;
 export type HudLayoutInfo = NonNullable<ResponseOf<"windows:setHudExpansion">["layout"]>;
@@ -53,6 +58,11 @@ export interface AppRecordingPort extends RecordingPort {
   listSources(): Promise<SourcesResult>;
   start(req: StartRecordingRequest): Promise<StartRecordingResult>;
   finalize(sessionId: string): Promise<FinalizeResult>;
+  /**
+   * `recording:transcodeProgress` — background VP9→H.264 transcode of a
+   * finalized Electron-backend video (SPEC §5.2). Returns an unsubscribe.
+   */
+  onTranscodeProgress?(listener: (progress: TranscodeProgressEvent) => void): () => void;
 }
 
 export interface WindowsPort {
@@ -85,6 +95,10 @@ export interface HudWindowsPort extends Pick<WindowsPort, "openWebcamBubble" | "
 export interface ProjectPort {
   create(req: CreateProjectRequest): Promise<CreateProjectResult>;
   save(req: SaveProjectRequest): Promise<void>;
+  /** `project:relink` — validate a replacement file and copy/reference it; the document is not written. */
+  relink?(req: RelinkProjectRequest): Promise<RelinkProjectResult>;
+  /** `project:open` — the document as currently saved (unvalidated). */
+  open?(req: OpenProjectRequest): Promise<OpenProjectResult>;
 }
 
 export type PermissionSettingsKind = "screen" | "microphone" | "camera";
@@ -185,6 +199,9 @@ export function createIpcRecordingPort(ipc: IpcClient = defaultIpcClient): AppRe
     discard: async (sessionId) => {
       await call(ipc, "recording:discard", { sessionId });
     },
+    setMicMuted: async (sessionId, muted) => {
+      await call(ipc, "recording:setMicMuted", { sessionId, muted });
+    },
     writeChunk: async (req) => {
       await call(
         ipc,
@@ -210,6 +227,7 @@ export function createIpcRecordingPort(ipc: IpcClient = defaultIpcClient): AppRe
     },
     subscribe: (listener) =>
       ipc.onEvent("recording:event", (payload) => listener(mapMainRecordingEvent(payload))),
+    onTranscodeProgress: (listener) => ipc.onEvent("recording:transcodeProgress", listener),
   };
 }
 
@@ -280,6 +298,8 @@ export function createIpcProjectPort(ipc: IpcClient = defaultIpcClient): Project
     save: async (req) => {
       await call(ipc, "project:save", req);
     },
+    relink: (req) => call(ipc, "project:relink", req),
+    open: (req) => call(ipc, "project:open", req),
   };
 }
 

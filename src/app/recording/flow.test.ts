@@ -470,6 +470,7 @@ describe("recording flow — region + bus", () => {
         sourceLabel: "Studio Display",
         displayId: "d1",
         webcamDeviceId: null,
+        setup: SETUP,
       },
     });
   });
@@ -698,5 +699,230 @@ describe("recording flow — native webcam, mic label, mute, editor defaults", (
       fileName: "thumbnail.jpg",
     });
     expect(t.state().phase).toBe("done");
+  });
+});
+
+describe("recording flow — HUD restart", () => {
+  it("snapshots carry the setup, so the pill can Restart a launcher-started recording", async () => {
+    const t = harness();
+    await toRecording(t);
+    await drain();
+    const last = t.otherSeen.filter((m) => m.type === "snapshot").at(-1);
+    expect(last).toMatchObject({ snapshot: { phase: "recording", setup: SETUP } });
+  });
+
+  it("hud:restart discards keeping the HUD open, then starts again with the same setup", async () => {
+    const t = harness();
+    await toRecording(t);
+    const firstStart = t.port.lastStart;
+    t.windows.calls.length = 0;
+    t.other.post({ type: "hud:restart" });
+    await drain();
+    expect(t.port.calls).toContain("discard:s1");
+    expect(t.port.calls.filter((c) => c === "start")).toHaveLength(1);
+    t.emit({ sessionId: "s1", type: "discarded" });
+    await drain();
+    expect(t.log).toEqual(["capture.start", "capture.discard"]);
+    expect(t.port.calls.filter((c) => c === "start")).toHaveLength(2);
+    expect(t.port.lastStart).toEqual(firstStart);
+    expect(t.windows.calls).not.toContain("closeKind:hud");
+    expect(t.windows.calls).toContain("closeKind:countdown");
+    expect(t.state()).toMatchObject({ phase: "countdown", sessionId: "s1", setup: SETUP });
+    // A plain discard of the new session closes the HUD again.
+    t.emit({ sessionId: "s1", type: "discarded" });
+    await drain();
+    expect(t.windows.calls).toContain("closeKind:hud");
+    expect(t.state().phase).toBe("idle");
+  });
+
+  it("restarting a region recording re-opens the region selection", async () => {
+    const t = harness();
+    const region = {
+      ...SETUP,
+      mode: "region" as const,
+      region: { x: 0, y: 0, width: 10, height: 10 },
+    };
+    await toRecording(t, region);
+    t.other.post({ type: "hud:restart" });
+    await drain();
+    t.emit({ sessionId: "s1", type: "discarded" });
+    await drain();
+    expect(t.state().phase).toBe("selectingRegion");
+    expect(t.windows.calls).toContain("openRegionOverlays");
+    expect(t.port.calls.filter((c) => c === "start")).toHaveLength(1);
+  });
+
+  it("a failed discard keeps the session and cancels the restart", async () => {
+    const t = harness();
+    await toRecording(t);
+    t.port.discardError = { code: "DISCARD_FAILED", message: "nope" };
+    t.other.post({ type: "hud:restart" });
+    await drain();
+    expect(t.state()).toMatchObject({ phase: "recording", error: { code: "DISCARD_FAILED" } });
+    t.emit({ sessionId: "s1", type: "discarded" });
+    await drain();
+    expect(t.state().phase).toBe("idle");
+    expect(t.port.calls.filter((c) => c === "start")).toHaveLength(1);
+  });
+
+  it("is ignored without a live session", async () => {
+    const t = harness();
+    t.other.post({ type: "hud:restart" });
+    await drain();
+    expect(t.port.calls).toEqual([]);
+  });
+});
+
+describe("recording flow — background transcode relink", () => {
+  const done = (outputPath: string | null, extra: { error?: string } = {}) => ({
+    sessionId: "s1",
+    progress: 1,
+    done: true,
+    outputPath,
+    ...extra,
+  });
+
+  async function recorded(t: ReturnType<typeof harness>) {
+    await toRecording(t);
+    t.emit({ sessionId: "s1", type: "stopped", elapsedMs: 42_180, reason: "user" });
+    await drain(60);
+    expect(t.state().phase).toBe("done");
+  }
+
+  it("relinks the project's screen video to the H.264 sibling and saves the document", async () => {
+    const t = harness();
+    await recorded(t);
+    expect(t.port.transcodeListeners.size).toBe(1);
+    const projectPath = t.state().result?.projectPath ?? "";
+    t.port.emitTranscode({ sessionId: "s1", progress: 0.4, done: false, outputPath: null });
+    t.port.emitTranscode({ ...done(null), sessionId: "other" });
+    await drain();
+    expect(t.projects.relinked).toEqual([]);
+    t.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
+    await drain();
+    expect(t.projects.relinked).toEqual([
+      {
+        path: projectPath,
+        filePath: "/rec/s1/screen.h264.mp4",
+        expected: { durationMs: 42_180 },
+        mode: "copy",
+      },
+    ]);
+    const doc = t.projects.saved.at(-1)?.document as {
+      sources: { video: { path: string; codec: string; durationMs: number } };
+    };
+    expect(t.projects.saved.at(-1)?.path).toBe(projectPath);
+    expect(projectV1Schema.safeParse(doc).success).toBe(true);
+    expect(doc.sources.video).toMatchObject({ path: "media/screen.h264.mp4", codec: "h264" });
+    expect(t.port.transcodeListeners.size).toBe(0);
+  });
+
+  it("patches the document as currently saved, keeping edits made after create", async () => {
+    const logged: string[] = [];
+    const t = harness({ log: (m) => logged.push(m) });
+    await recorded(t);
+    const projectPath = t.state().result?.projectPath ?? "";
+    const created = t.projects.created[0]?.document as { name: string };
+    t.projects.saved.push({ path: projectPath, document: { ...created, name: "Edited" } });
+    t.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
+    await drain();
+    const doc = t.projects.saved.at(-1)?.document as {
+      name: string;
+      sources: { video: { path: string; codec: string } };
+    };
+    expect(doc.name).toBe("Edited");
+    expect(doc.sources.video).toMatchObject({ path: "media/screen.h264.mp4", codec: "h264" });
+
+    // The user replaced the video in the meantime: nothing is saved over it.
+    const u = harness({ log: (m) => logged.push(m) });
+    await recorded(u);
+    const uPath = u.state().result?.projectPath ?? "";
+    const base = u.projects.saved.at(-1)?.document ?? u.projects.created[0]?.document;
+    const b = base as { sources: { video: object } };
+    const replaced = {
+      ...b,
+      sources: { ...b.sources, video: { ...b.sources.video, path: "/x.mp4" } },
+    };
+    u.projects.saved.push({ path: uPath, document: replaced });
+    const savedBefore = u.projects.saved.length;
+    u.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
+    await drain();
+    expect(u.projects.saved).toHaveLength(savedBefore);
+    expect(logged.at(-1)).toContain("replaced");
+  });
+
+  it("a transcode that finishes before the project exists relinks once it is created", async () => {
+    const t = harness();
+    const create = t.projects.create.bind(t.projects);
+    t.projects.create = async (req) => {
+      t.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
+      return create(req);
+    };
+    await recorded(t);
+    expect(t.projects.relinked).toHaveLength(1);
+    expect(t.projects.saved).toHaveLength(1);
+  });
+
+  it("failed transcodes and failed relinks are logged; the project keeps its video", async () => {
+    const logged: string[] = [];
+    const t = harness({ log: (m) => logged.push(m) });
+    await recorded(t);
+    t.port.emitTranscode(done(null, { error: "ffmpeg exited 1" }));
+    await drain();
+    expect(t.projects.relinked).toEqual([]);
+    expect(t.port.transcodeListeners.size).toBe(0);
+    expect(logged).toEqual([expect.stringContaining("ffmpeg exited 1")]);
+
+    const u = harness({ log: (m) => logged.push(m) });
+    u.projects.relinkError = { code: "RELINK_DURATION_MISMATCH", message: "duration" };
+    await recorded(u);
+    u.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
+    await drain();
+    expect(u.projects.relinked).toHaveLength(1);
+    expect(u.projects.saved).toEqual([]);
+    expect(logged.at(-1)).toContain("RELINK_DURATION_MISMATCH");
+  });
+
+  it("native recordings and H.264 captures are not watched", async () => {
+    const t = harness();
+    t.port.startResult = { sessionId: "s1", backend: "sck", backendReasons: [] };
+    t.port.finalizeResult = finalizeFixture({ backend: "sck" });
+    await t.flow.start(SETUP);
+    t.emit({ sessionId: "s1", type: "started", backend: "sck" });
+    t.emit({ sessionId: "s1", type: "stopped", elapsedMs: 5, reason: "user" });
+    await drain(60);
+    expect(t.port.transcodeListeners.size).toBe(0);
+
+    const u = harness({
+      startCapture: async (options, hooks) => {
+        const s = await fakeCaptureFactory([]).startCapture(options, hooks);
+        const stop = s.stop.bind(s);
+        s.stop = async () => {
+          const r = await stop();
+          return {
+            ...r,
+            tracks: [{ track: "screen", mimeType: "video/mp4;codecs=avc1", chunkCount: 1 }],
+          };
+        };
+        return s;
+      },
+    });
+    await recorded(u);
+    expect(u.port.transcodeListeners.size).toBe(0);
+  });
+
+  it("delete and dispose stop watching", async () => {
+    const t = harness();
+    await recorded(t);
+    await t.flow.deleteRecording();
+    expect(t.port.transcodeListeners.size).toBe(0);
+    t.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
+    await drain();
+    expect(t.projects.relinked).toEqual([]);
+
+    const u = harness();
+    await recorded(u);
+    u.flow.dispose();
+    expect(u.port.transcodeListeners.size).toBe(0);
   });
 });
