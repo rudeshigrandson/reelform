@@ -4,6 +4,7 @@ import { useProjectSession } from "../../../app/project/session";
 import type { SuggestedZoom } from "../../autozoom";
 import { usePlaybackStore } from "../../playback";
 import { useEditorStore, useEditorUiStore } from "../../store";
+import { useInspectorT } from "../i18n";
 import { ZoomInspector, deleteRegion, duplicateRegion } from "../zoom";
 import { formatTimecode } from "../zoom/zoomLogic";
 import { hostId } from "./hooks";
@@ -44,6 +45,7 @@ const toastStyle = {
 };
 
 export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
+  const t = useInspectorT();
   const e = useEditorStore();
   const telemetry = useProjectSession((s) => s.telemetry);
   const meta = useProjectSession((s) => s.meta);
@@ -86,7 +88,7 @@ export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
         if (live.current) setPending({ mode: "toast", suggestions });
       } catch (err) {
         if (live.current)
-          setError(err instanceof Error ? err.message : "Couldn't analyze cursor activity.");
+          setError(err instanceof Error ? err.message : t("inspector.zoom.analyzeFailed"));
       } finally {
         if (live.current) setAnalyzing(false);
       }
@@ -103,7 +105,7 @@ export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
     if (pending?.mode !== "review") return;
     const next = reviewStep(pending.review, decision);
     if (reviewDone(next)) {
-      commit(next.kept, "Keep reviewed zooms");
+      commit(next.kept, t("inspector.zoom.history.keepReviewed"));
       return;
     }
     const upcoming = next.suggestions[next.index];
@@ -121,16 +123,18 @@ export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
         </div>
       )}
       {pending?.mode === "toast" && (
-        <output aria-label="Zoom suggestions" style={toastStyle}>
+        <output aria-label={t("inspector.zoom.suggestions.label")} style={toastStyle}>
           <span>{suggestionsToastText(pending.suggestions.length)}</span>
           <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}>
             {pending.suggestions.length > 0 && (
               <>
                 <Button
                   variant="primary"
-                  onClick={() => commit(pending.suggestions, "Keep zoom suggestions")}
+                  onClick={() =>
+                    commit(pending.suggestions, t("inspector.zoom.history.keepSuggestions"))
+                  }
                 >
-                  Keep all
+                  {t("inspector.zoom.suggestions.keepAll")}
                 </Button>
                 <Button
                   variant="secondary"
@@ -140,12 +144,12 @@ export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
                     setPending({ mode: "review", review: startReview(pending.suggestions) });
                   }}
                 >
-                  Review
+                  {t("inspector.zoom.suggestions.review")}
                 </Button>
               </>
             )}
             <Button variant="ghost" onClick={() => setPending(null)}>
-              Dismiss
+              {t("inspector.zoom.suggestions.dismiss")}
             </Button>
           </div>
         </output>
@@ -155,21 +159,24 @@ export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
       )}
       <ZoomInspector
         settings={e.zoom}
-        onSettingsChange={(zoom) => host.documentUpdate("Zoom settings", { zoom }, "zoom-settings")}
+        onSettingsChange={(zoom) =>
+          host.documentUpdate(t("inspector.zoom.history.settings"), { zoom }, "zoom-settings")
+        }
         selectedRegion={selectedRegion}
         onRegionChange={(next) =>
           host.documentUpdate(
-            "Edit zoom",
+            t("inspector.zoom.history.edit"),
             { zoomRegions: e.zoomRegions.map((r) => (r.id === next.id ? next : r)) },
             `zoom-edit-${next.id}`,
           )
         }
         onDuplicate={(id) => {
           const regions = duplicateRegion(e.zoomRegions, id, e.durationMs, hostId("zoom"));
-          if (regions) host.documentUpdate("Duplicate zoom", { zoomRegions: regions });
+          if (regions)
+            host.documentUpdate(t("inspector.zoom.history.duplicate"), { zoomRegions: regions });
         }}
         onDelete={(id) =>
-          host.documentUpdate("Delete zoom", {
+          host.documentUpdate(t("inspector.zoom.history.delete"), {
             zoomRegions: deleteRegion(e.zoomRegions, id),
             selectedZoomId: null,
           })
@@ -193,26 +200,32 @@ function ReviewCard({
   onDecide: (d: "keep" | "skip") => void;
   onCancel: () => void;
 }): ReactElement | null {
+  const t = useInspectorT();
   const current = review.suggestions[review.index];
   if (!current) return null;
   return (
-    <fieldset aria-label="Review zoom suggestions" style={{ ...toastStyle, minWidth: 0 }}>
+    <fieldset aria-label={t("inspector.zoom.review.label")} style={{ ...toastStyle, minWidth: 0 }}>
       <span>
-        Zoom {review.index + 1} of {review.suggestions.length} ·{" "}
+        {t("inspector.zoom.review.position", {
+          index: review.index + 1,
+          total: review.suggestions.length,
+        })}{" "}
         <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-2)" }}>
           {formatTimecode(current.startMs)}–{formatTimecode(current.endMs)}
         </span>
       </span>
-      <span style={{ color: "var(--text-2)" }}>Zoomed because: {current.reason}</span>
+      <span style={{ color: "var(--text-2)" }}>
+        {t("inspector.zoom.review.reason", { reason: current.reason })}
+      </span>
       <div style={{ display: "flex", gap: "var(--space-1)" }}>
         <Button variant="primary" onClick={() => onDecide("keep")}>
-          Keep
+          {t("inspector.common.keep")}
         </Button>
         <Button variant="secondary" onClick={() => onDecide("skip")}>
-          Skip
+          {t("inspector.zoom.review.skip")}
         </Button>
         <Button variant="ghost" onClick={onCancel}>
-          Cancel
+          {t("inspector.common.cancel")}
         </Button>
       </div>
     </fieldset>

@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { Slider } from "../controls";
+import { useInspectorT } from "../i18n";
 import { type Size, cropFromZoom, cropToView, shapeAspect } from "./logic";
 import { type CropRect, WEBCAM_LIMITS, type WebcamShape } from "./types";
 
@@ -39,6 +40,7 @@ export interface CropModalProps {
 const ZOOM = WEBCAM_LIMITS.cropZoom;
 
 export function CropModal(props: CropModalProps): ReactElement | null {
+  const t = useInspectorT();
   const { open, shape, sourceSize, value, preview, onCenterOnFace, onApply, onClose } = props;
   const aspect = shapeAspect(shape);
   const [zoom, setZoom] = useState(1);
@@ -128,14 +130,14 @@ export function CropModal(props: CropModalProps): ReactElement | null {
     <Dialog
       open={open}
       onClose={onClose}
-      title="Crop / reframe"
+      title={t("inspector.webcam.crop")}
       actions={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t("inspector.common.cancel")}
           </Button>
           <Button variant="primary" onClick={() => onApply(crop)}>
-            Apply
+            {t("inspector.common.apply")}
           </Button>
         </>
       }
@@ -160,13 +162,13 @@ export function CropModal(props: CropModalProps): ReactElement | null {
           <div
             data-testid="crop-overlay"
             data-shape={shape}
-            aria-label="Crop area"
+            aria-label={t("inspector.webcam.cropArea")}
             style={overlayStyle}
             onMouseDown={onMouseDown}
           />
         </div>
         <Slider
-          label="Zoom"
+          label={t("inspector.common.zoom")}
           value={zoom}
           min={ZOOM.min}
           max={ZOOM.max}
@@ -183,7 +185,7 @@ export function CropModal(props: CropModalProps): ReactElement | null {
           }}
         >
           <Button variant="secondary" onClick={() => void centerOnFace()} disabled={detecting}>
-            {detecting ? "Detecting face…" : "Center on face"}
+            {detecting ? t("inspector.webcam.detectingFace") : t("inspector.webcam.centerOnFace")}
           </Button>
           <span
             style={{

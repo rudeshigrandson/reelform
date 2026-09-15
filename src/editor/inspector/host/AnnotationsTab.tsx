@@ -6,6 +6,7 @@ import {
   duplicateAnnotation,
   keystrokeBadgesFromCandidates,
 } from "../annotations";
+import { useInspectorT, withDetail } from "../i18n";
 import { errorMessage, hostId } from "./hooks";
 import { detectTelemetryShortcuts } from "./telemetryInputs";
 import { timelineClips } from "./timeMap";
@@ -18,6 +19,7 @@ export const IMAGE_FILTERS = [
 ];
 
 export function AnnotationsTab({ host }: { host: InspectorHost }): ReactElement {
+  const t = useInspectorT();
   const e = useEditorStore();
   const telemetry = useProjectSession((s) => s.telemetry);
   const meta = useProjectSession((s) => s.meta);
@@ -42,20 +44,20 @@ export function AnnotationsTab({ host }: { host: InspectorHost }): ReactElement 
       selected={selected}
       onChange={(next) =>
         host.documentUpdate(
-          "Edit annotation",
+          t("inspector.annotations.history.edit"),
           { annotations: e.annotations.map((a) => (a.id === next.id ? next : a)) },
           `annotation-edit-${next.id}`,
         )
       }
       onDuplicate={(a) => {
         const copy = duplicateAnnotation(a, hostId("ann"), e.annotations);
-        host.documentUpdate("Duplicate annotation", {
+        host.documentUpdate(t("inspector.annotations.history.duplicate"), {
           annotations: [...e.annotations, copy],
           selectedAnnotationId: copy.id,
         });
       }}
       onDelete={(a) =>
-        host.documentUpdate("Delete annotation", {
+        host.documentUpdate(t("inspector.annotations.history.delete"), {
           annotations: e.annotations.filter((x) => x.id !== a.id),
           selectedAnnotationId: null,
         })
@@ -69,7 +71,7 @@ export function AnnotationsTab({ host }: { host: InspectorHost }): ReactElement 
           existing: current.annotations,
         });
         if (badges.length === 0) return;
-        host.documentUpdate("Add keystroke badges", {
+        host.documentUpdate(t("inspector.annotations.history.addBadges"), {
           annotations: [...current.annotations, ...badges],
         });
       }}
@@ -79,7 +81,10 @@ export function AnnotationsTab({ host }: { host: InspectorHost }): ReactElement 
         setImageError(null);
         void (async () => {
           try {
-            const picked = await host.pickFile({ title: "Choose image", filters: IMAGE_FILTERS });
+            const picked = await host.pickFile({
+              title: t("inspector.annotations.chooseImageTitle"),
+              filters: IMAGE_FILTERS,
+            });
             if (!picked) return;
             const media = await host.importMedia("image", picked);
             const annotations = useEditorStore
@@ -87,9 +92,11 @@ export function AnnotationsTab({ host }: { host: InspectorHost }): ReactElement 
               .annotations.map((x) =>
                 x.id === a.id && x.kind === "image" ? { ...x, src: media.path } : x,
               );
-            host.documentUpdate("Set image", { annotations });
+            host.documentUpdate(t("inspector.annotations.history.setImage"), { annotations });
           } catch (err) {
-            setImageError(`Couldn't add the image. ${errorMessage(err, "")}`.trim());
+            setImageError(
+              withDetail(t, "inspector.annotations.error.image", errorMessage(err, "")),
+            );
           }
         })();
       }}

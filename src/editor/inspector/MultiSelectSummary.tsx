@@ -1,7 +1,7 @@
 import { Button } from "@design/components";
 import type { CSSProperties, ReactElement } from "react";
 import { useEditorStore } from "../store";
-import { ITEM_NOUNS, type TrackKind } from "../timeline/types";
+import type { TrackKind } from "../timeline/types";
 import {
   alignSelectionStart,
   countSelection,
@@ -9,6 +9,7 @@ import {
   duplicateSelection,
 } from "../timelineBinding";
 import type { InspectorHost } from "./host/types";
+import { type InspectorMessageKey, useInspectorT } from "./i18n";
 
 /**
  * Multi-select summary (SPEC §6.8, guide S12 state 6): "3 items" with a count
@@ -26,8 +27,14 @@ export interface MultiSelectSummaryProps {
 
 const KIND_ORDER: readonly TrackKind[] = ["video", "zoom", "speed", "annotations", "captions"];
 
-const plural = (n: number, noun: string): string =>
-  `${n} ${noun.toLowerCase()}${n === 1 ? "" : "s"}`;
+/** "{count} clips" etc. per timeline kind (plural-aware). */
+const KIND_COUNT_KEYS: Readonly<Record<TrackKind, InspectorMessageKey>> = {
+  video: "inspector.multiSelect.count.video",
+  zoom: "inspector.multiSelect.count.zoom",
+  speed: "inspector.multiSelect.count.speed",
+  annotations: "inspector.multiSelect.count.annotations",
+  captions: "inspector.multiSelect.count.captions",
+};
 
 const cardStyle: CSSProperties = {
   display: "flex",
@@ -48,6 +55,7 @@ export function MultiSelectSummary({
   onSelect,
   makeId,
 }: MultiSelectSummaryProps): ReactElement {
+  const t = useInspectorT();
   // Only the timeline lists: selection and canvas writes must not re-render the summary.
   const durationMs = useEditorStore((s) => s.durationMs);
   const clips = useEditorStore((s) => s.clips);
@@ -68,7 +76,10 @@ export function MultiSelectSummary({
     const patch = deleteSelection(current, selectedIds);
     if (patch) {
       const ripple = current.clips.some((c) => selectedIds.has(c.id));
-      host.documentUpdate(ripple ? "Ripple delete" : "Delete", patch);
+      host.documentUpdate(
+        ripple ? t("inspector.multiSelect.rippleDelete") : t("inspector.common.delete"),
+        patch,
+      );
     }
     onSelect?.(new Set());
   };
@@ -76,18 +87,20 @@ export function MultiSelectSummary({
   const onDuplicate = () => {
     const res = duplicateSelection(useEditorStore.getState(), selectedIds, makeId);
     if (!res) return;
-    host.documentUpdate("Duplicate", res.patch);
+    host.documentUpdate(t("inspector.common.duplicate"), res.patch);
     onSelect?.(new Set(res.ids));
   };
 
   const onAlign = () => {
     const patch = alignSelectionStart(useEditorStore.getState(), selectedIds);
-    if (patch) host.documentUpdate("Align start", patch);
+    if (patch) host.documentUpdate(t("inspector.multiSelect.alignStart"), patch);
   };
 
   return (
-    <section aria-label="Selection summary" style={cardStyle}>
-      <strong style={{ fontSize: "14px" }}>{plural(total, "item")}</strong>
+    <section aria-label={t("inspector.multiSelect.label")} style={cardStyle}>
+      <strong style={{ fontSize: "14px" }}>
+        {t("inspector.multiSelect.items", { count: total })}
+      </strong>
       <ul
         style={{
           margin: 0,
@@ -100,18 +113,18 @@ export function MultiSelectSummary({
         }}
       >
         {KIND_ORDER.filter((k) => counts[k] > 0).map((k) => (
-          <li key={k}>{plural(counts[k], ITEM_NOUNS[k])}</li>
+          <li key={k}>{t(KIND_COUNT_KEYS[k], { count: counts[k] })}</li>
         ))}
       </ul>
       <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}>
         <Button variant="danger" onClick={onDelete}>
-          Delete
+          {t("inspector.common.delete")}
         </Button>
         <Button variant="secondary" onClick={onDuplicate} disabled={!canDuplicate}>
-          Duplicate
+          {t("inspector.common.duplicate")}
         </Button>
         <Button variant="secondary" onClick={onAlign} disabled={!canAlign}>
-          Align start
+          {t("inspector.multiSelect.alignStart")}
         </Button>
       </div>
     </section>

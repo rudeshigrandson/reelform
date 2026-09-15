@@ -6,6 +6,7 @@ import { type EditorData, useEditorStore } from "../../store";
 import { type TimelineDoc, clipsDurationMs, removeTimelineRange } from "../../timelineBinding";
 import { EffectsInspector } from "../effects";
 import type { AudioEnvelope, SpeedRegionEdit, TimeRange } from "../effects/types";
+import { useInspectorT } from "../i18n";
 import { useDecodedAudio } from "./hooks";
 import { cursorSamplesFromTelemetry } from "./telemetryInputs";
 import { sourceRangesToTimeline, timelineClips } from "./timeMap";
@@ -72,6 +73,7 @@ export function nonOverlappingRegions(
 }
 
 export function EffectsTab({ host }: { host: InspectorHost }): ReactElement {
+  const t = useInspectorT();
   const e = useEditorStore();
   const meta = useProjectSession((s) => s.meta);
   const telemetry = useProjectSession((s) => s.telemetry);
@@ -98,11 +100,17 @@ export function EffectsTab({ host }: { host: InspectorHost }): ReactElement {
   return (
     <EffectsInspector
       value={e.effects}
-      onChange={(effects) => host.documentUpdate("Effects", { effects }, "effects-settings")}
+      onChange={(effects) =>
+        host.documentUpdate(
+          t("inspector.effects.history.settings"),
+          { effects },
+          "effects-settings",
+        )
+      }
       selectedSpeedRegion={selectedSpeedRegion}
       onSpeedRegionChange={(next) =>
         host.documentUpdate(
-          "Edit speed",
+          t("inspector.effects.history.editSpeed"),
           { speedRegions: e.speedRegions.map((r) => (r.id === next.id ? next : r)) },
           `speed-edit-${next.id}`,
         )
@@ -123,11 +131,11 @@ export function EffectsTab({ host }: { host: InspectorHost }): ReactElement {
           gaps,
         );
         if (!result) return;
-        host.documentUpdate("Remove silence", result.patch);
+        host.documentUpdate(t("inspector.effects.removeSilence"), result.patch);
       }}
       cursorSamples={cursorSamples}
       onAutoSpeedIdle={(regions) =>
-        host.documentUpdate("Auto speed-up idle", {
+        host.documentUpdate(t("inspector.effects.autoIdle"), {
           speedRegions: nonOverlappingRegions(useEditorStore.getState().speedRegions, regions),
         })
       }

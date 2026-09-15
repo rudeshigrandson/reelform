@@ -185,7 +185,7 @@ describe("Recording page", () => {
     expect(screen.getByRole("switch", { name: "Hide HUD while recording" })).toBeEnabled();
     expect(screen.getAllByText("Not available yet.")).toHaveLength(3);
     // Nothing applies it after export yet, so its toggle is hidden.
-    expect(screen.queryByRole("switch", { name: /Auto-delete raw recordings/ })).toBeNull();
+    expect(screen.getByRole("switch", { name: /Auto-delete raw recordings/ })).not.toBeDisabled();
   });
 
   it("record typed text badges is off by default, explains privacy and links the policy", () => {

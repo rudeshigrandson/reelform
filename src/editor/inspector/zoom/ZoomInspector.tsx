@@ -3,6 +3,7 @@ import type { SegmentedOption } from "@design/components";
 import type { CSSProperties, KeyboardEvent, ReactElement } from "react";
 import { useId } from "react";
 import { AnchorGrid, EmptyState, NumberField, Section, Slider, Switch } from "../controls";
+import { useInspectorT } from "../i18n";
 import {
   EASE_MS_MAX,
   MAX_ZOOM_SPEED_MAX,
@@ -69,9 +70,8 @@ const rowStyle: CSSProperties = {
 
 const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--text-2)" };
 
-const CURVE_OPTIONS: ReadonlyArray<SegmentedOption<ZoomCurve>> = ZOOM_CURVES;
-
 export function ZoomInspector(props: ZoomInspectorProps): ReactElement {
+  const t = useInspectorT();
   const { settings, onSettingsChange, selectedRegion, status, hasTelemetry } = props;
   const analyzing = status === "analyzing";
   const auto = settings.autoZoom;
@@ -81,12 +81,11 @@ export function ZoomInspector(props: ZoomInspectorProps): ReactElement {
     onSettingsChange({ ...settings, camera: { ...settings.camera, ...patch } });
 
   return (
-    <div style={rootStyle} aria-label="Zoom inspector">
-      <Section title="Auto-zoom">
+    <div style={rootStyle} aria-label={t("inspector.zoom.label")}>
+      <Section title={t("inspector.zoom.autoZoom")}>
         {!hasTelemetry && (
-          <EmptyState title="Auto-zoom unavailable">
-            This recording has no cursor data, so zooms can’t be suggested. You can still add zooms
-            manually on the timeline.
+          <EmptyState title={t("inspector.zoom.unavailable.title")}>
+            {t("inspector.zoom.unavailable.body")}
           </EmptyState>
         )}
         <Button
@@ -96,16 +95,16 @@ export function ZoomInspector(props: ZoomInspectorProps): ReactElement {
           aria-busy={analyzing}
           onClick={props.onGenerate}
         >
-          {props.hasSuggestions ? "Regenerate" : "Generate suggestions"}
+          {props.hasSuggestions ? t("inspector.zoom.regenerate") : t("inspector.zoom.generate")}
         </Button>
         {analyzing && (
           <div role="status" style={{ ...rowStyle, color: "var(--text-2)" }}>
             <Spinner />
-            Analyzing cursor activity…
+            {t("inspector.zoom.analyzing")}
           </div>
         )}
         <Slider
-          label="Sensitivity"
+          label={t("inspector.zoom.sensitivity")}
           value={Math.round(auto.sensitivity * 100)}
           min={0}
           max={100}
@@ -120,23 +119,23 @@ export function ZoomInspector(props: ZoomInspectorProps): ReactElement {
             paddingLeft: "104px",
           }}
         >
-          <span>Fewer</span>
-          <span>More</span>
+          <span>{t("inspector.zoom.fewer")}</span>
+          <span>{t("inspector.zoom.more")}</span>
         </div>
         <Switch
-          label="Follow cursor while zoomed"
+          label={t("inspector.zoom.followCursorWhileZoomed")}
           checked={auto.followCursor}
           disabled={!hasTelemetry}
           onChange={(followCursor) => setAuto({ followCursor })}
         />
         <Switch
-          label="Zoom on clicks"
+          label={t("inspector.zoom.zoomOnClicks")}
           checked={auto.zoomOnClicks}
           disabled={!hasTelemetry}
           onChange={(zoomOnClicks) => setAuto({ zoomOnClicks })}
         />
         <Switch
-          label="Zoom on typing"
+          label={t("inspector.zoom.zoomOnTyping")}
           checked={auto.zoomOnTyping}
           disabled={!hasTelemetry}
           onChange={(zoomOnTyping) => setAuto({ zoomOnTyping })}
@@ -146,23 +145,23 @@ export function ZoomInspector(props: ZoomInspectorProps): ReactElement {
       {selectedRegion ? (
         <RegionEditor {...props} region={selectedRegion} />
       ) : (
-        <Section title="Zoom">
-          <EmptyState title="No zoom selected">
-            Select a zoom on the timeline or add one at the playhead (+)
+        <Section title={t("inspector.common.zoom")}>
+          <EmptyState title={t("inspector.zoom.noSelection.title")}>
+            {t("inspector.zoom.noSelection.body")}
           </EmptyState>
         </Section>
       )}
 
-      <Section title="Motion">
+      <Section title={t("inspector.common.motion")}>
         <Slider
-          label="Camera smoothing"
+          label={t("inspector.zoom.cameraSmoothing")}
           value={Math.round(settings.camera.smoothing * 100)}
           min={0}
           max={100}
           onChange={(v) => setCamera({ smoothing: v / 100 })}
         />
         <Slider
-          label="Max zoom speed"
+          label={t("inspector.zoom.maxZoomSpeed")}
           value={settings.camera.maxZoomSpeed}
           min={MAX_ZOOM_SPEED_MIN}
           max={MAX_ZOOM_SPEED_MAX}
@@ -182,14 +181,20 @@ function RegionEditor({
   onDelete,
   timelineDurationMs,
 }: ZoomInspectorProps & { region: ZoomRegion }): ReactElement {
+  const t = useInspectorT();
   const follow = region.focus.mode === "follow";
-  const curveName = ZOOM_CURVES.find((c) => c.value === region.curve)?.label ?? "Ease";
+  const curveOptions: ReadonlyArray<SegmentedOption<ZoomCurve>> = ZOOM_CURVES.map((c) => ({
+    value: c.value,
+    label: t(c.labelKey),
+  }));
+  const curveKey = ZOOM_CURVES.find((c) => c.value === region.curve)?.labelKey;
+  const curveName = t(curveKey ?? "inspector.zoom.curve.ease");
 
   return (
     <>
-      <Section title="Zoom">
+      <Section title={t("inspector.common.zoom")}>
         <Slider
-          label="Zoom level"
+          label={t("inspector.zoom.zoomLevel")}
           value={region.level}
           min={ZOOM_LEVEL_MIN}
           max={ZOOM_LEVEL_MAX}
@@ -198,7 +203,7 @@ function RegionEditor({
           onChange={(v) => onRegionChange(setLevel(region, v))}
         />
         <NumberField
-          label="Level"
+          label={t("inspector.zoom.level")}
           value={region.level}
           min={ZOOM_LEVEL_MIN}
           max={ZOOM_LEVEL_MAX}
@@ -208,20 +213,20 @@ function RegionEditor({
         />
       </Section>
 
-      <Section title="Focus">
+      <Section title={t("inspector.zoom.focus")}>
         <AnchorGrid
-          label="Focus"
+          label={t("inspector.zoom.focus")}
           value={follow ? null : focusToAnchor(region.focus)}
           disabled={follow}
           onChange={(a) => onRegionChange(setFocusAnchor(region, a))}
         />
         <Switch
-          label="Follow cursor"
+          label={t("inspector.zoom.followCursor")}
           checked={follow}
           onChange={(on) => onRegionChange(setFocusMode(region, on ? "follow" : "fixed"))}
         />
         <NumberField
-          label="X"
+          label={t("inspector.common.x")}
           value={Math.round(region.focus.x * 100)}
           min={0}
           max={100}
@@ -230,7 +235,7 @@ function RegionEditor({
           onChange={(v) => onRegionChange(setFocusPoint(region, v / 100, region.focus.y))}
         />
         <NumberField
-          label="Y"
+          label={t("inspector.common.y")}
           value={Math.round(region.focus.y * 100)}
           min={0}
           max={100}
@@ -238,12 +243,12 @@ function RegionEditor({
           disabled={follow}
           onChange={(v) => onRegionChange(setFocusPoint(region, region.focus.x, v / 100))}
         />
-        <span style={hintStyle}>Set from canvas: click the preview to place the focus.</span>
+        <span style={hintStyle}>{t("inspector.zoom.focusHint")}</span>
       </Section>
 
-      <Section title="Easing">
+      <Section title={t("inspector.zoom.easing")}>
         <NumberField
-          label="Ease in"
+          label={t("inspector.zoom.easeIn")}
           value={region.easeInMs}
           min={0}
           max={EASE_MS_MAX}
@@ -252,7 +257,7 @@ function RegionEditor({
           onChange={(v) => onRegionChange(setEaseMs(region, "easeInMs", v))}
         />
         <NumberField
-          label="Ease out"
+          label={t("inspector.zoom.easeOut")}
           value={region.easeOutMs}
           min={0}
           max={EASE_MS_MAX}
@@ -261,21 +266,24 @@ function RegionEditor({
           onChange={(v) => onRegionChange(setEaseMs(region, "easeOutMs", v))}
         />
         <div style={rowStyle}>
-          <span style={labelStyle}>Curve</span>
+          <span style={labelStyle}>{t("inspector.zoom.curve")}</span>
           <Segmented
             name={`zoom-curve-${region.id}`}
             value={region.curve}
-            options={CURVE_OPTIONS}
+            options={curveOptions}
             onChange={(c) => onRegionChange(setCurve(region, c))}
           />
-          <CurvePreview curve={region.curve} label={`${curveName} curve preview`} />
+          <CurvePreview
+            curve={region.curve}
+            label={t("inspector.zoom.curvePreview", { curve: curveName })}
+          />
         </div>
       </Section>
 
-      <Section title="Timing">
+      <Section title={t("inspector.common.timing")}>
         <TimeField
           key={`start-${region.id}-${region.startMs}`}
-          label="Start"
+          label={t("inspector.common.start")}
           valueMs={region.startMs}
           onCommit={(ms) => {
             const next = setStartMs(region, ms);
@@ -285,7 +293,7 @@ function RegionEditor({
         />
         <TimeField
           key={`end-${region.id}-${region.endMs}`}
-          label="End"
+          label={t("inspector.common.end")}
           valueMs={region.endMs}
           onCommit={(ms) => {
             const next = setEndMs(region, ms, timelineDurationMs);
@@ -294,7 +302,7 @@ function RegionEditor({
           }}
         />
         <div style={rowStyle}>
-          <span style={labelStyle}>Duration</span>
+          <span style={labelStyle}>{t("inspector.common.duration")}</span>
           <span
             data-testid="zoom-duration"
             style={{ fontFamily: mono, fontSize: "12px", color: "var(--text-2)" }}
@@ -304,10 +312,10 @@ function RegionEditor({
         </div>
         <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-1)" }}>
           <Button variant="secondary" onClick={() => onDuplicate(region.id)}>
-            Duplicate
+            {t("inspector.common.duplicate")}
           </Button>
           <Button variant="danger" onClick={() => onDelete(region.id)}>
-            Delete
+            {t("inspector.common.delete")}
           </Button>
         </div>
       </Section>

@@ -3,6 +3,7 @@ import { useProjectSession } from "../../../app/project/session";
 import type { ProjectMeta } from "../../persistence";
 import { useEditorStore } from "../../store";
 import { detectFaceCenter } from "../../webcam/faceDetect";
+import { type InspectorMessageKey, useInspectorT, withDetail } from "../i18n";
 import { WebcamInspector } from "../webcam";
 import { clampSyncOffset } from "../webcam/logic";
 import type { WebcamSource } from "../webcam/types";
@@ -55,6 +56,7 @@ export interface WebcamTabProps {
 }
 
 export function WebcamTab({ host, detectFace = detectFaceCenter }: WebcamTabProps): ReactElement {
+  const t = useInspectorT();
   const webcam = useEditorStore((s) => s.webcam);
   const meta = useProjectSession((s) => s.meta);
   const webcamUrl = useProjectSession((s) => s.webcamUrl);
@@ -62,8 +64,9 @@ export function WebcamTab({ host, detectFace = detectFaceCenter }: WebcamTabProp
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const importWebcam = async (label: string) => {
+  const importWebcam = async (labelKey: InspectorMessageKey) => {
     setNotice(null);
+    const label = t(labelKey);
     try {
       const picked = await host.pickFile({ title: label, filters: VIDEO_FILTERS });
       if (!picked) return;
@@ -73,19 +76,19 @@ export function WebcamTab({ host, detectFace = detectFaceCenter }: WebcamTabProp
       });
       useProjectSession.getState().setSession({ webcamUrl: media.url });
     } catch (err) {
-      setNotice(`Couldn't add the webcam video. ${errorMessage(err, "")}`.trim());
+      setNotice(withDetail(t, "inspector.webcam.error.add", errorMessage(err, "")));
     }
   };
 
   const remove = () => {
     setNotice(null);
-    host.metaUpdate("Remove webcam", withoutWebcamSource);
+    host.metaUpdate(t("inspector.webcam.removeWebcam"), withoutWebcamSource);
     useProjectSession.getState().setSession({ webcamUrl: null });
   };
 
   const autoSync = async () => {
     if (!webcamUrl || !micUrl) {
-      setNotice("Auto-sync needs audio in both the webcam video and the microphone track.");
+      setNotice(t("inspector.webcam.sync.needsAudio"));
       return;
     }
     setSyncing(true);
@@ -96,7 +99,7 @@ export function WebcamTab({ host, detectFace = detectFaceCenter }: WebcamTabProp
         decodeCached(host, webcamUrl),
       ]);
       if (!mic || !cam) {
-        setNotice("Auto-sync needs audio in both the webcam video and the microphone track.");
+        setNotice(t("inspector.webcam.sync.needsAudio"));
         return;
       }
       const result = await estimateSyncOffsetOffThread(
@@ -104,16 +107,20 @@ export function WebcamTab({ host, detectFace = detectFaceCenter }: WebcamTabProp
         { samples: toMono(cam.channels), sampleRate: cam.sampleRate },
       );
       if (!result) {
-        setNotice("Couldn't find a match — adjust the offset by hand.");
+        setNotice(t("inspector.webcam.sync.noMatch"));
         return;
       }
       const syncOffsetMs = clampSyncOffset(result.offsetMs);
-      host.documentUpdate("Auto-sync webcam", {
+      host.documentUpdate(t("inspector.webcam.history.autoSync"), {
         webcam: { ...useEditorStore.getState().webcam, syncOffsetMs },
       });
-      setNotice(`Synced (${syncOffsetMs > 0 ? "+" : ""}${syncOffsetMs} ms)`);
+      setNotice(
+        t("inspector.webcam.sync.done", {
+          offset: `${syncOffsetMs > 0 ? "+" : ""}${syncOffsetMs}`,
+        }),
+      );
     } catch (err) {
-      setNotice(`Couldn't auto-sync. ${errorMessage(err, "")}`.trim());
+      setNotice(withDetail(t, "inspector.webcam.error.sync", errorMessage(err, "")));
     } finally {
       setSyncing(false);
     }
@@ -125,12 +132,12 @@ export function WebcamTab({ host, detectFace = detectFaceCenter }: WebcamTabProp
     <WebcamInspector
       value={webcam}
       onChange={(next) =>
-        host.documentUpdate("Webcam settings", { webcam: next }, "webcam-settings")
+        host.documentUpdate(t("inspector.webcam.settings"), { webcam: next }, "webcam-settings")
       }
       source={source}
       sourceSize={cam ? { width: cam.width, height: cam.height } : undefined}
-      onUpload={() => void importWebcam("Add webcam video")}
-      onReplace={() => void importWebcam("Replace webcam video")}
+      onUpload={() => void importWebcam("inspector.webcam.addVideo")}
+      onReplace={() => void importWebcam("inspector.webcam.replaceVideo")}
       onRemove={remove}
       onAutoSync={() => void autoSync()}
       syncing={syncing}

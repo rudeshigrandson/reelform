@@ -1,6 +1,7 @@
 import { Button } from "@design/components";
 import { type CSSProperties, type ReactElement, useId } from "react";
 import { EmptyState, NumberField, Section, Slider, Switch } from "../controls";
+import { type InspectorMessageKey, useInspectorT } from "../i18n";
 import {
   SLIDER_STEPS,
   anySolo,
@@ -22,7 +23,7 @@ import {
   type AudioSettings,
   type AvailableTracks,
   TRACK_KINDS,
-  TRACK_LABELS,
+  TRACK_LABEL_KEYS,
   type TrackKind,
 } from "./types";
 
@@ -50,9 +51,9 @@ export interface AudioInspectorProps {
 
 export const WAVEFORM_BARS = 48;
 
-const DEFAULT_MISSING_REASON: Readonly<Record<TrackKind, string>> = {
-  mic: "No microphone was recorded for this project.",
-  system: "System audio wasn't captured for this recording.",
+const DEFAULT_MISSING_REASON: Readonly<Record<TrackKind, InspectorMessageKey>> = {
+  mic: "inspector.audio.missing.mic",
+  system: "inspector.audio.missing.system",
 };
 
 const rowStyle: CSSProperties = {
@@ -209,16 +210,17 @@ export function AudioInspector({
   addAudioError,
   addingAudio,
 }: AudioInspectorProps): ReactElement {
+  const t = useInspectorT();
   const noTracks = !availableTracks.mic && !availableTracks.system;
   const soloActive = anySolo(value, availableTracks);
   const fadeMax = trackDurationMs ?? AUDIO_LIMITS.fadeMaxMs;
 
   const renderTrack = (kind: TrackKind): ReactElement => {
-    const label = TRACK_LABELS[kind];
+    const label = t(TRACK_LABEL_KEYS[kind]);
     if (!availableTracks[kind]) {
       return (
-        <EmptyState key={kind} title={`${label} not available`}>
-          {missingTrackReason?.[kind] ?? DEFAULT_MISSING_REASON[kind]}
+        <EmptyState key={kind} title={t("inspector.audio.notAvailable", { track: label })}>
+          {missingTrackReason?.[kind] ?? t(DEFAULT_MISSING_REASON[kind])}
         </EmptyState>
       );
     }
@@ -233,29 +235,29 @@ export function AudioInspector({
           <span style={{ fontWeight: 600 }}>{label}</span>
           <span style={{ display: "flex", gap: "var(--space-1)" }}>
             <ToggleChip
-              label={`Mute ${label}`}
-              short="M"
+              label={t("inspector.audio.mute", { track: label })}
+              short={t("inspector.audio.muteShort")}
               pressed={track.muted}
               onToggle={() => set({ muted: !track.muted })}
             />
             <ToggleChip
-              label={`Solo ${label}`}
-              short="S"
+              label={t("inspector.audio.solo", { track: label })}
+              short={t("inspector.audio.soloShort")}
               pressed={track.solo}
               onToggle={() => set({ solo: !track.solo })}
             />
           </span>
         </div>
         <MiniWaveform kind={kind} peaks={waveforms?.[kind]} silent={silent} />
-        {silencedBySolo && <span style={hintStyle}>Silenced — another track is soloed</span>}
+        {silencedBySolo && <span style={hintStyle}>{t("inspector.audio.silencedBySolo")}</span>}
         <VolumeSlider
-          label="Volume"
+          label={t("inspector.common.volume")}
           db={track.volumeDb}
           onChange={(volumeDb) => set({ volumeDb })}
         />
         {kind === "mic" && (
           <Switch
-            label="Noise reduction"
+            label={t("inspector.audio.noiseReduction")}
             checked={value.tracks.mic.noiseReduction}
             onChange={(noiseReduction) =>
               onChange(updateTrack(value, "mic", { noiseReduction }, trackDurationMs))
@@ -263,13 +265,13 @@ export function AudioInspector({
           />
         )}
         <Switch
-          label="Normalize"
+          label={t("inspector.audio.normalize")}
           hint="−16 LUFS"
           checked={track.normalize}
           onChange={(normalize) => set({ normalize })}
         />
         <NumberField
-          label="Fade in"
+          label={t("inspector.common.fadeIn")}
           unit="ms"
           min={0}
           max={fadeMax}
@@ -278,7 +280,7 @@ export function AudioInspector({
           onChange={(fadeInMs) => set({ fadeInMs })}
         />
         <NumberField
-          label="Fade out"
+          label={t("inspector.common.fadeOut")}
           unit="ms"
           min={0}
           max={fadeMax}
@@ -312,10 +314,10 @@ export function AudioInspector({
           </span>
           <Button
             variant="ghost"
-            aria-label={`Remove ${region.fileName}`}
+            aria-label={t("inspector.audio.removeFile", { file: region.fileName })}
             onClick={() => onChange(removeRegion(value, region.id))}
           >
-            Remove
+            {t("inspector.common.remove")}
           </Button>
         </div>
         {regionWaveforms?.[region.id] && (
@@ -326,12 +328,12 @@ export function AudioInspector({
           />
         )}
         <VolumeSlider
-          label="Volume"
+          label={t("inspector.common.volume")}
           db={region.volumeDb}
           onChange={(volumeDb) => set({ volumeDb })}
         />
         <NumberField
-          label="Fade in"
+          label={t("inspector.common.fadeIn")}
           unit="ms"
           min={0}
           max={duration}
@@ -340,7 +342,7 @@ export function AudioInspector({
           onChange={(fadeInMs) => set({ fadeInMs })}
         />
         <NumberField
-          label="Fade out"
+          label={t("inspector.common.fadeOut")}
           unit="ms"
           min={0}
           max={duration}
@@ -348,16 +350,20 @@ export function AudioInspector({
           value={region.fadeOutMs}
           onChange={(fadeOutMs) => set({ fadeOutMs })}
         />
-        <Switch label="Loop" checked={region.loop} onChange={(loop) => set({ loop })} />
         <Switch
-          label="Duck under voice"
-          hint={availableTracks.mic ? undefined : "Needs a microphone track"}
+          label={t("inspector.common.loop")}
+          checked={region.loop}
+          onChange={(loop) => set({ loop })}
+        />
+        <Switch
+          label={t("inspector.audio.duck")}
+          hint={availableTracks.mic ? undefined : t("inspector.audio.duck.needsMic")}
           disabled={!availableTracks.mic}
           checked={region.duck.enabled}
           onChange={(enabled) => set({ duck: { enabled } })}
         />
         <Slider
-          label="Duck amount"
+          label={t("inspector.audio.duckAmount")}
           min={AUDIO_LIMITS.duckAmountDb.min}
           max={AUDIO_LIMITS.duckAmountDb.max}
           unit=" dB"
@@ -378,21 +384,20 @@ export function AudioInspector({
         color: "var(--text-1)",
       }}
     >
-      <Section title="Tracks">
+      <Section title={t("inspector.audio.tracks")}>
         {noTracks ? (
-          <EmptyState title="No recorded audio">
-            This recording has no microphone or system audio. You can still add music or a voiceover
-            below.
+          <EmptyState title={t("inspector.audio.noTracks.title")}>
+            {t("inspector.audio.noTracks.body")}
           </EmptyState>
         ) : (
           TRACK_KINDS.map(renderTrack)
         )}
       </Section>
 
-      <Section title="Extra audio">
+      <Section title={t("inspector.audio.extra")}>
         {value.regions.length === 0 ? (
-          <EmptyState title="No extra audio">
-            Add music or a voiceover to play under your recording.
+          <EmptyState title={t("inspector.audio.noExtra.title")}>
+            {t("inspector.audio.noExtra.body")}
           </EmptyState>
         ) : (
           value.regions.map(renderRegion)
@@ -404,7 +409,7 @@ export function AudioInspector({
           aria-busy={addingAudio === true}
           onClick={onAddAudio}
         >
-          {addingAudio === true ? "Adding audio…" : "Add audio…"}
+          {addingAudio === true ? t("inspector.audio.adding") : t("inspector.audio.addButton")}
         </Button>
         {addAudioError ? (
           <span role="alert" style={{ ...hintStyle, color: "var(--danger)" }}>
@@ -413,22 +418,22 @@ export function AudioInspector({
         ) : null}
       </Section>
 
-      <Section title="Master">
+      <Section title={t("inspector.audio.master")}>
         <VolumeSlider
-          label="Output volume"
+          label={t("inspector.audio.outputVolume")}
           db={value.master.volumeDb}
           onChange={(volumeDb) => onChange(updateMaster(value, { volumeDb }))}
         />
         <Switch
-          label="Mute all"
+          label={t("inspector.audio.muteAll")}
           checked={value.master.muteAll}
           onChange={(muteAll) => onChange(updateMaster(value, { muteAll }))}
         />
       </Section>
 
-      <Section title="Clicks">
+      <Section title={t("inspector.audio.clicks")}>
         <Slider
-          label="Cursor click sounds"
+          label={t("inspector.audio.clickSounds")}
           min={AUDIO_LIMITS.clickVolume.min}
           max={AUDIO_LIMITS.clickVolume.max}
           unit="%"

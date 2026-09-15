@@ -60,9 +60,10 @@ export {
 } from "./zoomSuggestions";
 export {
   type AudioCandidate,
-  NO_AUDIO_MESSAGE,
-  NO_SPEECH_MESSAGE,
+  noAudioMessage,
+  noSpeechMessage,
   captionsErrorMessage,
+  isCaptionsCancel,
   mapTranscribedCaptions,
   modelIdForTier,
   pickAudioCandidate,

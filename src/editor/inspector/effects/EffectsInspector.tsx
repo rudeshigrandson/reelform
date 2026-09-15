@@ -1,7 +1,7 @@
 import { Button, Input, Segmented } from "@design/components";
-import type { SegmentedOption } from "@design/components";
 import { type CSSProperties, type ReactElement, useState } from "react";
 import { ColorField, EmptyState, NumberField, Section, Slider, Switch } from "../controls";
+import { type InspectorMessageKey, useInspectorT } from "../i18n";
 import { RemoveSilenceDialog } from "./RemoveSilenceDialog";
 import { detectIdleSections, maxRampMs, suggestIdleSpeedRegions, updateSpeedRegion } from "./logic";
 import {
@@ -33,11 +33,36 @@ export interface EffectsInspectorProps {
   initialRemoveSilenceOpen?: boolean | undefined;
 }
 
-const TRANSITION_OPTIONS: ReadonlyArray<SegmentedOption<TransitionKind>> = [
-  { value: "none", label: "None" },
-  { value: "cross-dissolve", label: "Cross-dissolve" },
-  { value: "cut-with-zoom", label: "Cut-with-zoom" },
-];
+const TRANSITION_OPTIONS: ReadonlyArray<{ value: TransitionKind; labelKey: InspectorMessageKey }> =
+  [
+    { value: "none", labelKey: "inspector.common.none" },
+    { value: "cross-dissolve", labelKey: "inspector.effects.transition.crossDissolve" },
+    { value: "cut-with-zoom", labelKey: "inspector.effects.transition.cutWithZoom" },
+  ];
+
+/** Labels for the Intro / Outro title-card editors. */
+const TITLE_CARD_KEYS = {
+  intro: {
+    name: "inspector.effects.intro",
+    add: "inspector.effects.intro.add",
+    addLabel: "inspector.effects.intro.addLabel",
+    group: "inspector.effects.intro.group",
+    removeLabel: "inspector.effects.intro.removeLabel",
+    text: "inspector.effects.intro.text",
+    background: "inspector.effects.intro.background",
+    duration: "inspector.effects.intro.duration",
+  },
+  outro: {
+    name: "inspector.effects.outro",
+    add: "inspector.effects.outro.add",
+    addLabel: "inspector.effects.outro.addLabel",
+    group: "inspector.effects.outro.group",
+    removeLabel: "inspector.effects.outro.removeLabel",
+    text: "inspector.effects.outro.text",
+    background: "inspector.effects.outro.background",
+    duration: "inspector.effects.outro.duration",
+  },
+} as const satisfies Record<string, Record<string, InspectorMessageKey>>;
 
 const rootStyle: CSSProperties = {
   display: "flex",
@@ -62,6 +87,7 @@ export function EffectsInspector({
   onAutoSpeedIdle,
   initialRemoveSilenceOpen = false,
 }: EffectsInspectorProps): ReactElement {
+  const t = useInspectorT();
   const [silenceOpen, setSilenceOpen] = useState(initialRemoveSilenceOpen);
   const [idleNotice, setIdleNotice] = useState<string | null>(null);
   const L = EFFECTS_LIMITS;
@@ -77,7 +103,7 @@ export function EffectsInspector({
     if (!cursorSamples) return;
     const regions = suggestIdleSpeedRegions(detectIdleSections(cursorSamples));
     if (regions.length === 0) {
-      setIdleNotice("No idle sections found");
+      setIdleNotice(t("inspector.effects.noIdle"));
       return;
     }
     setIdleNotice(null);
@@ -88,12 +114,12 @@ export function EffectsInspector({
   const rampMax = region ? Math.floor(maxRampMs(region)) : 0;
 
   return (
-    <div style={rootStyle} aria-label="Effects inspector">
-      <Section title="Speed">
+    <div style={rootStyle} aria-label={t("inspector.effects.label")}>
+      <Section title={t("inspector.common.speed")}>
         {region ? (
           <>
             <Slider
-              label="Speed"
+              label={t("inspector.common.speed")}
               value={region.rate}
               min={L.speedRate.min}
               max={L.speedRate.max}
@@ -102,14 +128,14 @@ export function EffectsInspector({
               onChange={(rate) => onSpeedRegionChange(updateSpeedRegion(region, { rate }))}
             />
             <Switch
-              label="Keep pitch"
+              label={t("inspector.effects.keepPitch")}
               checked={region.keepPitch}
               onChange={(keepPitch) =>
                 onSpeedRegionChange(updateSpeedRegion(region, { keepPitch }))
               }
             />
             <NumberField
-              label="Ramp in"
+              label={t("inspector.effects.rampIn")}
               value={region.rampInMs}
               min={0}
               max={rampMax}
@@ -118,7 +144,7 @@ export function EffectsInspector({
               onChange={(rampInMs) => onSpeedRegionChange(updateSpeedRegion(region, { rampInMs }))}
             />
             <NumberField
-              label="Ramp out"
+              label={t("inspector.effects.rampOut")}
               value={region.rampOutMs}
               min={0}
               max={rampMax}
@@ -130,16 +156,16 @@ export function EffectsInspector({
             />
           </>
         ) : (
-          <EmptyState title="No speed region selected">
-            Select a speed region on the timeline to edit it.
+          <EmptyState title={t("inspector.effects.noSpeed.title")}>
+            {t("inspector.effects.noSpeed.body")}
           </EmptyState>
         )}
         <div style={toolRowStyle}>
           <Button onClick={() => setSilenceOpen(true)} disabled={envelope === null}>
-            Remove silence…
+            {t("inspector.effects.removeSilenceButton")}
           </Button>
           <Button onClick={runAutoIdle} disabled={!hasCursor}>
-            Auto speed-up idle
+            {t("inspector.effects.autoIdle")}
           </Button>
         </div>
         {idleNotice && (
@@ -149,15 +175,15 @@ export function EffectsInspector({
         )}
       </Section>
 
-      <Section title="Transitions">
+      <Section title={t("inspector.effects.transitions")}>
         <Segmented
           name="effects-transition"
           value={value.transition.kind}
-          options={TRANSITION_OPTIONS}
+          options={TRANSITION_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
           onChange={(kind) => set("transition", { ...value.transition, kind })}
         />
         <NumberField
-          label="Duration"
+          label={t("inspector.common.duration")}
           value={value.transition.durationMs}
           min={L.transitionMs.min}
           max={L.transitionMs.max}
@@ -168,49 +194,49 @@ export function EffectsInspector({
         />
       </Section>
 
-      <Section title="Intro / Outro">
+      <Section title={t("inspector.effects.introOutro")}>
         <TitleCardEditor
-          label="Intro"
+          kind="intro"
           card={value.intro}
           onChange={(intro) => set("intro", intro)}
         />
         <TitleCardEditor
-          label="Outro"
+          kind="outro"
           card={value.outro}
           onChange={(outro) => set("outro", outro)}
         />
       </Section>
 
-      <Section title="Color">
+      <Section title={t("inspector.common.color")}>
         <Slider
-          label="Brightness"
+          label={t("inspector.effects.brightness")}
           value={value.color.brightness}
           min={L.colorAdjust.min}
           max={L.colorAdjust.max}
           onChange={(brightness) => setColor({ brightness })}
         />
         <Slider
-          label="Contrast"
+          label={t("inspector.effects.contrast")}
           value={value.color.contrast}
           min={L.colorAdjust.min}
           max={L.colorAdjust.max}
           onChange={(contrast) => setColor({ contrast })}
         />
         <Slider
-          label="Saturation"
+          label={t("inspector.effects.saturation")}
           value={value.color.saturation}
           min={L.colorAdjust.min}
           max={L.colorAdjust.max}
           onChange={(saturation) => setColor({ saturation })}
         />
         <Switch
-          label="Grain"
-          hint="Subtle"
+          label={t("inspector.effects.grain")}
+          hint={t("inspector.effects.grain.hint")}
           checked={value.color.grain}
           onChange={(grain) => setColor({ grain })}
         />
         <Slider
-          label="Vignette"
+          label={t("inspector.effects.vignette")}
           value={value.color.vignette}
           min={L.vignette.min}
           max={L.vignette.max}
@@ -219,14 +245,14 @@ export function EffectsInspector({
         />
       </Section>
 
-      <Section title="Motion">
+      <Section title={t("inspector.common.motion")}>
         <Switch
-          label="Subtle 3D tilt on zooms"
+          label={t("inspector.effects.tilt")}
           checked={value.motion.tilt3d}
           onChange={(tilt3d) => setMotion({ tilt3d })}
         />
         <Switch
-          label="Parallax background"
+          label={t("inspector.effects.parallax")}
           checked={value.motion.parallax}
           onChange={(parallax) => setMotion({ parallax })}
         />
@@ -245,27 +271,26 @@ export function EffectsInspector({
 }
 
 interface TitleCardEditorProps {
-  label: "Intro" | "Outro";
+  kind: keyof typeof TITLE_CARD_KEYS;
   card: TitleCard | null;
   onChange: (card: TitleCard | null) => void;
 }
 
-function TitleCardEditor({ label, card, onChange }: TitleCardEditorProps): ReactElement {
+function TitleCardEditor({ kind, card, onChange }: TitleCardEditorProps): ReactElement {
+  const t = useInspectorT();
+  const keys = TITLE_CARD_KEYS[kind];
   const L = EFFECTS_LIMITS;
   if (!card) {
     return (
-      <Button
-        onClick={() => onChange({ ...DEFAULT_TITLE_CARD })}
-        aria-label={`Add ${label.toLowerCase()} title card`}
-      >
-        + Add {label.toLowerCase()} title card
+      <Button onClick={() => onChange({ ...DEFAULT_TITLE_CARD })} aria-label={t(keys.addLabel)}>
+        {t(keys.add)}
       </Button>
     );
   }
   return (
     <div
       role="group"
-      aria-label={`${label} title card`}
+      aria-label={t(keys.group)}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -276,27 +301,23 @@ function TitleCardEditor({ label, card, onChange }: TitleCardEditorProps): React
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={subheadStyle}>{label}</span>
-        <Button
-          variant="ghost"
-          onClick={() => onChange(null)}
-          aria-label={`Remove ${label.toLowerCase()} title card`}
-        >
-          Remove
+        <span style={subheadStyle}>{t(keys.name)}</span>
+        <Button variant="ghost" onClick={() => onChange(null)} aria-label={t(keys.removeLabel)}>
+          {t("inspector.common.remove")}
         </Button>
       </div>
       <Input
-        label={`${label} text`}
+        label={t(keys.text)}
         value={card.text}
         onChange={(e) => onChange({ ...card, text: e.target.value })}
       />
       <ColorField
-        label={`${label} background`}
+        label={t(keys.background)}
         value={card.bg}
         onChange={(bg) => onChange({ ...card, bg })}
       />
       <NumberField
-        label={`${label} duration`}
+        label={t(keys.duration)}
         value={card.durationMs}
         min={L.titleCardMs.min}
         max={L.titleCardMs.max}

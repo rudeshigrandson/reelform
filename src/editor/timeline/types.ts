@@ -4,6 +4,7 @@ import type { Caption } from "../inspector/captions/types";
 import type { SpeedRegionEdit } from "../inspector/effects/types";
 import type { ZoomRegion } from "../inspector/zoom/types";
 import type { Clip } from "../model/schema";
+import { type TimelineMessageKey, tt } from "./i18n";
 
 /**
  * Timeline view model (ENGINEERING_SPEC §6.7, design guide S12 region E).
@@ -58,22 +59,39 @@ export interface TimelineTrack {
   readonly media?: TimelineMedia | undefined;
 }
 
-export const TRACK_LABELS: Readonly<Record<TrackKind, string>> = {
-  video: "Video",
-  zoom: "Zoom",
-  speed: "Speed",
-  annotations: "Annotations",
-  captions: "Captions",
+const TRACK_KINDS: readonly TrackKind[] = ["video", "zoom", "speed", "annotations", "captions"];
+
+export const TRACK_LABEL_KEYS: Readonly<Record<TrackKind, TimelineMessageKey>> = {
+  video: "timeline.track.video",
+  zoom: "timeline.track.zoom",
+  speed: "timeline.track.speed",
+  annotations: "timeline.track.annotations",
+  captions: "timeline.track.captions",
 };
 
-/** Singular noun used in item accessible names, e.g. "Zoom 1.8× 00:02.000–00:04.500". */
-export const ITEM_NOUNS: Readonly<Record<TrackKind, string>> = {
-  video: "Clip",
-  zoom: "Zoom",
-  speed: "Speed",
-  annotations: "Annotation",
-  captions: "Caption",
+export const ITEM_NOUN_KEYS: Readonly<Record<TrackKind, TimelineMessageKey>> = {
+  video: "timeline.item.video",
+  zoom: "timeline.item.zoom",
+  speed: "timeline.item.speed",
+  annotations: "timeline.item.annotations",
+  captions: "timeline.item.captions",
 };
+
+/** A kind → string map whose values translate on each read (active window language). */
+function translatedRecord(
+  keys: Readonly<Record<TrackKind, TimelineMessageKey>>,
+): Readonly<Record<TrackKind, string>> {
+  const record = {} as Record<TrackKind, string>;
+  for (const kind of TRACK_KINDS) {
+    Object.defineProperty(record, kind, { enumerable: true, get: () => tt(keys[kind]) });
+  }
+  return Object.freeze(record);
+}
+
+export const TRACK_LABELS: Readonly<Record<TrackKind, string>> = translatedRecord(TRACK_LABEL_KEYS);
+
+/** Singular noun used in item accessible names, e.g. "Zoom 1.8× 00:02.000–00:04.500". */
+export const ITEM_NOUNS: Readonly<Record<TrackKind, string>> = translatedRecord(ITEM_NOUN_KEYS);
 
 export const TRACK_ALLOWS_OVERLAP: Readonly<Record<TrackKind, boolean>> = {
   video: false,
@@ -153,7 +171,7 @@ export function clipsToItems(clips: readonly Clip[]): TimelineItem[] {
     id: c.id,
     startMs: c.timelineStartMs,
     endMs: c.timelineStartMs + (c.sourceEndMs - c.sourceStartMs),
-    label: `Clip ${i + 1}`,
+    label: tt("timeline.clipLabel", { index: i + 1 }),
     sourceStartMs: c.sourceStartMs,
   }));
 }

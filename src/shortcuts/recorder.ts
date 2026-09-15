@@ -7,6 +7,7 @@ import {
   formatAccelerator,
 } from "./accelerator";
 import { type ShortcutConflict, conflictsFor, hasBlockingConflict } from "./conflicts";
+import { type ShortcutsTranslate, shortcutGroupLabel, shortcutLabel, st } from "./i18n";
 import type { ResolvedShortcut, ShortcutGroup } from "./registry";
 
 /**
@@ -39,6 +40,7 @@ export function evaluateRecordedKey(
   e: KeyEventLike,
   resolved: readonly ResolvedShortcut[],
   platform: ShortcutPlatform,
+  translate: ShortcutsTranslate = st,
 ): RecordOutcome {
   if (e.key === "Escape" && plain(e)) return { kind: "cancel" };
   if (e.key === "Tab" && plain(e)) return { kind: "ignore" };
@@ -59,7 +61,11 @@ export function evaluateRecordedKey(
     return {
       kind: "invalid",
       display: formatAccelerator(accelerator, platform),
-      message: `Global shortcuts need ${platform === "mac" ? "⌘, ⌥ or ⌃" : "Ctrl or Alt"} so they don't take over typing in other apps.`,
+      message: translate(
+        platform === "mac"
+          ? "shortcuts.invalid.globalModifiers.mac"
+          : "shortcuts.invalid.globalModifiers.win",
+      ),
     };
   }
   const conflicts = conflictsFor(id, accelerator, resolved);
@@ -91,20 +97,28 @@ export function groupShortcuts(resolved: readonly ResolvedShortcut[]): ShortcutG
 
 const fold = (s: string) => s.toLowerCase().normalize("NFKD");
 
-/** Case-insensitive search over label, group, display string and id. */
+/** Case-insensitive search over the localized label and group, display string and id. */
 export function filterShortcuts(
   resolved: readonly ResolvedShortcut[],
   query: string,
+  translate: ShortcutsTranslate = st,
 ): ResolvedShortcut[] {
   const terms = fold(query).split(/\s+/).filter(Boolean);
   if (terms.length === 0) return [...resolved];
   return resolved.filter((r) => {
-    const hay = fold(`${r.def.label} ${r.def.group} ${r.display} ${r.id}`);
+    const label = shortcutLabel(r.def, translate);
+    const group = shortcutGroupLabel(r.def.group, translate);
+    const hay = fold(`${label} ${group} ${r.display} ${r.id}`);
     return terms.every((t) => hay.includes(t));
   });
 }
 
-/** Label of a shortcut id for conflict messages. */
-export function shortcutLabelFor(id: string, resolved: readonly ResolvedShortcut[]): string {
-  return resolved.find((r) => r.id === id)?.def.label ?? id;
+/** Localized label of a shortcut id for conflict messages. */
+export function shortcutLabelFor(
+  id: string,
+  resolved: readonly ResolvedShortcut[],
+  translate: ShortcutsTranslate = st,
+): string {
+  const def = resolved.find((r) => r.id === id)?.def;
+  return def ? shortcutLabel(def, translate) : id;
 }

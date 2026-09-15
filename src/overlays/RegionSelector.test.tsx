@@ -22,6 +22,35 @@ describe("RegionSelector", () => {
     expect(screen.getByTestId("region-readout")).toHaveTextContent("640×360 px");
   });
 
+  it("keeps large pixel sizes ungrouped and localizes the default hint and labels", () => {
+    render(
+      <RegionSelector
+        initialBounds={{ x: 0, y: 0, width: 1920.4, height: 1080 }}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("region-readout")).toHaveTextContent("1920×1080 px");
+    expect(screen.getByTestId("region-hint")).toHaveTextContent(
+      "Drag to select a region · Esc to cancel",
+    );
+    expect(screen.getByRole("dialog", { name: "Select capture region" })).toBeInTheDocument();
+    expect(screen.getByTestId("handle-nw")).toHaveAttribute("aria-label", "Resize nw");
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("shows a caller-supplied hint instead of the default", () => {
+    render(
+      <RegionSelector
+        initialBounds={sampleRegionProps.initialBounds}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        hint="Pick the window area"
+      />,
+    );
+    expect(screen.getByTestId("region-hint")).toHaveTextContent("Pick the window area");
+  });
+
   it("Record calls onConfirm with the current bounds", () => {
     const onConfirm = vi.fn();
     render(

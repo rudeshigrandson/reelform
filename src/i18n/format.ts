@@ -1,4 +1,30 @@
-import en from "./locales/en.json";
+import base from "./locales/en.json";
+import editorShell from "./locales/en.editorShell.json";
+import exportFlow from "./locales/en.exportFlow.json";
+import hud from "./locales/en.hud.json";
+import inspector from "./locales/en.inspector.json";
+import launcher from "./locales/en.launcher.json";
+import onboarding from "./locales/en.onboarding.json";
+import overlays from "./locales/en.overlays.json";
+import projects from "./locales/en.projects.json";
+import shortcuts from "./locales/en.shortcuts.json";
+import timeline from "./locales/en.timeline.json";
+
+/** English catalog: the shared `en.json` plus one namespace file per migrated area. */
+export const EN_MESSAGES = {
+  ...base,
+  ...editorShell,
+  ...exportFlow,
+  ...hud,
+  ...inspector,
+  ...launcher,
+  ...onboarding,
+  ...overlays,
+  ...projects,
+  ...shortcuts,
+  ...timeline,
+};
+const en = EN_MESSAGES;
 
 /**
  * Minimal typed i18n (ENGINEERING_SPEC §1 `src/i18n`, §14.4 "strings

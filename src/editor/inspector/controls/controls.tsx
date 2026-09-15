@@ -1,4 +1,5 @@
 import { type CSSProperties, type ReactElement, type ReactNode, useId, useState } from "react";
+import { type InspectorMessageKey, useInspectorT } from "../i18n";
 
 /**
  * Shared inspector controls (design guide S13–S21). Every tab builds from these
@@ -297,8 +298,21 @@ export interface AnchorGridProps {
   onChange: (anchor: Anchor) => void;
 }
 
+const ANCHOR_LABEL_KEYS: Readonly<Record<Anchor, InspectorMessageKey>> = {
+  "top-left": "inspector.anchor.topLeft",
+  top: "inspector.anchor.top",
+  "top-right": "inspector.anchor.topRight",
+  left: "inspector.anchor.left",
+  center: "inspector.anchor.center",
+  right: "inspector.anchor.right",
+  "bottom-left": "inspector.anchor.bottomLeft",
+  bottom: "inspector.anchor.bottom",
+  "bottom-right": "inspector.anchor.bottomRight",
+};
+
 /** 3×3 position picker (focus / webcam position). `null` = custom position. */
 export function AnchorGrid({ label, value, disabled, onChange }: AnchorGridProps): ReactElement {
+  const t = useInspectorT();
   return (
     <div style={rowStyle}>
       <span style={labelStyle}>{label}</span>
@@ -313,7 +327,7 @@ export function AnchorGrid({ label, value, disabled, onChange }: AnchorGridProps
             type="button"
             role="radio"
             aria-checked={value === a}
-            aria-label={a}
+            aria-label={t(ANCHOR_LABEL_KEYS[a])}
             disabled={disabled}
             onClick={() => onChange(a)}
             style={{

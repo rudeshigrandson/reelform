@@ -1,0 +1,66 @@
+{
+  "projects.view.recent": "Recent",
+  "projects.view.all": "All projects",
+  "projects.view.trash": "Trash",
+
+  "projects.title": "Projects",
+  "projects.search.label": "Search projects",
+  "projects.search.placeholder": "Search…",
+  "projects.sort.recent": "Recent",
+  "projects.sort.name": "Name",
+  "projects.newRecording": "New recording",
+  "projects.import": "Import…",
+  "projects.noMatch": "No projects match “{query}”.",
+
+  "projects.empty.title": "Nothing recorded yet",
+  "projects.empty.body": "Capture your screen to create your first project.",
+  "projects.empty.action": "Record something",
+
+  "projects.state.ready": "Ready",
+  "projects.state.recording": "Recording",
+  "projects.state.interrupted": "Interrupted",
+  "projects.state.missing": "Missing",
+  "projects.state.corrupt": "Damaged",
+
+  "projects.card.open": "Open {name}",
+  "projects.card.actions": "Actions for {name}",
+  "projects.card.rename": "Rename",
+  "projects.card.duplicate": "Duplicate",
+  "projects.card.delete": "Delete",
+
+  "projects.relative.justNow": "just now",
+  "projects.relative.minutes": "{count}m ago",
+  "projects.relative.hours": "{count}h ago",
+  "projects.relative.days": "{count}d ago",
+  "projects.relative.weeks": "{count}w ago",
+
+  "projects.delete.title": "Delete project?",
+  "projects.delete.confirm": "Delete",
+  "projects.delete.body": "“{name}” will be moved to the Trash. You can restore it from Trash.",
+
+  "projects.unavailable": "Projects are available in the desktop app.",
+  "projects.loadError": "Couldn't load projects. {message}",
+  "projects.retry": "Retry",
+  "projects.dismiss": "Dismiss",
+  "projects.loading": "Loading projects…",
+  "projects.error.missing": "“{name}” can't be found. It may have been moved or deleted.",
+  "projects.error.corrupt": "“{name}” is damaged and can't be opened.",
+
+  "projects.trash.loading": "Loading trash…",
+  "projects.trash.emptyTitle": "Trash is empty",
+  "projects.trash.emptyBody": "Projects you move to the Trash show up here.",
+  "projects.trash.listLabel": "Trash",
+  "projects.trash.restore": "Restore",
+  "projects.trash.restoreLabel": "Restore {name}",
+  "projects.trash.deleteForever": "Delete forever",
+  "projects.trash.deleteForeverLabel": "Delete {name} forever",
+  "projects.purge.title": "Delete project?",
+  "projects.purge.body": "“{name}” and its recording files will be moved to the system trash.",
+
+  "projects.nameDialog.renameTitle": "Rename project",
+  "projects.nameDialog.duplicateTitle": "Duplicate project",
+  "projects.nameDialog.rename": "Rename",
+  "projects.nameDialog.duplicate": "Duplicate",
+  "projects.nameDialog.inputLabel": "Project name",
+  "projects.nameDialog.copyName": "{name} copy"
+}

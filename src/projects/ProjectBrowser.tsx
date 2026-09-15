@@ -11,6 +11,7 @@ import {
 import type { SegmentedOption, TagProps } from "@design/components";
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
+import { type ProjectsKey, type ProjectsTranslate, useProjectsT } from "./i18n";
 import type {
   CardAction,
   ProjectBrowserProps,
@@ -19,17 +20,17 @@ import type {
   SortKey,
 } from "./types";
 
-const SORT_OPTIONS: ReadonlyArray<SegmentedOption<SortKey>> = [
-  { value: "recent", label: "Recent" },
-  { value: "name", label: "Name" },
+const SORT_OPTIONS: ReadonlyArray<{ value: SortKey; labelKey: ProjectsKey }> = [
+  { value: "recent", labelKey: "projects.sort.recent" },
+  { value: "name", labelKey: "projects.sort.name" },
 ];
 
-const STATE_TAG: Record<ProjectState, { label: string; variant: TagProps["variant"] }> = {
-  ready: { label: "Ready", variant: "neutral" },
-  recording: { label: "Recording", variant: "accent" },
-  interrupted: { label: "Interrupted", variant: "outline" },
-  missing: { label: "Missing", variant: "outline" },
-  corrupt: { label: "Damaged", variant: "outline" },
+const STATE_TAG: Record<ProjectState, { labelKey: ProjectsKey; variant: TagProps["variant"] }> = {
+  ready: { labelKey: "projects.state.ready", variant: "neutral" },
+  recording: { labelKey: "projects.state.recording", variant: "accent" },
+  interrupted: { labelKey: "projects.state.interrupted", variant: "outline" },
+  missing: { labelKey: "projects.state.missing", variant: "outline" },
+  corrupt: { labelKey: "projects.state.corrupt", variant: "outline" },
 };
 
 function formatDuration(ms: number): string {
@@ -39,19 +40,19 @@ function formatDuration(ms: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
-function formatRelative(iso: string, now: number): string {
+function formatRelative(iso: string, now: number, t: ProjectsTranslate): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return iso;
   const diffMs = now - then;
   const diffMin = Math.round(diffMs / 60_000);
-  if (diffMin < 1) return "just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffMin < 1) return t("projects.relative.justNow");
+  if (diffMin < 60) return t("projects.relative.minutes", { count: diffMin });
   const diffHr = Math.round(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
+  if (diffHr < 24) return t("projects.relative.hours", { count: diffHr });
   const diffDay = Math.round(diffHr / 24);
-  if (diffDay < 7) return `${diffDay}d ago`;
+  if (diffDay < 7) return t("projects.relative.days", { count: diffDay });
   const diffWk = Math.round(diffDay / 7);
-  return `${diffWk}w ago`;
+  return t("projects.relative.weeks", { count: diffWk });
 }
 
 const gridStyle: CSSProperties = {
@@ -86,6 +87,7 @@ interface ProjectCardProps {
 }
 
 function ProjectCard({ project, now, onOpen, onCardAction, onRequestDelete }: ProjectCardProps) {
+  const t = useProjectsT();
   const [menuOpen, setMenuOpen] = useState(false);
   const stateTag = project.state ? STATE_TAG[project.state] : null;
 
@@ -96,7 +98,7 @@ function ProjectCard({ project, now, onOpen, onCardAction, onRequestDelete }: Pr
       elevation="sm"
       role="button"
       tabIndex={0}
-      aria-label={`Open ${project.name}`}
+      aria-label={t("projects.card.open", { name: project.name })}
       onClick={() => onOpen(project.id)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -116,7 +118,7 @@ function ProjectCard({ project, now, onOpen, onCardAction, onRequestDelete }: Pr
         ) : null}
         {stateTag ? (
           <div style={{ position: "absolute", top: "var(--space-2)", left: "var(--space-2)" }}>
-            <Tag variant={stateTag.variant}>{stateTag.label}</Tag>
+            <Tag variant={stateTag.variant}>{t(stateTag.labelKey)}</Tag>
           </div>
         ) : null}
       </div>
@@ -134,7 +136,7 @@ function ProjectCard({ project, now, onOpen, onCardAction, onRequestDelete }: Pr
           <Button
             icon
             variant="ghost"
-            aria-label={`Actions for ${project.name}`}
+            aria-label={t("projects.card.actions", { name: project.name })}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             onClick={(e) => {
@@ -172,7 +174,7 @@ function ProjectCard({ project, now, onOpen, onCardAction, onRequestDelete }: Pr
                   onCardAction(project.id, "rename");
                 }}
               >
-                Rename
+                {t("projects.card.rename")}
               </Button>
               <Button
                 variant="ghost"
@@ -182,7 +184,7 @@ function ProjectCard({ project, now, onOpen, onCardAction, onRequestDelete }: Pr
                   onCardAction(project.id, "duplicate");
                 }}
               >
-                Duplicate
+                {t("projects.card.duplicate")}
               </Button>
               <Button
                 variant="ghost"
@@ -192,7 +194,7 @@ function ProjectCard({ project, now, onOpen, onCardAction, onRequestDelete }: Pr
                   onRequestDelete(project);
                 }}
               >
-                Delete
+                {t("projects.card.delete")}
               </Button>
             </div>
           ) : null}
@@ -200,7 +202,7 @@ function ProjectCard({ project, now, onOpen, onCardAction, onRequestDelete }: Pr
       </div>
 
       <CardMeta>
-        {formatRelative(project.modifiedAt, now)} · {formatDuration(project.durationMs)}
+        {formatRelative(project.modifiedAt, now, t)} · {formatDuration(project.durationMs)}
       </CardMeta>
     </Card>
   );
@@ -213,6 +215,7 @@ export function ProjectBrowser({
   onImport,
   onCardAction,
 }: ProjectBrowserProps) {
+  const t = useProjectsT();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [pendingDelete, setPendingDelete] = useState<ProjectSummary | null>(null);
@@ -233,6 +236,11 @@ export function ProjectBrowser({
     }
     return sorted;
   }, [projects, query, sort]);
+
+  const sortOptions = useMemo<ReadonlyArray<SegmentedOption<SortKey>>>(
+    () => SORT_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
+    [t],
+  );
 
   const isEmpty = projects.length === 0;
 
@@ -261,22 +269,22 @@ export function ProjectBrowser({
             fontSize: "1.75rem",
           }}
         >
-          Projects
+          {t("projects.title")}
         </h1>
         <Input
           type="search"
-          aria-label="Search projects"
-          placeholder="Search…"
+          aria-label={t("projects.search.label")}
+          placeholder={t("projects.search.placeholder")}
           value={query}
           onChange={(e) => setQuery(e.currentTarget.value)}
         />
-        <Segmented name="project-sort" value={sort} options={SORT_OPTIONS} onChange={setSort} />
+        <Segmented name="project-sort" value={sort} options={sortOptions} onChange={setSort} />
         <Button variant="primary" onClick={onNew}>
-          New recording
+          {t("projects.newRecording")}
         </Button>
         {onImport ? (
           <Button variant="secondary" onClick={onImport}>
-            Import…
+            {t("projects.import")}
           </Button>
         ) : null}
       </div>
@@ -318,17 +326,15 @@ export function ProjectBrowser({
               color: "var(--text-1)",
             }}
           >
-            Nothing recorded yet
+            {t("projects.empty.title")}
           </h2>
-          <p style={{ margin: 0, maxWidth: "36ch" }}>
-            Capture your screen to create your first project.
-          </p>
+          <p style={{ margin: 0, maxWidth: "36ch" }}>{t("projects.empty.body")}</p>
           <Button variant="primary" onClick={onNew}>
-            Record something
+            {t("projects.empty.action")}
           </Button>
         </div>
       ) : visible.length === 0 ? (
-        <p style={{ color: "var(--text-2)" }}>No projects match “{query}”.</p>
+        <p style={{ color: "var(--text-2)" }}>{t("projects.noMatch", { query })}</p>
       ) : (
         <div style={gridStyle}>
           {visible.map((project) => (
@@ -347,22 +353,20 @@ export function ProjectBrowser({
       <Dialog
         open={pendingDelete !== null}
         onClose={() => setPendingDelete(null)}
-        title="Delete project?"
+        title={t("projects.delete.title")}
         actions={
           <>
             <Button variant="ghost" onClick={() => setPendingDelete(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button variant="primary" onClick={confirmDelete}>
-              Delete
+              {t("projects.delete.confirm")}
             </Button>
           </>
         }
       >
         {pendingDelete ? (
-          <p style={{ margin: 0 }}>
-            “{pendingDelete.name}” will be moved to the Trash. You can restore it from Trash.
-          </p>
+          <p style={{ margin: 0 }}>{t("projects.delete.body", { name: pendingDelete.name })}</p>
         ) : null}
       </Dialog>
     </div>

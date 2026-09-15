@@ -3,6 +3,7 @@ import { AUDIO_BITRATE } from "../../export/engine/audio";
 import { containerSupports } from "../../export/engine/encoderConfig";
 import type { GifDither, GifFps, GifSizePreset } from "../../export/gif/types";
 import type { ExportConfig } from "../../export/route";
+import { t } from "../../i18n/format";
 import { type EncoderCapabilities, isCodecUsable } from "./capabilities";
 
 /**
@@ -175,31 +176,34 @@ export interface ConfigIssue {
 export function validateFlowConfig(c: ExportFlowConfig, ctx: ValidationContext): ConfigIssue[] {
   const issues: ConfigIssue[] = [];
   if (cleanName(c.fileName).replace(/^\.+/, "") === "") {
-    issues.push({ field: "fileName", message: "Enter a file name" });
+    issues.push({ field: "fileName", message: t("exportFlow.issue.fileName") });
   }
   if (!ctx.hasVideo || ctx.mediaOffline) {
-    issues.push({ field: "source", message: "The screen recording is missing — relink it first" });
+    issues.push({ field: "source", message: t("exportFlow.issue.sourceMissing") });
   }
   if (!resolveRange(c.range, ctx.range)) {
     issues.push({
       field: "range",
       message:
         c.range === "entire"
-          ? "The project is empty"
+          ? t("exportFlow.issue.emptyProject")
           : c.range === "selection"
-            ? "Select a range on the timeline first"
-            : "Set In and Out points first",
+            ? t("exportFlow.issue.selectRange")
+            : t("exportFlow.issue.setInOut"),
     });
   }
   if (c.captions !== "none" && ctx.captionCount === 0) {
-    issues.push({ field: "captions", message: "This project has no captions" });
+    issues.push({ field: "captions", message: t("exportFlow.issue.noCaptions") });
   }
   if (c.format === "gif") {
     if (c.captions === "srt" || c.captions === "vtt") {
       // Sidecars next to a GIF are allowed; nothing to validate.
     }
     if (!(c.gif.colors >= 32 && c.gif.colors <= 256)) {
-      issues.push({ field: "gif", message: "Colors must be between 32 and 256" });
+      issues.push({
+        field: "gif",
+        message: t("exportFlow.issue.gifColors", { min: 32, max: 256 }),
+      });
     }
     return issues;
   }
@@ -212,12 +216,15 @@ export function validateFlowConfig(c: ExportFlowConfig, ctx: ValidationContext):
     c.width % 2 !== 0 ||
     c.height % 2 !== 0
   ) {
-    issues.push({ field: "size", message: "Width and height must be positive even numbers" });
+    issues.push({ field: "size", message: t("exportFlow.issue.size") });
   }
   if (!containerSupports(engine.container, c.codec)) {
-    issues.push({ field: "codec", message: `${c.codec.toUpperCase()} can't be saved as WebM` });
+    issues.push({
+      field: "codec",
+      message: t("exportFlow.issue.codecNotWebm", { codec: c.codec.toUpperCase() }),
+    });
   } else if (ctx.caps && !isCodecUsable(ctx.caps, c.codec)) {
-    issues.push({ field: "codec", message: "Not supported on this device" });
+    issues.push({ field: "codec", message: t("exportFlow.issue.codecUnsupported") });
   }
   return issues;
 }

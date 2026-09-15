@@ -37,8 +37,10 @@ export {
 export type { OpContext, OpResult, SelectionModifiers, SnapConfig } from "./trackOps";
 export {
   ITEM_NOUNS,
+  ITEM_NOUN_KEYS,
   TRACK_ALLOWS_OVERLAP,
   TRACK_LABELS,
+  TRACK_LABEL_KEYS,
   annotationsToItems,
   captionsToItems,
   clipsToItems,

@@ -1,4 +1,5 @@
 import { clamp } from "../controls";
+import { ti } from "../i18n";
 import {
   type CursorSample,
   DEFAULT_IDLE_PARAMS,
@@ -69,8 +70,8 @@ export function formatMmSs(ms: number): string {
 
 /** "Would remove 12 gaps (00:18 total)". */
 export function formatSilencePreview({ count, totalMs }: SilencePreview): string {
-  if (count === 0) return "No silent gaps found";
-  return `Would remove ${count} ${count === 1 ? "gap" : "gaps"} (${formatMmSs(totalMs)} total)`;
+  if (count === 0) return ti("inspector.effects.silence.none");
+  return ti("inspector.effects.silence.preview", { count, total: formatMmSs(totalMs) });
 }
 
 /**

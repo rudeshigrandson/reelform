@@ -2,6 +2,7 @@ import { Button, Input, Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactElement } from "react";
+import { type MessageKey, type Translate, useT } from "../../i18n";
 import {
   type EditorShellProps,
   INSPECTOR_TABS,
@@ -11,11 +12,44 @@ import {
 } from "./types";
 import { useNarrowLayout } from "./useNarrowLayout";
 
-const QUALITY_OPTIONS: ReadonlyArray<SegmentedOption<PreviewQuality>> = [
-  { value: "auto", label: "Auto" },
-  { value: "full", label: "Full" },
-  { value: "half", label: "Half" },
-];
+const QUALITY_LABEL_KEYS: Readonly<Record<PreviewQuality, MessageKey>> = {
+  auto: "editor.shell.quality.auto",
+  full: "editor.shell.quality.full",
+  half: "editor.shell.quality.half",
+};
+
+/** Display labels for the inspector tabs; the `InspectorTab` ids stay stable. */
+const TAB_LABEL_KEYS: Readonly<Record<InspectorTab, MessageKey>> = {
+  Frame: "editor.shell.tab.frame",
+  Cursor: "editor.shell.tab.cursor",
+  Zoom: "editor.shell.tab.zoom",
+  Webcam: "editor.shell.tab.webcam",
+  Audio: "editor.shell.tab.audio",
+  Captions: "editor.shell.tab.captions",
+  Annotations: "editor.shell.tab.annotations",
+  Effects: "editor.shell.tab.effects",
+  Project: "editor.shell.tab.project",
+};
+
+const LANE_LABEL_KEYS: Readonly<Record<string, MessageKey>> = {
+  Video: "editor.shell.lane.video",
+  Zoom: "editor.shell.lane.zoom",
+  Cursor: "editor.shell.lane.cursor",
+  Captions: "editor.shell.lane.captions",
+  Audio: "editor.shell.lane.audio",
+};
+
+function laneLabel(lane: string, t: Translate): string {
+  const key = LANE_LABEL_KEYS[lane];
+  return key ? t(key) : lane;
+}
+
+function qualityOptions(t: Translate): ReadonlyArray<SegmentedOption<PreviewQuality>> {
+  return (Object.keys(QUALITY_LABEL_KEYS) as PreviewQuality[]).map((value) => ({
+    value,
+    label: t(QUALITY_LABEL_KEYS[value]),
+  }));
+}
 
 function formatTime(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -207,6 +241,7 @@ export function EditorShell(props: EditorShellProps): ReactElement {
     dirty = false,
     history,
   } = props;
+  const t = useT();
 
   // Rename edits a local draft; blur / Enter commits, Escape reverts (S12 top bar).
   const [nameDraft, setNameDraft] = useState(projectName);
@@ -279,11 +314,12 @@ export function EditorShell(props: EditorShellProps): ReactElement {
     if (tab !== activeTab) setActiveTab(tab);
   };
   const showPanel = !narrow || popoverOpen;
+  const activeLabel = t(TAB_LABEL_KEYS[activeTab]);
   const panel = (
     <div
       style={narrow ? { ...inspectorBodyStyle, flex: "1 1 auto" } : inspectorBodyStyle}
       role="tabpanel"
-      aria-label={narrow ? `${activeTab} panel` : undefined}
+      aria-label={narrow ? t("editor.shell.inspector.panel", { tab: activeLabel }) : undefined}
     >
       <h2
         style={{
@@ -293,10 +329,12 @@ export function EditorShell(props: EditorShellProps): ReactElement {
           color: "var(--text-1)",
         }}
       >
-        {activeTab}
+        {activeLabel}
       </h2>
       <div style={{ marginTop: "var(--space-3)", color: "var(--text-2)" }}>
-        {renderInspector ? renderInspector(activeTab) : `${activeTab} inspector`}
+        {renderInspector
+          ? renderInspector(activeTab)
+          : t("editor.shell.inspector.placeholder", { tab: activeLabel })}
       </div>
     </div>
   );
@@ -305,12 +343,18 @@ export function EditorShell(props: EditorShellProps): ReactElement {
     <div style={gridStyle} data-testid="editor-shell" data-layout={narrow ? "narrow" : "wide"}>
       {/* Top bar */}
       <header style={topBarStyle}>
-        <Button icon variant="ghost" aria-label="Back" title="Projects" onClick={() => onBack?.()}>
+        <Button
+          icon
+          variant="ghost"
+          aria-label={t("editor.shell.back")}
+          title={t("editor.shell.backTitle")}
+          onClick={() => onBack?.()}
+        >
           ‹
         </Button>
         <div style={{ width: narrow ? "180px" : "240px" }}>
           <Input
-            aria-label="Project name"
+            aria-label={t("editor.shell.projectName")}
             value={onRename ? nameDraft : projectName}
             onChange={(e) => setNameDraft(e.target.value)}
             onBlur={() => {
@@ -331,7 +375,11 @@ export function EditorShell(props: EditorShellProps): ReactElement {
           />
         </div>
         {dirty && (
-          <output aria-label="Unsaved changes" title="Unsaved changes" style={dirtyDotStyle}>
+          <output
+            aria-label={t("editor.shell.unsavedChanges")}
+            title={t("editor.shell.unsavedChanges")}
+            style={dirtyDotStyle}
+          >
             •
           </output>
         )}
@@ -340,8 +388,8 @@ export function EditorShell(props: EditorShellProps): ReactElement {
             <Button
               icon
               variant="ghost"
-              aria-label="Undo"
-              title={history.undoLabel ?? "Nothing to undo"}
+              aria-label={t("editor.shell.undo")}
+              title={history.undoLabel ?? t("editor.shell.nothingToUndo")}
               disabled={!history.canUndo}
               onClick={() => history.onUndo()}
             >
@@ -350,8 +398,8 @@ export function EditorShell(props: EditorShellProps): ReactElement {
             <Button
               icon
               variant="ghost"
-              aria-label="Redo"
-              title={history.redoLabel ?? "Nothing to redo"}
+              aria-label={t("editor.shell.redo")}
+              title={history.redoLabel ?? t("editor.shell.nothingToRedo")}
               disabled={!history.canRedo}
               onClick={() => history.onRedo()}
             >
@@ -362,7 +410,7 @@ export function EditorShell(props: EditorShellProps): ReactElement {
         <Segmented<PreviewQuality>
           name="preview-quality"
           value={previewQuality}
-          options={QUALITY_OPTIONS}
+          options={qualityOptions(t)}
           onChange={(q) => onQualityChange?.(q)}
         />
         {/* Transport moves to the playback bar when one is provided (guide S12 D). */}
@@ -378,20 +426,23 @@ export function EditorShell(props: EditorShellProps): ReactElement {
             <Button
               icon
               variant="secondary"
-              aria-label={isPlaying ? "Pause" : "Play"}
+              aria-label={isPlaying ? t("editor.shell.pause") : t("editor.shell.play")}
               aria-pressed={isPlaying}
               onClick={() => onTogglePlay?.()}
             >
               {isPlaying ? "❚❚" : "▶"}
             </Button>
             <span style={{ fontSize: "13px", color: "var(--text-2)" }}>
-              {formatTime(currentMs)} / {formatTime(durationMs)}
+              {t("editor.shell.time", {
+                current: formatTime(currentMs),
+                duration: formatTime(durationMs),
+              })}
             </span>
           </div>
         )}
         <div style={{ marginLeft: "auto" }}>
           <Button variant="primary" onClick={() => onExport()}>
-            Export
+            {t("editor.shell.export")}
           </Button>
         </div>
       </header>
@@ -401,8 +452,8 @@ export function EditorShell(props: EditorShellProps): ReactElement {
         {renderPreview ? (
           renderPreview()
         ) : (
-          <div style={previewBoxStyle} aria-label="Preview">
-            Preview
+          <div style={previewBoxStyle} aria-label={t("editor.shell.preview")}>
+            {t("editor.shell.preview")}
           </div>
         )}
       </main>
@@ -413,7 +464,7 @@ export function EditorShell(props: EditorShellProps): ReactElement {
       )}
 
       {/* Timeline */}
-      <section style={timelineStyle} aria-label="Timeline">
+      <section style={timelineStyle} aria-label={t("editor.shell.timeline")}>
         {renderTimeline ? (
           renderTimeline()
         ) : (
@@ -422,7 +473,7 @@ export function EditorShell(props: EditorShellProps): ReactElement {
             <div style={{ position: "relative", flex: "1 1 auto", overflow: "hidden" }}>
               {TIMELINE_LANES.map((lane) => (
                 <div key={lane} style={laneStyle}>
-                  <div style={laneLabelStyle}>{lane}</div>
+                  <div style={laneLabelStyle}>{laneLabel(lane, t)}</div>
                   <div style={laneTrackStyle} />
                 </div>
               ))}
@@ -445,10 +496,11 @@ export function EditorShell(props: EditorShellProps): ReactElement {
       </section>
 
       {/* Inspector */}
-      <aside style={inspectorStyle} aria-label="Inspector">
+      <aside style={inspectorStyle} aria-label={t("editor.shell.inspector")}>
         <nav style={tabRailStyle} role="tablist" aria-orientation="vertical">
           {INSPECTOR_TABS.map((tab) => {
             const active = tab === activeTab;
+            const label = t(TAB_LABEL_KEYS[tab]);
             return (
               <button
                 key={tab}
@@ -456,8 +508,8 @@ export function EditorShell(props: EditorShellProps): ReactElement {
                 role="tab"
                 aria-selected={active}
                 aria-expanded={narrow ? active && popoverOpen : undefined}
-                title={narrow ? tab : undefined}
-                aria-label={narrow ? tab : undefined}
+                title={narrow ? label : undefined}
+                aria-label={narrow ? label : undefined}
                 style={
                   narrow
                     ? {
@@ -469,7 +521,7 @@ export function EditorShell(props: EditorShellProps): ReactElement {
                 }
                 onClick={() => onTabClick(tab)}
               >
-                {narrow ? tab.slice(0, 2) : tab}
+                {narrow ? label.slice(0, 2) : label}
               </button>
             );
           })}

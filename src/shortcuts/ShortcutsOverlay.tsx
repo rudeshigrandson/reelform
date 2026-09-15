@@ -1,6 +1,7 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOptionalShortcutsContext, useShortcut } from "./ShortcutsProvider";
 import type { ShortcutPlatform } from "./accelerator";
+import { shortcutGroupLabel, shortcutLabel, useShortcutsT } from "./i18n";
 import { filterShortcuts, groupShortcuts } from "./recorder";
 import { type ResolvedShortcut, type ShortcutOverrides, resolveShortcuts } from "./registry";
 
@@ -38,6 +39,7 @@ export function ShortcutsOverlay({
   overrides,
   onCustomize,
 }: ShortcutsOverlayProps) {
+  const st = useShortcutsT();
   const ctx = useOptionalShortcutsContext();
   const resolved = useMemo(
     () => resolvedProp ?? ctx?.resolved ?? resolveShortcuts(platform, overrides ?? {}),
@@ -54,7 +56,10 @@ export function ShortcutsOverlay({
     searchRef.current?.focus();
   }, [open]);
 
-  const groups = useMemo(() => groupShortcuts(filterShortcuts(resolved, query)), [resolved, query]);
+  const groups = useMemo(
+    () => groupShortcuts(filterShortcuts(resolved, query, st)),
+    [resolved, query, st],
+  );
 
   if (!open) return null;
 
@@ -62,7 +67,7 @@ export function ShortcutsOverlay({
     <dialog
       open
       aria-modal="true"
-      aria-label="Keyboard shortcuts"
+      aria-label={st("shortcuts.overlay.title")}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.preventDefault();
@@ -93,30 +98,30 @@ export function ShortcutsOverlay({
     >
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
         <h2 style={{ fontFamily: "var(--font-heading)", fontSize: "1.3rem", margin: 0, flex: 1 }}>
-          Keyboard shortcuts
+          {st("shortcuts.overlay.title")}
         </h2>
         <input
           ref={searchRef}
           className="input"
           type="search"
-          aria-label="Search shortcuts"
-          placeholder="Search shortcuts"
+          aria-label={st("shortcuts.overlay.search")}
+          placeholder={st("shortcuts.overlay.search")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={{ maxWidth: "280px" }}
         />
         {onCustomize ? (
           <button type="button" className="btn btn-ghost" onClick={onCustomize}>
-            Customize…
+            {st("shortcuts.overlay.customize")}
           </button>
         ) : null}
         <button type="button" className="btn btn-secondary" onClick={onClose}>
-          Close
+          {st("shortcuts.overlay.close")}
         </button>
       </div>
 
       {groups.length === 0 ? (
-        <p style={{ color: "var(--text-3)" }}>No shortcuts match “{query}”.</p>
+        <p style={{ color: "var(--text-3)" }}>{st("shortcuts.overlay.noMatch", { query })}</p>
       ) : (
         <div
           style={{
@@ -127,7 +132,7 @@ export function ShortcutsOverlay({
           }}
         >
           {groups.map(({ group, rows }) => (
-            <section key={group} aria-label={group}>
+            <section key={group} aria-label={shortcutGroupLabel(group, st)}>
               <h3
                 style={{
                   fontSize: "0.72rem",
@@ -137,7 +142,7 @@ export function ShortcutsOverlay({
                   margin: "0 0 var(--space-2)",
                 }}
               >
-                {group}
+                {shortcutGroupLabel(group, st)}
               </h3>
               <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
                 {rows.map((r) => (
@@ -151,11 +156,13 @@ export function ShortcutsOverlay({
                       borderBottom: "1px solid var(--border)",
                     }}
                   >
-                    <span>{r.def.label}</span>
+                    <span>{shortcutLabel(r.def, st)}</span>
                     {r.display ? (
                       <kbd style={kbdStyle}>{r.display}</kbd>
                     ) : (
-                      <span style={{ color: "var(--text-3)", fontSize: "0.8rem" }}>Unassigned</span>
+                      <span style={{ color: "var(--text-3)", fontSize: "0.8rem" }}>
+                        {st("shortcuts.overlay.unassigned")}
+                      </span>
                     )}
                   </li>
                 ))}

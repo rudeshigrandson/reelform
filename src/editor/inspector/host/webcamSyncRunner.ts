@@ -4,6 +4,7 @@ import {
   type SyncResult,
   estimateSyncOffsetMs,
 } from "./webcamSync";
+import { ti } from "../i18n";
 
 /**
  * Runs the auto-sync correlation off the main thread (SPEC §9.4). Only the
@@ -93,7 +94,7 @@ export function estimateSyncOffsetOffThread(
     };
     worker.onerror = (event) => {
       done();
-      reject(new Error(event.message || "Auto-sync worker failed."));
+      reject(new Error(event.message || ti("inspector.webcam.sync.workerFailed")));
     };
     worker.postMessage(req, [req.mic.samples.buffer, req.webcam.samples.buffer]);
   });

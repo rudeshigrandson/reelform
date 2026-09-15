@@ -18,7 +18,7 @@ export interface RegionSelectorProps {
   onCancel: () => void;
   /** Minimum rect size in px (both axes). Defaults to 32. */
   minSize?: number;
-  /** Guidance above the selection (guide S07). */
+  /** Guidance above the selection (guide S07). Defaults to the localized drag/Esc hint. */
   hint?: string | undefined;
   /** Window rects (display-local) the selection edges snap to while dragging / resizing. */
   snapTargets?: ReadonlyArray<Bounds> | undefined;

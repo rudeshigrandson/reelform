@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { EmptyState, Section, Switch } from "../controls";
+import { useInspectorT } from "../i18n";
 import { formatBytes, formatDateTime, formatDurationMs } from "./logic";
 import type { DeleteProjectOptions, ProjectInfo, SourceInfo } from "./types";
 
@@ -77,6 +78,7 @@ function NameField({
   name,
   onRename,
 }: { name: string; onRename: (name: string) => void }): ReactElement {
+  const t = useInspectorT();
   const [draft, setDraft] = useState(name);
   useEffect(() => setDraft(name), [name]);
   const commit = (): void => {
@@ -89,7 +91,7 @@ function NameField({
   };
   return (
     <Input
-      label="Name"
+      label={t("inspector.project.name")}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}
@@ -110,6 +112,7 @@ function SourceRow({
   onRelink: (p: string) => void;
   onReveal: (p: string) => void;
 }): ReactElement {
+  const t = useInspectorT();
   return (
     <div
       data-testid={`source-${source.path}`}
@@ -134,7 +137,7 @@ function SourceRow({
           {source.path}
         </span>
         {source.missing ? (
-          <Tag variant="accent">Missing</Tag>
+          <Tag variant="accent">{t("inspector.project.missing")}</Tag>
         ) : (
           <span style={{ ...monoStyle, flex: "0 0 auto" }}>
             {source.sizeBytes === null ? "—" : formatBytes(source.sizeBytes)}
@@ -143,7 +146,7 @@ function SourceRow({
       </div>
       {source.missing && (
         <span style={{ fontSize: "12px", color: "var(--text-2)" }}>
-          File not found at <span style={monoStyle}>{source.absolutePath}</span>
+          {t("inspector.project.fileNotFound")} <span style={monoStyle}>{source.absolutePath}</span>
         </span>
       )}
       <div style={{ display: "flex", gap: "var(--space-2)" }}>
@@ -151,15 +154,15 @@ function SourceRow({
           variant={source.missing ? "primary" : "secondary"}
           onClick={() => onRelink(source.path)}
         >
-          Relink media…
+          {t("inspector.project.relinkButton")}
         </Button>
         {!source.missing && (
           <Button
             variant="ghost"
             onClick={() => onReveal(source.absolutePath)}
-            aria-label={`Reveal ${source.path}`}
+            aria-label={t("inspector.project.revealPath", { path: source.path })}
           >
-            Reveal
+            {t("inspector.project.reveal")}
           </Button>
         )}
       </div>
@@ -180,6 +183,7 @@ export function ProjectInspector({
   locale,
   timeZone,
 }: ProjectInspectorProps): ReactElement {
+  const t = useInspectorT();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [alsoDeleteRecordings, setAlsoDeleteRecordings] = useState(false);
   const checkboxId = useId();
@@ -193,30 +197,30 @@ export function ProjectInspector({
   };
 
   return (
-    <div style={rootStyle} aria-label="Project inspector">
-      <Section title="Project">
+    <div style={rootStyle} aria-label={t("inspector.project.label")}>
+      <Section title={t("inspector.project.section.project")}>
         <NameField name={info.name} onRename={onRename} />
         <div style={{ ...rowStyle, alignItems: "center" }}>
-          <span style={labelStyle}>Location</span>
+          <span style={labelStyle}>{t("inspector.project.location")}</span>
           <span style={{ ...monoStyle, flex: "1 1 auto" }} data-testid="project-location">
             {info.locationPath}
           </span>
           <Button variant="ghost" onClick={() => onReveal(info.locationPath)}>
-            Reveal
+            {t("inspector.project.reveal")}
           </Button>
         </div>
-        <InfoRow label="Created" mono>
+        <InfoRow label={t("inspector.project.created")} mono>
           {formatDateTime(info.createdAt, dateOpts)}
         </InfoRow>
-        <InfoRow label="Modified" mono>
+        <InfoRow label={t("inspector.project.modified")} mono>
           {formatDateTime(info.modifiedAt, dateOpts)}
         </InfoRow>
       </Section>
 
-      <Section title="Source files">
+      <Section title={t("inspector.project.sourceFiles")}>
         {anyMissing && (
-          <EmptyState title="Media offline">
-            Relink the missing file to preview and export this project.
+          <EmptyState title={t("inspector.project.offline.title")}>
+            {t("inspector.project.offline.body")}
           </EmptyState>
         )}
         {info.sources.map((s) => (
@@ -229,58 +233,62 @@ export function ProjectInspector({
         ))}
       </Section>
 
-      <Section title="Recording info">
-        <InfoRow label="Resolution" mono>
+      <Section title={t("inspector.project.recordingInfo")}>
+        <InfoRow label={t("inspector.project.resolution")} mono>
           {rec.width} × {rec.height}
         </InfoRow>
-        <InfoRow label="Frame rate" mono>
-          {Number.isInteger(rec.fps) ? rec.fps : rec.fps.toFixed(2)} fps
+        <InfoRow label={t("inspector.project.frameRate")} mono>
+          {t("inspector.project.fps", {
+            fps: Number.isInteger(rec.fps) ? String(rec.fps) : rec.fps.toFixed(2),
+          })}
         </InfoRow>
-        <InfoRow label="Duration" mono>
+        <InfoRow label={t("inspector.common.duration")} mono>
           {formatDurationMs(rec.durationMs)}
         </InfoRow>
-        <InfoRow label="Codec" mono>
+        <InfoRow label={t("inspector.project.codec")} mono>
           {rec.codec}
         </InfoRow>
-        <InfoRow label="Capture">{rec.captureBackend ?? "Unknown"}</InfoRow>
-        <InfoRow label="Cursor data" mono>
-          {rec.cursorPointCount === null
-            ? "None"
-            : `${rec.cursorPointCount.toLocaleString("en-US")} points`}
+        <InfoRow label={t("inspector.project.capture")}>
+          {rec.captureBackend ?? t("inspector.common.unknown")}
         </InfoRow>
-        <InfoRow label="Audio tracks">
+        <InfoRow label={t("inspector.project.cursorData")} mono>
+          {rec.cursorPointCount === null
+            ? t("inspector.common.none")
+            : t("inspector.project.cursorPoints", { count: rec.cursorPointCount })}
+        </InfoRow>
+        <InfoRow label={t("inspector.project.audioTracks")}>
           {rec.audioTracks.length === 0 ? (
-            "None"
+            t("inspector.common.none")
           ) : (
             <span style={{ display: "flex", flexDirection: "column" }}>
-              {rec.audioTracks.map((t) => (
-                <span key={t}>{t}</span>
+              {rec.audioTracks.map((track) => (
+                <span key={track}>{track}</span>
               ))}
             </span>
           )}
         </InfoRow>
       </Section>
 
-      <Section title="Storage">
+      <Section title={t("inspector.project.storage")}>
         <Switch
-          label="Save raw with project"
-          hint="Keep the original recording inside the project"
+          label={t("inspector.project.saveRaw")}
+          hint={t("inspector.project.saveRaw.hint")}
           checked={saveRaw}
           onChange={onSaveRawChange}
         />
         {trimSavingsBytes !== null && (
           <Button onClick={onTrim} disabled={trimSavingsBytes <= 0 || anyMissing}>
             {trimSavingsBytes > 0
-              ? `Trim source to used range (saves ${formatBytes(trimSavingsBytes)})`
-              : "Trim source to used range"}
+              ? t("inspector.project.trimSaves", { size: formatBytes(trimSavingsBytes) })
+              : t("inspector.project.trim")}
           </Button>
         )}
       </Section>
 
-      <Section title="Danger zone">
+      <Section title={t("inspector.project.dangerZone")}>
         <div>
           <Button variant="danger" onClick={() => setConfirmOpen(true)}>
-            Delete project
+            {t("inspector.project.delete")}
           </Button>
         </div>
       </Section>
@@ -288,11 +296,11 @@ export function ProjectInspector({
       <Dialog
         open={confirmOpen}
         onClose={closeConfirm}
-        title="Delete project?"
+        title={t("inspector.project.deleteConfirm.title")}
         actions={
           <>
             <Button variant="ghost" onClick={closeConfirm}>
-              Cancel
+              {t("inspector.common.cancel")}
             </Button>
             <Button
               variant="danger"
@@ -301,12 +309,14 @@ export function ProjectInspector({
                 closeConfirm();
               }}
             >
-              Delete
+              {t("inspector.common.delete")}
             </Button>
           </>
         }
       >
-        <p style={{ margin: 0 }}>“{info.name}” will be removed. This can’t be undone.</p>
+        <p style={{ margin: 0 }}>
+          {t("inspector.project.deleteConfirm.body", { name: info.name })}
+        </p>
         <label
           htmlFor={checkboxId}
           style={{
@@ -322,7 +332,7 @@ export function ProjectInspector({
             checked={alsoDeleteRecordings}
             onChange={(e) => setAlsoDeleteRecordings(e.target.checked)}
           />
-          Also delete recording files
+          {t("inspector.project.deleteConfirm.recordings")}
         </label>
       </Dialog>
     </div>

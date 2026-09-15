@@ -3,6 +3,7 @@ import type { SegmentedOption } from "@design/components";
 import { useEffect, useRef, useState } from "react";
 import { usePrefersReducedMotion } from "../overlays/reducedMotion";
 import { SourcePicker } from "./SourcePicker";
+import { type LauncherKey, useLauncherT } from "./i18n";
 import { effectiveDeviceId, effectiveSourceId, modeForPick, sourceKindFor } from "./selection";
 import type {
   Countdown,
@@ -15,10 +16,10 @@ import type {
   SourceMode,
 } from "./types";
 
-const MODE_OPTIONS: ReadonlyArray<SegmentedOption<SourceMode>> = [
-  { value: "screen", label: "Screen" },
-  { value: "window", label: "Window" },
-  { value: "region", label: "Region" },
+const MODE_OPTIONS: ReadonlyArray<{ value: SourceMode; labelKey: LauncherKey }> = [
+  { value: "screen", labelKey: "launcher.mode.screen" },
+  { value: "window", labelKey: "launcher.mode.window" },
+  { value: "region", labelKey: "launcher.mode.region" },
 ];
 
 const FPS_OPTIONS: ReadonlyArray<SegmentedOption<`${Fps}`>> = [
@@ -26,12 +27,7 @@ const FPS_OPTIONS: ReadonlyArray<SegmentedOption<`${Fps}`>> = [
   { value: "60", label: "60" },
 ];
 
-const COUNTDOWN_OPTIONS: ReadonlyArray<SegmentedOption<`${Countdown}`>> = [
-  { value: "0", label: "Off" },
-  { value: "3", label: "3s" },
-  { value: "5", label: "5s" },
-  { value: "10", label: "10s" },
-];
+const COUNTDOWN_VALUES: ReadonlyArray<Countdown> = [0, 3, 5, 10];
 
 /** Small on/off pill used for mic / webcam / system-audio / hide-cursor. */
 function Toggle({
@@ -81,6 +77,7 @@ function DeviceSelect({
   onChange: (id: string) => void;
   disabled: boolean;
 }) {
+  const t = useLauncherT();
   return (
     <select
       aria-label={ariaLabel}
@@ -91,7 +88,7 @@ function DeviceSelect({
       style={{ minWidth: 180 }}
     >
       {devices.length === 0 ? (
-        <option value="">No devices</option>
+        <option value="">{t("launcher.devices.none")}</option>
       ) : (
         devices.map((d) => (
           <option key={d.id} value={d.id}>
@@ -113,6 +110,7 @@ function SourceCard({
   onSelect: () => void;
 }) {
   const reduceMotion = usePrefersReducedMotion();
+  const t = useLauncherT();
   return (
     <Card
       elevation={selected ? "md" : "sm"}
@@ -148,7 +146,9 @@ function SourceCard({
       />
       <CardTitle>{source.name}</CardTitle>
       <CardMeta>
-        <Tag variant={source.kind === "display" ? "accent" : "neutral"}>{source.kind}</Tag>
+        <Tag variant={source.kind === "display" ? "accent" : "neutral"}>
+          {t(source.kind === "display" ? "launcher.kind.display" : "launcher.kind.window")}
+        </Tag>
         <span style={{ marginLeft: "var(--space-1)" }}>
           {source.width}×{source.height}
         </span>
@@ -164,6 +164,7 @@ const NOTICE_COLOR: Record<LauncherNotice["tone"], string> = {
 };
 
 function NoticeBanner({ notice }: { notice: LauncherNotice }) {
+  const t = useLauncherT();
   return (
     <div
       role={notice.tone === "info" ? "status" : "alert"}
@@ -198,7 +199,11 @@ function NoticeBanner({ notice }: { notice: LauncherNotice }) {
         </Button>
       ) : null}
       {notice.onDismiss ? (
-        <Button variant="ghost" onClick={notice.onDismiss} aria-label="Dismiss">
+        <Button
+          variant="ghost"
+          onClick={notice.onDismiss}
+          aria-label={t("launcher.notice.dismiss")}
+        >
           ✕
         </Button>
       ) : null}
@@ -229,10 +234,10 @@ function SourcesPlaceholder({ children, testId }: { children: React.ReactNode; t
   );
 }
 
-const EMPTY_COPY: Record<SourceMode, string> = {
-  screen: "No displays found. Check that a screen is connected.",
-  region: "No displays found. Check that a screen is connected.",
-  window: "No windows to record. Open the app you want to capture.",
+const EMPTY_COPY: Record<SourceMode, LauncherKey> = {
+  screen: "launcher.sources.noDisplays",
+  region: "launcher.sources.noDisplays",
+  window: "launcher.sources.noWindows",
 };
 
 /**
@@ -257,6 +262,20 @@ export function Launcher({
   defaults,
   pickerSources,
 }: LauncherProps) {
+  const t = useLauncherT();
+  const modeOptions: ReadonlyArray<SegmentedOption<SourceMode>> = MODE_OPTIONS.map((o) => ({
+    value: o.value,
+    label: t(o.labelKey),
+  }));
+  const countdownOptions: ReadonlyArray<SegmentedOption<`${Countdown}`>> = COUNTDOWN_VALUES.map(
+    (seconds) => ({
+      value: `${seconds}`,
+      label:
+        seconds === 0
+          ? t("launcher.options.countdownOff")
+          : t("launcher.options.countdownSeconds", { seconds }),
+    }),
+  );
   const [mode, setMode] = useState<SourceMode>(defaults?.mode ?? "screen");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mic, setMic] = useState(defaults?.mic ?? false);
@@ -369,7 +388,7 @@ export function Launcher({
         >
           Reelform
         </span>
-        <Button icon aria-label="Settings" onClick={onOpenSettings}>
+        <Button icon aria-label={t("launcher.openSettings")} onClick={onOpenSettings}>
           ⚙
         </Button>
       </header>
@@ -384,11 +403,11 @@ export function Launcher({
 
       {/* Source mode */}
       <section style={sectionStyle}>
-        <span style={labelStyle}>Capture</span>
+        <span style={labelStyle}>{t("launcher.section.capture")}</span>
         <Segmented<SourceMode>
           name="launcher-mode"
           value={mode}
-          options={MODE_OPTIONS}
+          options={modeOptions}
           onChange={setMode}
         />
       </section>
@@ -396,10 +415,10 @@ export function Launcher({
       {/* Sources grid */}
       <section style={sectionStyle}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={labelStyle}>Sources</span>
+          <span style={labelStyle}>{t("launcher.section.sources")}</span>
           {pickerSources ? (
             <Button variant="ghost" onClick={() => setPickerOpen(true)}>
-              Browse…
+              {t("launcher.browse")}
             </Button>
           ) : null}
         </div>
@@ -432,7 +451,7 @@ export function Launcher({
         ) : null}
         <div
           role="listbox"
-          aria-label="Capturable sources"
+          aria-label={t("launcher.sources.label")}
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(3, 1fr)",
@@ -441,20 +460,20 @@ export function Launcher({
         >
           {sourcesStatus === "loading" && visibleSources.length === 0 ? (
             <SourcesPlaceholder testId="launcher-sources-loading">
-              <output>Looking for screens and windows…</output>
+              <output>{t("launcher.sources.loading")}</output>
             </SourcesPlaceholder>
           ) : sourcesStatus === "error" ? (
             <SourcesPlaceholder testId="launcher-sources-error">
-              <span role="alert">{sourcesError ?? "Couldn't list screens and windows."}</span>
+              <span role="alert">{sourcesError ?? t("launcher.sources.error")}</span>
               {onRetrySources ? (
                 <Button variant="secondary" onClick={onRetrySources}>
-                  Retry
+                  {t("launcher.sources.retry")}
                 </Button>
               ) : null}
             </SourcesPlaceholder>
           ) : visibleSources.length === 0 ? (
             <SourcesPlaceholder testId="launcher-sources-empty">
-              {EMPTY_COPY[mode]}
+              {t(EMPTY_COPY[mode])}
             </SourcesPlaceholder>
           ) : (
             visibleSources.map((source) => (
@@ -471,11 +490,11 @@ export function Launcher({
 
       {/* Audio */}
       <section style={sectionStyle}>
-        <span style={labelStyle}>Audio</span>
+        <span style={labelStyle}>{t("launcher.section.audio")}</span>
         <div style={rowStyle}>
-          <Toggle label="Microphone" checked={mic} onChange={setMic} />
+          <Toggle label={t("launcher.audio.microphone")} checked={mic} onChange={setMic} />
           <DeviceSelect
-            ariaLabel="Microphone device"
+            ariaLabel={t("launcher.audio.microphoneDevice")}
             devices={micDevices}
             value={micDeviceId}
             onChange={setMicDeviceId}
@@ -484,14 +503,14 @@ export function Launcher({
         </div>
         <div style={rowStyle}>
           <Toggle
-            label="System audio"
+            label={t("launcher.audio.systemAudio")}
             checked={systemAudio}
             onChange={setSystemAudio}
             disabled={!systemAudioSupported}
           />
           {!systemAudioSupported && (
             <span style={{ fontSize: 12, color: "var(--text-3)" }}>
-              {systemAudioNote ?? "Unavailable on macOS"}
+              {systemAudioNote ?? t("launcher.audio.systemAudioUnavailable")}
             </span>
           )}
         </div>
@@ -499,11 +518,11 @@ export function Launcher({
 
       {/* Webcam */}
       <section style={sectionStyle}>
-        <span style={labelStyle}>Webcam</span>
+        <span style={labelStyle}>{t("launcher.section.webcam")}</span>
         <div style={rowStyle}>
-          <Toggle label="Webcam" checked={webcam} onChange={setWebcam} />
+          <Toggle label={t("launcher.webcam.toggle")} checked={webcam} onChange={setWebcam} />
           <DeviceSelect
-            ariaLabel="Webcam device"
+            ariaLabel={t("launcher.webcam.device")}
             devices={webcamDevices}
             value={webcamDeviceId}
             onChange={setWebcamDeviceId}
@@ -514,34 +533,42 @@ export function Launcher({
 
       {/* Options */}
       <section style={sectionStyle}>
-        <span style={labelStyle}>Options</span>
+        <span style={labelStyle}>{t("launcher.section.options")}</span>
         <div style={rowStyle}>
-          <span style={labelStyle}>FPS</span>
+          <span style={labelStyle}>{t("launcher.options.fps")}</span>
           <Segmented<`${Fps}`>
             name="launcher-fps"
             value={`${fps}`}
             options={FPS_OPTIONS}
             onChange={(v) => setFps(Number(v) as Fps)}
           />
-          <span style={labelStyle}>Countdown</span>
+          <span style={labelStyle}>{t("launcher.options.countdown")}</span>
           <Segmented<`${Countdown}`>
             name="launcher-countdown"
             value={`${countdown}`}
-            options={COUNTDOWN_OPTIONS}
+            options={countdownOptions}
             onChange={(v) => setCountdown(Number(v) as Countdown)}
           />
-          <Toggle label="Hide cursor" checked={hideCursor} onChange={setHideCursor} />
+          <Toggle
+            label={t("launcher.options.hideCursor")}
+            checked={hideCursor}
+            onChange={setHideCursor}
+          />
         </div>
       </section>
 
       {/* Record */}
       <Button variant="primary" block disabled={!canRecord} onClick={handleStart}>
-        {busy ? (busyLabel ?? "Starting…") : mode === "region" ? "Select region" : "Record"}
+        {busy
+          ? (busyLabel ?? t("launcher.record.starting"))
+          : mode === "region"
+            ? t("launcher.record.selectRegion")
+            : t("launcher.record")}
       </Button>
 
       {/* Recent projects */}
       <footer style={{ display: "flex", justifyContent: "center" }}>
-        <Button variant="ghost">Recent projects</Button>
+        <Button variant="ghost">{t("launcher.recentProjects")}</Button>
       </footer>
     </div>
   );

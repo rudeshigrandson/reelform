@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_MODEL_FOR_TIER, findModel } from "../../../../electron/captions/models";
 import { CAPTION_MODELS } from "../captions/types";
 import {
-  NO_SPEECH_MESSAGE,
+  noSpeechMessage,
   captionsErrorMessage,
   mapTranscribedCaptions,
   modelIdForTier,
@@ -110,7 +110,7 @@ describe("progress + errors", () => {
   });
 
   it("maps error codes to copy", () => {
-    expect(captionsErrorMessage({ code: "no-speech" }, "transcribe")).toBe(NO_SPEECH_MESSAGE);
+    expect(captionsErrorMessage({ code: "no-speech" }, "transcribe")).toBe(noSpeechMessage());
     expect(captionsErrorMessage({ code: "cancelled" }, "download")).toBe("Cancelled.");
     expect(captionsErrorMessage(new Error("offline"), "download")).toBe(
       "Couldn't download the model. offline",

@@ -2,6 +2,7 @@ import { Button, Segmented, Tag } from "@design/components";
 import type { SegmentedOption } from "@design/components";
 import type { CSSProperties, ReactNode } from "react";
 import { DragGrip } from "./RecordingHud";
+import { type HudMessageKey, useHudT } from "./i18n";
 import { CHIP_ROW_HEIGHT, HUD_GAP, MENU_SIZE, PILL_HEIGHT, PILL_WIDTH } from "./layout";
 import type {
   HudChip,
@@ -18,10 +19,10 @@ import type {
  * the container owns data, window growth and where menus are placed.
  */
 
-const MODE_OPTIONS: ReadonlyArray<SegmentedOption<PreRecordMode>> = [
-  { value: "screen", label: "Display" },
-  { value: "window", label: "Window" },
-  { value: "region", label: "Region" },
+const MODE_OPTIONS: ReadonlyArray<{ value: PreRecordMode; labelKey: HudMessageKey }> = [
+  { value: "screen", labelKey: "hud.mode.display" },
+  { value: "window", labelKey: "hud.mode.window" },
+  { value: "region", labelKey: "hud.mode.region" },
 ];
 
 export const MINI_METER_BARS = 5;
@@ -56,12 +57,13 @@ function Divider() {
 
 /** 5-bar level meter; bars light proportionally to `level` (0..1). */
 export function MiniMeter({ level, active }: { level: number | undefined; active: boolean }) {
+  const t = useHudT();
   const clamped = active && level !== undefined ? Math.max(0, Math.min(1, level)) : 0;
   const lit = Math.round(clamped * MINI_METER_BARS);
   return (
     <span
       role="meter"
-      aria-label={active ? "Microphone level" : "Microphone off"}
+      aria-label={t(active ? "hud.pre.micLevel" : "hud.pre.micOff")}
       aria-valuemin={0}
       aria-valuemax={1}
       aria-valuenow={active ? clamped : undefined}
@@ -112,6 +114,11 @@ export function PreRecordHud(props: PreRecordHudProps) {
     onMenuChange,
   } = props;
 
+  const t = useHudT();
+  const modeOptions: ReadonlyArray<SegmentedOption<PreRecordMode>> = MODE_OPTIONS.map((o) => ({
+    value: o.value,
+    label: t(o.labelKey),
+  }));
   const toggleMenu = (menu: NonNullable<PreRecordHudProps["openMenu"]>) =>
     onMenuChange(openMenu === menu ? null : menu);
 
@@ -122,7 +129,7 @@ export function PreRecordHud(props: PreRecordHudProps) {
         name="hud-mode"
         size="sm"
         value={mode}
-        options={MODE_OPTIONS}
+        options={modeOptions}
         onChange={onModeChange}
       />
       <Divider />
@@ -131,7 +138,7 @@ export function PreRecordHud(props: PreRecordHudProps) {
         onClick={onOpenSourcePicker}
         aria-haspopup="dialog"
         aria-expanded={sourcePickerOpen}
-        aria-label={`Source: ${sourceLabel}`}
+        aria-label={t("hud.pre.source", { source: sourceLabel })}
         data-testid="hud-source-chip"
         title={sourceLabel}
         style={{
@@ -162,8 +169,8 @@ export function PreRecordHud(props: PreRecordHudProps) {
         onClick={() => toggleMenu("mic")}
         aria-haspopup="menu"
         aria-expanded={openMenu === "mic"}
-        aria-label={micOn ? "Microphone on" : "Microphone off"}
-        title="Microphone"
+        aria-label={t(micOn ? "hud.pre.micOn" : "hud.pre.micOff")}
+        title={t("hud.pre.microphone")}
         style={{ ...toggleStyle(micOn), gap: 4, padding: "0 var(--space-2)" }}
       >
         <span aria-hidden="true" style={{ textDecoration: micOn ? undefined : "line-through" }}>
@@ -175,9 +182,13 @@ export function PreRecordHud(props: PreRecordHudProps) {
         variant="ghost"
         icon
         aria-pressed={systemAudioSupported && systemAudio}
-        aria-label="System audio"
+        aria-label={t("hud.pre.systemAudio")}
         disabled={!systemAudioSupported}
-        title={systemAudioSupported ? "System audio" : (systemAudioNote ?? "Unavailable")}
+        title={
+          systemAudioSupported
+            ? t("hud.pre.systemAudio")
+            : (systemAudioNote ?? t("hud.pre.unavailable"))
+        }
         onClick={() => onSystemAudioChange(!systemAudio)}
         style={toggleStyle(systemAudioSupported && systemAudio)}
       >
@@ -189,8 +200,8 @@ export function PreRecordHud(props: PreRecordHudProps) {
         onClick={() => toggleMenu("camera")}
         aria-haspopup="menu"
         aria-expanded={openMenu === "camera"}
-        aria-label={cameraOn ? "Camera on" : "Camera off"}
-        title="Camera"
+        aria-label={t(cameraOn ? "hud.pre.cameraOn" : "hud.pre.cameraOff")}
+        title={t("hud.pre.camera")}
         style={toggleStyle(cameraOn)}
       >
         <span aria-hidden="true">📷</span>
@@ -200,8 +211,8 @@ export function PreRecordHud(props: PreRecordHudProps) {
         type="button"
         onClick={onRecord}
         disabled={recordDisabled}
-        aria-label={busyLabel ?? "Start recording"}
-        title={busyLabel ?? `Start recording ${recordShortcut}`}
+        aria-label={busyLabel ?? t("hud.pre.startRecording")}
+        title={busyLabel ?? t("hud.pre.startRecordingShortcut", { shortcut: recordShortcut })}
         data-testid="hud-record"
         style={{
           width: 40,
@@ -220,8 +231,8 @@ export function PreRecordHud(props: PreRecordHudProps) {
         onClick={() => toggleMenu("overflow")}
         aria-haspopup="menu"
         aria-expanded={openMenu === "overflow"}
-        aria-label="More options"
-        title="More"
+        aria-label={t("hud.pre.moreOptions")}
+        title={t("hud.more")}
       >
         ⋯
       </Button>
@@ -302,6 +313,7 @@ function DeviceList({
   empty: string;
   onChange: (id: string | null) => void;
 }) {
+  const t = useHudT();
   return (
     <>
       {devices.length === 0 ? <MenuLabel>{empty}</MenuLabel> : null}
@@ -311,7 +323,7 @@ function DeviceList({
         </MenuItem>
       ))}
       <MenuItem checked={!on} onClick={() => onChange(null)}>
-        Off
+        {t("hud.menu.off")}
       </MenuItem>
     </>
   );
@@ -322,17 +334,23 @@ const COUNTDOWNS: ReadonlyArray<PreRecordOptions["countdown"]> = [0, 3, 5, 10];
 /** Menu content for the open pre-record menu. */
 export function PreRecordMenuPanel(props: PreRecordHudProps) {
   const { openMenu, onMenuChange, options, onOptionsChange } = props;
+  const t = useHudT();
   if (!openMenu) return null;
   const close = () => onMenuChange(null);
 
   if (openMenu === "mic") {
     return (
-      <div role="menu" aria-label="Microphone" style={menuStyle} data-testid="hud-menu-mic">
+      <div
+        role="menu"
+        aria-label={t("hud.pre.microphone")}
+        style={menuStyle}
+        data-testid="hud-menu-mic"
+      >
         <DeviceList
           devices={props.micDevices}
           on={props.micOn}
           selectedId={props.micDeviceId}
-          empty="No microphones found"
+          empty={t("hud.menu.noMicrophones")}
           onChange={(id) => {
             props.onMicChange(id);
             close();
@@ -344,12 +362,17 @@ export function PreRecordMenuPanel(props: PreRecordHudProps) {
 
   if (openMenu === "camera") {
     return (
-      <div role="menu" aria-label="Camera" style={menuStyle} data-testid="hud-menu-camera">
+      <div
+        role="menu"
+        aria-label={t("hud.pre.camera")}
+        style={menuStyle}
+        data-testid="hud-menu-camera"
+      >
         <DeviceList
           devices={props.cameraDevices}
           on={props.cameraOn}
           selectedId={props.cameraDeviceId}
-          empty="No cameras found"
+          empty={t("hud.menu.noCameras")}
           onChange={(id) => {
             props.onCameraChange(id);
             close();
@@ -361,45 +384,50 @@ export function PreRecordMenuPanel(props: PreRecordHudProps) {
             close();
           }}
         >
-          Show preview
+          {t("hud.menu.showPreview")}
         </MenuItem>
       </div>
     );
   }
 
   return (
-    <div role="menu" aria-label="More options" style={menuStyle} data-testid="hud-menu-overflow">
-      <MenuLabel>Countdown</MenuLabel>
+    <div
+      role="menu"
+      aria-label={t("hud.pre.moreOptions")}
+      style={menuStyle}
+      data-testid="hud-menu-overflow"
+    >
+      <MenuLabel>{t("hud.menu.countdown")}</MenuLabel>
       {COUNTDOWNS.map((c) => (
         <MenuItem
           key={c}
           checked={options.countdown === c}
           onClick={() => onOptionsChange({ countdown: c })}
         >
-          {c === 0 ? "Off" : `${c}s`}
+          {c === 0 ? t("hud.menu.off") : t("hud.menu.countdownSeconds", { seconds: c })}
         </MenuItem>
       ))}
-      <MenuLabel>Cursor during capture</MenuLabel>
+      <MenuLabel>{t("hud.menu.cursor")}</MenuLabel>
       <MenuItem
         checked={!options.hideCursor}
         onClick={() => onOptionsChange({ hideCursor: false })}
       >
-        Show
+        {t("hud.menu.cursorShow")}
       </MenuItem>
       <MenuItem checked={options.hideCursor} onClick={() => onOptionsChange({ hideCursor: true })}>
-        Hide
+        {t("hud.menu.cursorHide")}
       </MenuItem>
-      <MenuLabel>Frame rate</MenuLabel>
+      <MenuLabel>{t("hud.menu.frameRate")}</MenuLabel>
       {([30, 60] as const).map((f) => (
         <MenuItem key={f} checked={options.fps === f} onClick={() => onOptionsChange({ fps: f })}>
-          {f} fps
+          {t("hud.menu.fps", { fps: f })}
         </MenuItem>
       ))}
       <MenuItem
         checked={options.hideHudWhileRecording}
         onClick={() => onOptionsChange({ hideHudWhileRecording: !options.hideHudWhileRecording })}
       >
-        Hide HUD while recording
+        {t("hud.menu.hideHudWhileRecording")}
       </MenuItem>
       {props.onOpenSettings ? (
         <MenuItem
@@ -408,7 +436,7 @@ export function PreRecordMenuPanel(props: PreRecordHudProps) {
             close();
           }}
         >
-          Settings…
+          {t("hud.menu.settings")}
         </MenuItem>
       ) : null}
     </div>

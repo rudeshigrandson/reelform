@@ -1,5 +1,6 @@
 import { Button, Input } from "@design/components";
 import { type CSSProperties, useMemo, useState } from "react";
+import { launcherT, useLauncherT } from "./i18n";
 import type { PickerSource } from "./types";
 
 /**
@@ -26,8 +27,6 @@ export interface SourcePickerProps {
 
 export const PICKER_SIZE = { width: 720, height: 420 } as const;
 
-const OTHER_GROUP = "Other windows";
-
 /** Our own windows: by app name, or by the bare window title when the backend reports none. */
 export function isOwnWindow(source: PickerSource, ownAppName: string): boolean {
   if (source.kind !== "window") return false;
@@ -48,11 +47,17 @@ export interface WindowGroup {
   windows: PickerSource[];
 }
 
-/** Windows grouped by app, groups in order of first appearance. */
-export function groupWindowsByApp(windows: ReadonlyArray<PickerSource>): WindowGroup[] {
+/**
+ * Windows grouped by app, groups in order of first appearance. Windows without
+ * an app name go under `otherLabel` (the localized "Other windows").
+ */
+export function groupWindowsByApp(
+  windows: ReadonlyArray<PickerSource>,
+  otherLabel: string = launcherT("launcher.picker.otherWindows"),
+): WindowGroup[] {
   const groups = new Map<string, WindowGroup>();
   for (const w of windows) {
-    const app = w.appName?.trim() || OTHER_GROUP;
+    const app = w.appName?.trim() || otherLabel;
     const g = groups.get(app) ?? { app, icon: undefined, windows: [] };
     g.icon ??= w.appIcon;
     g.windows.push(w);
@@ -128,6 +133,7 @@ function Tile({
   selected: boolean;
   onPick: () => void;
 }) {
+  const t = useLauncherT();
   return (
     <button
       type="button"
@@ -173,7 +179,7 @@ function Tile({
               color: "var(--text-2)",
             }}
           >
-            Minimized
+            {t("launcher.picker.minimized")}
           </span>
         ) : null}
       </div>
@@ -223,6 +229,7 @@ export function SourcePicker({
   onSelect,
   onCancel,
 }: SourcePickerProps) {
+  const t = useLauncherT();
   const initialKind = sources.find((s) => s.id === selectedId)?.kind;
   const [tab, setTab] = useState<PickerTab>(
     initialTab ?? (initialKind === "window" ? "windows" : "displays"),
@@ -247,40 +254,38 @@ export function SourcePicker({
   if (status === "loading" && sources.length === 0) {
     body = (
       <Placeholder testId="picker-loading">
-        <output>Looking for screens and windows…</output>
+        <output>{t("launcher.sources.loading")}</output>
       </Placeholder>
     );
   } else if (status === "error") {
     body = (
       <Placeholder testId="picker-error">
-        <span role="alert">{error ?? "Couldn't list screens and windows."}</span>
+        <span role="alert">{error ?? t("launcher.sources.error")}</span>
       </Placeholder>
     );
   } else if (tab === "displays") {
     body =
       displays.length === 0 ? (
-        <Placeholder testId="picker-empty">
-          No displays found. Check that a screen is connected.
-        </Placeholder>
+        <Placeholder testId="picker-empty">{t("launcher.sources.noDisplays")}</Placeholder>
       ) : (
-        <section aria-label="Displays" style={gridStyle}>
+        <section aria-label={t("launcher.picker.displays")} style={gridStyle}>
           {displays.map((d) => (
             <Tile key={d.id} source={d} selected={d.id === pick} onPick={() => setPick(d.id)} />
           ))}
         </section>
       );
   } else if (allWindows.length === 0) {
+    body = <Placeholder testId="picker-no-windows">{t("launcher.sources.noWindows")}</Placeholder>;
+  } else if (windows.length === 0) {
     body = (
-      <Placeholder testId="picker-no-windows">
-        No windows to record. Open the app you want to capture.
+      <Placeholder testId="picker-no-results">
+        {t("launcher.picker.noResults", { query: query.trim() })}
       </Placeholder>
     );
-  } else if (windows.length === 0) {
-    body = <Placeholder testId="picker-no-results">No windows match “{query.trim()}”.</Placeholder>;
   } else {
     body = (
       <div data-testid="picker-windows">
-        {groupWindowsByApp(windows).map((g) => (
+        {groupWindowsByApp(windows, t("launcher.picker.otherWindows")).map((g) => (
           <section
             key={g.app}
             aria-label={g.app}
@@ -316,7 +321,7 @@ export function SourcePicker({
   return (
     <dialog
       open
-      aria-label="Choose a source"
+      aria-label={t("launcher.picker.label")}
       data-testid="source-picker"
       style={frameStyle}
       onKeyDown={(e) => {
@@ -327,19 +332,23 @@ export function SourcePicker({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
-        <div role="tablist" aria-label="Source type" style={{ display: "flex", gap: 2 }}>
+        <div
+          role="tablist"
+          aria-label={t("launcher.picker.sourceType")}
+          style={{ display: "flex", gap: 2 }}
+        >
           <TabButton selected={tab === "displays"} onClick={() => setTab("displays")}>
-            Displays
+            {t("launcher.picker.displays")}
           </TabButton>
           <TabButton selected={tab === "windows"} onClick={() => setTab("windows")}>
-            Windows
+            {t("launcher.picker.windows")}
           </TabButton>
         </div>
         {tab === "windows" ? (
           <Input
             type="search"
-            aria-label="Search windows"
-            placeholder="Search windows"
+            aria-label={t("launcher.picker.search")}
+            placeholder={t("launcher.picker.search")}
             value={query}
             onChange={(e) => setQuery(e.currentTarget.value)}
             style={{ flex: 1, minWidth: 0 }}
@@ -366,11 +375,11 @@ export function SourcePicker({
             checked={excludeOwn}
             onChange={(e) => setExcludeOwn(e.currentTarget.checked)}
           />
-          Exclude Reelform windows
+          {t("launcher.picker.excludeOwn", { app: ownAppName })}
         </label>
         <span style={{ flex: 1 }} />
         <Button variant="ghost" onClick={onCancel}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         <Button
           variant="primary"
@@ -379,7 +388,7 @@ export function SourcePicker({
             if (picked) onSelect(picked);
           }}
         >
-          Select
+          {t("launcher.picker.select")}
         </Button>
       </footer>
     </dialog>

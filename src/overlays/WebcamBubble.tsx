@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { useT } from "../i18n";
 import type { WebcamBubbleProps } from "./types";
 
 interface Drag {
@@ -15,6 +16,7 @@ interface Drag {
  * via pointer drag; position is clamped to non-negative coordinates.
  */
 export function WebcamBubble({ size, shape, initialPosition, children }: WebcamBubbleProps) {
+  const t = useT();
   const [pos, setPos] = useState<{ x: number; y: number }>(initialPosition ?? { x: 0, y: 0 });
   const dragRef = useRef<Drag | null>(null);
 
@@ -56,7 +58,7 @@ export function WebcamBubble({ size, shape, initialPosition, children }: WebcamB
       data-testid="webcam-bubble"
       data-shape={shape}
       role="img"
-      aria-label="Webcam preview"
+      aria-label={t("overlays.webcam.label")}
       onPointerDown={startDrag}
       style={{
         position: "absolute",

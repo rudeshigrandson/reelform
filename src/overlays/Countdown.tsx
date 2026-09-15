@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useT } from "../i18n";
 import { usePrefersReducedMotion } from "./reducedMotion";
 import type { CountdownProps } from "./types";
 
@@ -8,6 +9,7 @@ import type { CountdownProps } from "./types";
  * ring is static and each numeral fades in instead.
  */
 export function Countdown({ count, total, onCancel }: CountdownProps) {
+  const t = useT();
   const reduceMotion = usePrefersReducedMotion();
   const go = count <= 0;
   const progress =
@@ -24,7 +26,7 @@ export function Countdown({ count, total, onCancel }: CountdownProps) {
     <div
       data-testid="countdown-overlay"
       role="dialog"
-      aria-label="Recording countdown"
+      aria-label={t("overlays.countdown.label")}
       style={{
         position: "fixed",
         inset: 0,
@@ -87,7 +89,7 @@ export function Countdown({ count, total, onCancel }: CountdownProps) {
             fontVariantNumeric: "tabular-nums",
           }}
         >
-          {go ? "Go" : count}
+          {go ? t("overlays.countdown.go") : count}
         </span>
       </div>
 
@@ -103,7 +105,7 @@ export function Countdown({ count, total, onCancel }: CountdownProps) {
           fontSize: 14,
         }}
       >
-        Press Esc to cancel
+        {t("overlays.countdown.hint")}
       </p>
 
       {/* Keyframes for the pulse; scoped by a unique animation name. */}

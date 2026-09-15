@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { ColorField, NumberField, Section, Slider, Switch } from "../controls";
+import { type InspectorMessageKey, useInspectorT } from "../i18n";
 import {
   type PaddingSide,
   addGradientStop,
@@ -89,37 +90,65 @@ function chip(active: boolean): CSSProperties {
   };
 }
 
-const BACKGROUND_OPTIONS: ReadonlyArray<{ value: BackgroundKind; label: string }> = [
-  { value: "wallpaper", label: "Wallpaper" },
-  { value: "color", label: "Color" },
-  { value: "gradient", label: "Gradient" },
-  { value: "image", label: "Image" },
-  { value: "none", label: "None" },
+const BACKGROUND_OPTIONS: ReadonlyArray<{ value: BackgroundKind; labelKey: InspectorMessageKey }> =
+  [
+    { value: "wallpaper", labelKey: "inspector.frame.bg.wallpaper" },
+    { value: "color", labelKey: "inspector.common.color" },
+    { value: "gradient", labelKey: "inspector.frame.bg.gradient" },
+    { value: "image", labelKey: "inspector.common.image" },
+    { value: "none", labelKey: "inspector.common.none" },
+  ];
+
+/** Ratio presets are shown as-is; `source` / `custom` are words. */
+const ASPECT_OPTIONS: ReadonlyArray<{ value: AspectPreset; labelKey?: InspectorMessageKey }> = [
+  { value: "16:9" },
+  { value: "9:16" },
+  { value: "1:1" },
+  { value: "4:3" },
+  { value: "4:5" },
+  { value: "21:9" },
+  { value: "source", labelKey: "inspector.common.source" },
+  { value: "custom", labelKey: "inspector.common.custom" },
 ];
 
-const ASPECT_OPTIONS: ReadonlyArray<{ value: AspectPreset; label: string }> = [
-  { value: "16:9", label: "16:9" },
-  { value: "9:16", label: "9:16" },
-  { value: "1:1", label: "1:1" },
-  { value: "4:3", label: "4:3" },
-  { value: "4:5", label: "4:5" },
-  { value: "21:9", label: "21:9" },
-  { value: "source", label: "Source" },
-  { value: "custom", label: "Custom" },
-];
-
-const SECTION_TITLES: Record<FrameSectionId, string> = {
-  background: "Background",
-  blur: "Blur",
-  padding: "Padding",
-  radius: "Corner radius",
-  shadow: "Shadow",
-  border: "Border",
-  aspect: "Aspect ratio",
-  inset: "Inset",
+const SECTION_TITLE_KEYS: Readonly<Record<FrameSectionId, InspectorMessageKey>> = {
+  background: "inspector.common.background",
+  blur: "inspector.common.blur",
+  padding: "inspector.common.padding",
+  radius: "inspector.common.cornerRadius",
+  shadow: "inspector.common.shadow",
+  border: "inspector.common.border",
+  aspect: "inspector.frame.section.aspect",
+  inset: "inspector.frame.section.inset",
 };
 
+/** Bundled preset names; user presets keep the name they were saved with. */
+const BUILT_IN_PRESET_NAME_KEYS: Readonly<Record<string, InspectorMessageKey>> = {
+  default: "inspector.frame.preset.default",
+  minimal: "inspector.frame.preset.minimal",
+  "product-hunt": "inspector.frame.preset.productHunt",
+  twitter: "inspector.frame.preset.twitter",
+  vertical: "inspector.frame.preset.vertical",
+};
+
+const CATEGORY_KEYS: Readonly<Record<WallpaperCategory, InspectorMessageKey>> = {
+  Abstract: "inspector.frame.category.abstract",
+  Gradient: "inspector.frame.category.gradient",
+  Mesh: "inspector.frame.category.mesh",
+  Mac: "inspector.frame.category.mac",
+  Solid: "inspector.frame.category.solid",
+  Custom: "inspector.common.custom",
+};
+
+const PADDING_SIDES: ReadonlyArray<[PaddingSide, InspectorMessageKey]> = [
+  ["top", "inspector.frame.side.top"],
+  ["right", "inspector.frame.side.right"],
+  ["bottom", "inspector.frame.side.bottom"],
+  ["left", "inspector.frame.side.left"],
+];
+
 export function FrameInspector(props: FrameInspectorProps): ReactElement {
+  const t = useInspectorT();
   const { value, onChange, collapsed, onSectionToggle } = props;
   const set = (patch: Partial<FrameSettings>): void => onChange({ ...value, ...patch });
 
@@ -134,7 +163,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
 
   return (
     <div
-      aria-label="Frame inspector"
+      aria-label={t("inspector.frame.label")}
       role="region"
       style={{
         ...stack,
@@ -152,7 +181,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
         "blur",
         <>
           <Slider
-            label="Background blur"
+            label={t("inspector.frame.backgroundBlur")}
             value={value.blur}
             min={FRAME_LIMITS.blur.min}
             max={FRAME_LIMITS.blur.max}
@@ -160,7 +189,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
             disabled={!blurApplies}
             onChange={(blur) => set({ blur })}
           />
-          {!blurApplies && <span style={hint}>Applies to wallpaper and image backgrounds.</span>}
+          {!blurApplies && <span style={hint}>{t("inspector.frame.blurHint")}</span>}
         </>,
       )}
 
@@ -168,7 +197,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
         "padding",
         <>
           <Slider
-            label="Padding"
+            label={t("inspector.common.padding")}
             value={
               value.padding.matchAll
                 ? value.padding.all
@@ -180,7 +209,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
             onChange={(n) => set({ padding: setPaddingAll(value.padding, n) })}
           />
           <Switch
-            label="Match all sides"
+            label={t("inspector.frame.matchAll")}
             checked={value.padding.matchAll}
             onChange={(on) => set({ padding: setPaddingMatchAll(value.padding, on) })}
           />
@@ -192,17 +221,10 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
                 columnGap: "var(--space-2)",
               }}
             >
-              {(
-                [
-                  ["top", "Top"],
-                  ["right", "Right"],
-                  ["bottom", "Bottom"],
-                  ["left", "Left"],
-                ] as ReadonlyArray<[PaddingSide, string]>
-              ).map(([side, label]) => (
+              {PADDING_SIDES.map(([side, labelKey]) => (
                 <NumberField
                   key={side}
-                  label={label}
+                  label={t(labelKey)}
                   value={pad[side]}
                   min={FRAME_LIMITS.padding.min}
                   max={FRAME_LIMITS.padding.max}
@@ -219,7 +241,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
         "radius",
         <>
           <Slider
-            label="Corner radius"
+            label={t("inspector.common.cornerRadius")}
             value={value.radius}
             min={FRAME_LIMITS.radius.min}
             max={FRAME_LIMITS.radius.max}
@@ -227,7 +249,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
             onChange={(radius) => set({ radius })}
           />
           <Switch
-            label="Squircle"
+            label={t("inspector.frame.squircle")}
             checked={value.squircle}
             onChange={(squircle) => set({ squircle })}
           />
@@ -238,14 +260,14 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
         "shadow",
         <>
           <Slider
-            label="Strength"
+            label={t("inspector.common.strength")}
             value={value.shadow.strength}
             min={FRAME_LIMITS.shadowStrength.min}
             max={FRAME_LIMITS.shadowStrength.max}
             onChange={(strength) => set({ shadow: { ...value.shadow, strength } })}
           />
           <Slider
-            label="Offset Y"
+            label={t("inspector.frame.offsetY")}
             value={value.shadow.offsetY}
             min={FRAME_LIMITS.shadowOffsetY.min}
             max={FRAME_LIMITS.shadowOffsetY.max}
@@ -253,7 +275,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
             onChange={(offsetY) => set({ shadow: { ...value.shadow, offsetY } })}
           />
           <Slider
-            label="Shadow blur"
+            label={t("inspector.frame.shadowBlur")}
             value={value.shadow.blur}
             min={FRAME_LIMITS.shadowBlur.min}
             max={FRAME_LIMITS.shadowBlur.max}
@@ -261,7 +283,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
             onChange={(blur) => set({ shadow: { ...value.shadow, blur } })}
           />
           <ColorField
-            label="Shadow color"
+            label={t("inspector.frame.shadowColor")}
             value={value.shadow.color}
             onChange={(color) => set({ shadow: { ...value.shadow, color } })}
           />
@@ -272,7 +294,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
         "border",
         <>
           <Slider
-            label="Width"
+            label={t("inspector.common.width")}
             value={value.border.width}
             min={FRAME_LIMITS.borderWidth.min}
             max={FRAME_LIMITS.borderWidth.max}
@@ -280,12 +302,12 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
             onChange={(width) => set({ border: { ...value.border, width } })}
           />
           <ColorField
-            label="Border color"
+            label={t("inspector.common.borderColor")}
             value={value.border.color}
             onChange={(color) => set({ border: { ...value.border, color } })}
           />
           <Slider
-            label="Opacity"
+            label={t("inspector.common.opacity")}
             value={value.border.opacity}
             min={FRAME_LIMITS.borderOpacity.min}
             max={FRAME_LIMITS.borderOpacity.max}
@@ -301,14 +323,14 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
         "inset",
         <>
           <Slider
-            label="Source scale"
+            label={t("inspector.frame.sourceScale")}
             value={value.inset}
             min={FRAME_LIMITS.inset.min}
             max={FRAME_LIMITS.inset.max}
             unit="%"
             onChange={(inset) => set({ inset })}
           />
-          <span style={hint}>How big the recording sits inside the frame.</span>
+          <span style={hint}>{t("inspector.frame.insetHint")}</span>
         </>,
       )}
     </div>
@@ -327,6 +349,7 @@ function FrameSection({
   onToggle: ((id: FrameSectionId, open: boolean) => void) | undefined;
   children: ReactNode;
 }): ReactElement {
+  const t = useInspectorT();
   const handleClick = (e: MouseEvent<HTMLDivElement>): void => {
     if (!onToggle) return;
     const header = e.currentTarget.querySelector(":scope > section > button[aria-expanded]");
@@ -337,11 +360,16 @@ function FrameSection({
   };
   return (
     <div data-section={id} onClick={handleClick}>
-      <Section title={SECTION_TITLES[id]} defaultOpen={!collapsed}>
+      <Section title={t(SECTION_TITLE_KEYS[id])} defaultOpen={!collapsed}>
         {children}
       </Section>
     </div>
   );
+}
+
+function presetName(p: FramePreset, t: ReturnType<typeof useInspectorT>): string {
+  const key = p.builtIn ? BUILT_IN_PRESET_NAME_KEYS[p.id] : undefined;
+  return key ? t(key) : p.name;
 }
 
 function PresetsRow({
@@ -350,12 +378,13 @@ function PresetsRow({
   userPresets,
   onSavePreset,
 }: FrameInspectorProps): ReactElement {
+  const t = useInspectorT();
   const all = [...BUILT_IN_FRAME_PRESETS, ...(userPresets ?? [])];
   const active = findMatchingPreset(value, all);
   return (
     <div
       role="group"
-      aria-label="Presets"
+      aria-label={t("inspector.frame.presets")}
       style={{
         ...stack,
         paddingBlock: "var(--space-2)",
@@ -371,18 +400,19 @@ function PresetsRow({
             onClick={() => onChange(applyPreset(value, p))}
             style={chip(active === p.id)}
           >
-            {p.name}
+            {presetName(p, t)}
           </button>
         ))}
       </div>
       <Button variant="ghost" disabled={!onSavePreset} onClick={() => onSavePreset?.()}>
-        Save current as preset…
+        {t("inspector.frame.savePreset")}
       </Button>
     </div>
   );
 }
 
 function BackgroundEditor(props: FrameInspectorProps): ReactElement {
+  const t = useInspectorT();
   const { value, onChange } = props;
   const name = useId();
   const bg = value.background;
@@ -393,22 +423,20 @@ function BackgroundEditor(props: FrameInspectorProps): ReactElement {
       <Segmented
         name={`${name}-bg`}
         value={bg.kind}
-        options={BACKGROUND_OPTIONS}
+        options={BACKGROUND_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
         onChange={(kind) => setBg({ kind })}
       />
       {bg.kind === "wallpaper" && <WallpaperGrid {...props} />}
       {bg.kind === "color" && (
         <ColorField
-          label="Background color"
+          label={t("inspector.frame.backgroundColor")}
           value={bg.color}
           onChange={(color) => setBg({ color })}
         />
       )}
       {bg.kind === "gradient" && <GradientEditor {...props} />}
       {bg.kind === "image" && <ImagePanel {...props} />}
-      {bg.kind === "none" && (
-        <span style={hint}>Transparent — exports with alpha for WebM/GIF, black for MP4.</span>
-      )}
+      {bg.kind === "none" && <span style={hint}>{t("inspector.frame.transparentHint")}</span>}
     </div>
   );
 }
@@ -419,6 +447,7 @@ function WallpaperGrid({
   wallpapers,
   onAddCustomWallpaper,
 }: FrameInspectorProps): ReactElement {
+  const t = useInspectorT();
   const list = wallpapers ?? PLACEHOLDER_WALLPAPERS;
   const selected = list.find((w) => w.id === value.background.wallpaperId);
   const [category, setCategory] = useState<WallpaperCategory>(selected?.category ?? "Abstract");
@@ -427,7 +456,7 @@ function WallpaperGrid({
     <div style={stack}>
       <div
         role="group"
-        aria-label="Wallpaper categories"
+        aria-label={t("inspector.frame.wallpaperCategories")}
         style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-1)" }}
       >
         {WALLPAPER_CATEGORIES.map((c) => (
@@ -438,13 +467,13 @@ function WallpaperGrid({
             onClick={() => setCategory(c)}
             style={chip(c === category)}
           >
-            {c}
+            {t(CATEGORY_KEYS[c])}
           </button>
         ))}
       </div>
       <div
         role="listbox"
-        aria-label="Wallpapers"
+        aria-label={t("inspector.frame.wallpapers")}
         style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--space-1)" }}
       >
         {shown.map((w) => {
@@ -490,25 +519,26 @@ function WallpaperGrid({
               fontSize: "11px",
             }}
           >
-            Add custom…
+            {t("inspector.frame.addCustom")}
           </button>
         )}
       </div>
       {shown.length === 0 && !onAddCustomWallpaper && (
-        <span style={hint}>No wallpapers in this category.</span>
+        <span style={hint}>{t("inspector.frame.noWallpapers")}</span>
       )}
     </div>
   );
 }
 
 function GradientEditor({ value, onChange }: FrameInspectorProps): ReactElement {
+  const t = useInspectorT();
   const name = useId();
   const g = value.background.gradient;
   const setG = (gradient: FrameSettings["background"]["gradient"]): void =>
     onChange({ ...value, background: { ...value.background, gradient } });
   const { min, max } = FRAME_LIMITS.gradientStops;
   return (
-    <div style={stack} aria-label="Gradient editor" role="group">
+    <div style={stack} aria-label={t("inspector.frame.gradientEditor")} role="group">
       <div
         data-testid="gradient-preview"
         style={{
@@ -522,14 +552,14 @@ function GradientEditor({ value, onChange }: FrameInspectorProps): ReactElement 
         name={`${name}-gtype`}
         value={g.type}
         options={[
-          { value: "linear", label: "Linear" },
-          { value: "radial", label: "Radial" },
+          { value: "linear", label: t("inspector.frame.gradient.linear") },
+          { value: "radial", label: t("inspector.frame.gradient.radial") },
         ]}
         onChange={(type) => setG({ ...g, type })}
       />
       {g.type === "linear" && (
         <Slider
-          label="Angle"
+          label={t("inspector.frame.angle")}
           value={g.angle}
           min={FRAME_LIMITS.gradientAngle.min}
           max={FRAME_LIMITS.gradientAngle.max}
@@ -541,12 +571,12 @@ function GradientEditor({ value, onChange }: FrameInspectorProps): ReactElement 
         <div key={i} style={{ display: "flex", alignItems: "center", gap: "var(--space-1)" }}>
           <div style={{ flex: "1 1 auto", ...stack, gap: 0 }}>
             <ColorField
-              label={`Stop ${i + 1} color`}
+              label={t("inspector.frame.stopColor", { n: i + 1 })}
               value={s.color}
               onChange={(color) => setG(updateGradientStop(g, i, { color }))}
             />
             <Slider
-              label={`Stop ${i + 1} position`}
+              label={t("inspector.frame.stopPosition", { n: i + 1 })}
               value={s.position}
               min={0}
               max={100}
@@ -557,7 +587,7 @@ function GradientEditor({ value, onChange }: FrameInspectorProps): ReactElement 
           <Button
             variant="ghost"
             icon
-            aria-label={`Remove stop ${i + 1}`}
+            aria-label={t("inspector.frame.removeStop", { n: i + 1 })}
             disabled={g.stops.length <= min}
             onClick={() => setG(removeGradientStop(g, i))}
           >
@@ -570,13 +600,14 @@ function GradientEditor({ value, onChange }: FrameInspectorProps): ReactElement 
         disabled={g.stops.length >= max}
         onClick={() => setG(addGradientStop(g))}
       >
-        Add stop
+        {t("inspector.frame.addStop")}
       </Button>
     </div>
   );
 }
 
 function ImagePanel({ value, onChange, onImageSelect }: FrameInspectorProps): ReactElement {
+  const t = useInspectorT();
   const [hover, setHover] = useState(false);
   const inputId = useId();
   const name = useId();
@@ -622,18 +653,20 @@ function ImagePanel({ value, onChange, onImageSelect }: FrameInspectorProps): Re
             <span style={{ ...mono, color: "var(--text-1)" }}>{fileName}</span>
             <div style={{ display: "flex", gap: "var(--space-1)" }}>
               <label htmlFor={inputId} className="btn btn-ghost" style={{ cursor: "pointer" }}>
-                Replace…
+                {t("inspector.frame.image.replace")}
               </label>
               <Button variant="ghost" onClick={() => setImg({ path: null })}>
-                Remove
+                {t("inspector.common.remove")}
               </Button>
             </div>
           </>
         ) : (
           <>
-            <span>{hover ? "Drop to use as background" : "Drop an image here"}</span>
+            <span>
+              {hover ? t("inspector.frame.image.dropToUse") : t("inspector.frame.image.dropHere")}
+            </span>
             <label htmlFor={inputId} className="btn btn-ghost" style={{ cursor: "pointer" }}>
-              Browse…
+              {t("inspector.frame.image.browse")}
             </label>
           </>
         )}
@@ -654,8 +687,8 @@ function ImagePanel({ value, onChange, onImageSelect }: FrameInspectorProps): Re
         name={`${name}-fit`}
         value={img.fit}
         options={[
-          { value: "fit", label: "Fit" },
-          { value: "fill", label: "Fill" },
+          { value: "fit", label: t("inspector.common.fit") },
+          { value: "fill", label: t("inspector.common.fill") },
         ]}
         onChange={(fit) => setImg({ fit })}
       />
@@ -664,6 +697,7 @@ function ImagePanel({ value, onChange, onImageSelect }: FrameInspectorProps): Re
 }
 
 function AspectEditor({ value, onChange, sourceSize }: FrameInspectorProps): ReactElement {
+  const t = useInspectorT();
   const name = useId();
   const a = value.aspect;
   const [draftW, setDraftW] = useState(String(a.customWidth));
@@ -722,15 +756,18 @@ function AspectEditor({ value, onChange, sourceSize }: FrameInspectorProps): Rea
       <Segmented
         name={`${name}-aspect`}
         value={a.preset}
-        options={ASPECT_OPTIONS}
+        options={ASPECT_OPTIONS.map((o) => ({
+          value: o.value,
+          label: o.labelKey ? t(o.labelKey) : o.value,
+        }))}
         onChange={(preset) => onChange({ ...value, aspect: { ...a, preset } })}
       />
       {a.preset === "custom" && (
-        <div style={stack} role="group" aria-label="Custom size">
+        <div style={stack} role="group" aria-label={t("inspector.frame.customSize")}>
           <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1)" }}>
-            {sizeInput("Custom width", draftW, setDraftW, draftH, true)}
+            {sizeInput(t("inspector.frame.customWidth"), draftW, setDraftW, draftH, true)}
             <span style={{ color: "var(--text-3)" }}>×</span>
-            {sizeInput("Custom height", draftH, setDraftH, draftW, false)}
+            {sizeInput(t("inspector.frame.customHeight"), draftH, setDraftH, draftW, false)}
             <span style={hint}>px</span>
           </div>
           {error && (
@@ -741,8 +778,9 @@ function AspectEditor({ value, onChange, sourceSize }: FrameInspectorProps): Rea
         </div>
       )}
       <span style={hint}>
-        Output <span style={mono} data-testid="output-size">{`${out.width} × ${out.height}`}</span>
-        {a.preset === "source" && !sourceSize && " (source size unknown)"}
+        {t("inspector.frame.output")}{" "}
+        <span style={mono} data-testid="output-size">{`${out.width} × ${out.height}`}</span>
+        {a.preset === "source" && !sourceSize && ` ${t("inspector.frame.sourceUnknown")}`}
       </span>
     </div>
   );

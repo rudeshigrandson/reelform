@@ -1,4 +1,10 @@
-import { ONBOARDING_STEPS, type OnboardingDraft, type OnboardingState } from "./machine";
+import { type OnboardingKey, useOnboardingT } from "./i18n";
+import {
+  ONBOARDING_STEPS,
+  type OnboardingDraft,
+  type OnboardingState,
+  type OnboardingStep,
+} from "./machine";
 import { Defaults } from "./steps/Defaults";
 import { Done } from "./steps/Done";
 import { Permissions } from "./steps/Permissions";
@@ -20,15 +26,23 @@ export interface OnboardingViewProps {
   onOpenTerms?: (() => void) | undefined;
 }
 
+const STEP_NAME_KEY: Record<OnboardingStep, OnboardingKey> = {
+  welcome: "onboarding.step.welcome",
+  permissions: "onboarding.step.permissions",
+  defaults: "onboarding.step.defaults",
+  done: "onboarding.step.done",
+};
+
 /** 720×520 centered card, no sidebar (S01–S03). */
 export function OnboardingView(props: OnboardingViewProps) {
+  const t = useOnboardingT();
   const { state } = props;
   const index = ONBOARDING_STEPS.indexOf(state.step);
   const showBack = state.step === "permissions" || state.step === "defaults";
 
   return (
     <section
-      aria-label="Onboarding"
+      aria-label={t("onboarding.label")}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -75,7 +89,7 @@ export function OnboardingView(props: OnboardingViewProps) {
       </div>
 
       <nav
-        aria-label="Onboarding navigation"
+        aria-label={t("onboarding.nav.label")}
         style={{
           display: "flex",
           alignItems: "center",
@@ -90,10 +104,10 @@ export function OnboardingView(props: OnboardingViewProps) {
           disabled={!showBack || state.saving}
           style={{ visibility: showBack ? "visible" : "hidden" }}
         >
-          Back
+          {t("onboarding.nav.back")}
         </button>
         <ol
-          aria-label="Step indicator"
+          aria-label={t("onboarding.nav.stepIndicator")}
           style={{
             listStyle: "none",
             display: "flex",
@@ -106,7 +120,10 @@ export function OnboardingView(props: OnboardingViewProps) {
             <li
               key={s}
               aria-current={i === index ? "step" : undefined}
-              aria-label={`Step ${i + 1}: ${s}`}
+              aria-label={t("onboarding.nav.step", {
+                number: i + 1,
+                name: t(STEP_NAME_KEY[s]),
+              })}
               style={{
                 width: "8px",
                 height: "8px",

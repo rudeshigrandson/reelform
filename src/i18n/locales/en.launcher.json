@@ -1,0 +1,54 @@
+{
+  "launcher.openSettings": "Settings",
+  "launcher.section.capture": "Capture",
+  "launcher.section.sources": "Sources",
+  "launcher.section.audio": "Audio",
+  "launcher.section.webcam": "Webcam",
+  "launcher.section.options": "Options",
+
+  "launcher.mode.screen": "Screen",
+  "launcher.mode.window": "Window",
+  "launcher.mode.region": "Region",
+
+  "launcher.kind.display": "display",
+  "launcher.kind.window": "window",
+
+  "launcher.browse": "Browse…",
+  "launcher.sources.label": "Capturable sources",
+  "launcher.sources.loading": "Looking for screens and windows…",
+  "launcher.sources.error": "Couldn't list screens and windows.",
+  "launcher.sources.retry": "Retry",
+  "launcher.sources.noDisplays": "No displays found. Check that a screen is connected.",
+  "launcher.sources.noWindows": "No windows to record. Open the app you want to capture.",
+
+  "launcher.devices.none": "No devices",
+  "launcher.audio.microphone": "Microphone",
+  "launcher.audio.microphoneDevice": "Microphone device",
+  "launcher.audio.systemAudio": "System audio",
+  "launcher.audio.systemAudioUnavailable": "Unavailable on macOS",
+  "launcher.webcam.toggle": "Webcam",
+  "launcher.webcam.device": "Webcam device",
+
+  "launcher.options.fps": "FPS",
+  "launcher.options.countdown": "Countdown",
+  "launcher.options.countdownOff": "Off",
+  "launcher.options.countdownSeconds": "{seconds}s",
+  "launcher.options.hideCursor": "Hide cursor",
+
+  "launcher.record": "Record",
+  "launcher.record.selectRegion": "Select region",
+  "launcher.record.starting": "Starting…",
+  "launcher.recentProjects": "Recent projects",
+  "launcher.notice.dismiss": "Dismiss",
+
+  "launcher.picker.label": "Choose a source",
+  "launcher.picker.sourceType": "Source type",
+  "launcher.picker.displays": "Displays",
+  "launcher.picker.windows": "Windows",
+  "launcher.picker.search": "Search windows",
+  "launcher.picker.noResults": "No windows match “{query}”.",
+  "launcher.picker.otherWindows": "Other windows",
+  "launcher.picker.minimized": "Minimized",
+  "launcher.picker.excludeOwn": "Exclude {app} windows",
+  "launcher.picker.select": "Select"
+}

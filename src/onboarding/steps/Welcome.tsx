@@ -1,4 +1,5 @@
 import { Button } from "@design/components";
+import { useOnboardingT } from "../i18n";
 
 export interface WelcomeProps {
   onNext: () => void;
@@ -71,6 +72,7 @@ function PromiseIllustration() {
 }
 
 export function Welcome({ onNext, onImportProject, onOpenTerms, appVersion }: WelcomeProps) {
+  const t = useOnboardingT();
   return (
     <section
       aria-labelledby="onboarding-welcome-title"
@@ -102,26 +104,26 @@ export function Welcome({ onNext, onImportProject, onOpenTerms, appVersion }: We
         id="onboarding-welcome-title"
         style={{ fontSize: "28px", fontWeight: 600, color: "var(--text-1)", margin: 0 }}
       >
-        Record something great
+        {t("onboarding.welcome.title")}
       </h1>
-      <p style={{ color: "var(--text-2)", margin: 0 }}>
-        Reelform turns screen recordings into polished demo videos.
-      </p>
+      <p style={{ color: "var(--text-2)", margin: 0 }}>{t("onboarding.welcome.tagline")}</p>
       <PromiseIllustration />
       <div style={{ display: "flex", gap: "var(--space-2)" }}>
         <Button variant="primary" onClick={onNext}>
-          Get started
+          {t("onboarding.welcome.getStarted")}
         </Button>
         {onImportProject ? (
           <Button variant="ghost" onClick={onImportProject}>
-            Import existing project
+            {t("onboarding.welcome.importProject")}
           </Button>
         ) : null}
       </div>
       <footer
         style={{ display: "flex", gap: "var(--space-3)", color: "var(--text-3)", fontSize: "12px" }}
       >
-        {appVersion ? <span>Version {appVersion}</span> : null}
+        {appVersion ? (
+          <span>{t("onboarding.welcome.version", { version: appVersion })}</span>
+        ) : null}
         {onOpenTerms ? (
           <button
             type="button"
@@ -129,7 +131,7 @@ export function Welcome({ onNext, onImportProject, onOpenTerms, appVersion }: We
             style={{ padding: 0, minHeight: 0, fontSize: "inherit" }}
             onClick={onOpenTerms}
           >
-            Terms
+            {t("onboarding.welcome.terms")}
           </button>
         ) : null}
       </footer>

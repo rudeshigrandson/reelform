@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { ColorField, EmptyState, Section, Slider, Switch } from "../controls";
+import { type InspectorMessageKey, useInspectorT } from "../i18n";
 import { formatPointCount, hasTelemetry, validateCustomCursorFile } from "./logic";
 import {
   type ClickEffect,
@@ -29,26 +30,28 @@ export interface CursorInspectorProps {
   onUploadCustomSound?: ((file: File) => void) | undefined;
 }
 
-const STYLE_OPTIONS: ReadonlyArray<SegmentedOption<CursorStyle>> = [
-  { value: "macos", label: "macOS" },
-  { value: "macos-dark", label: "macOS Dark" },
-  { value: "windows", label: "Windows" },
-  { value: "minimal-dot", label: "Minimal Dot" },
-  { value: "custom", label: "Custom" },
+type OptionKeys<T> = ReadonlyArray<{ value: T; labelKey: InspectorMessageKey }>;
+
+const STYLE_OPTIONS: OptionKeys<CursorStyle> = [
+  { value: "macos", labelKey: "inspector.cursor.style.macos" },
+  { value: "macos-dark", labelKey: "inspector.cursor.style.macosDark" },
+  { value: "windows", labelKey: "inspector.cursor.style.windows" },
+  { value: "minimal-dot", labelKey: "inspector.cursor.style.minimalDot" },
+  { value: "custom", labelKey: "inspector.common.custom" },
 ];
 
-const EFFECT_OPTIONS: ReadonlyArray<SegmentedOption<ClickEffect>> = [
-  { value: "none", label: "None" },
-  { value: "ripple", label: "Ripple" },
-  { value: "bounce", label: "Bounce" },
-  { value: "highlight", label: "Highlight ring" },
+const EFFECT_OPTIONS: OptionKeys<ClickEffect> = [
+  { value: "none", labelKey: "inspector.common.none" },
+  { value: "ripple", labelKey: "inspector.cursor.effect.ripple" },
+  { value: "bounce", labelKey: "inspector.cursor.effect.bounce" },
+  { value: "highlight", labelKey: "inspector.cursor.effect.highlight" },
 ];
 
-const SOUND_OPTIONS: ReadonlyArray<SegmentedOption<ClickSound>> = [
-  { value: "none", label: "None" },
-  { value: "soft", label: "Soft" },
-  { value: "mechanical", label: "Mechanical" },
-  { value: "custom", label: "Custom" },
+const SOUND_OPTIONS: OptionKeys<ClickSound> = [
+  { value: "none", labelKey: "inspector.common.none" },
+  { value: "soft", labelKey: "inspector.cursor.sound.soft" },
+  { value: "mechanical", labelKey: "inspector.cursor.sound.mechanical" },
+  { value: "custom", labelKey: "inspector.common.custom" },
 ];
 
 const rootStyle: CSSProperties = {
@@ -84,11 +87,11 @@ function Group({ label, children }: { label: string; children: ReactNode }): Rea
 }
 
 type PreviewVariant = "arrow" | "hand" | "text" | "resize";
-const PREVIEW_VARIANTS: ReadonlyArray<{ id: PreviewVariant; label: string }> = [
-  { id: "arrow", label: "Arrow" },
-  { id: "hand", label: "Hand" },
-  { id: "text", label: "Text beam" },
-  { id: "resize", label: "Resize" },
+const PREVIEW_VARIANTS: ReadonlyArray<{ id: PreviewVariant; labelKey: InspectorMessageKey }> = [
+  { id: "arrow", labelKey: "inspector.cursor.variant.arrow" },
+  { id: "hand", labelKey: "inspector.cursor.variant.hand" },
+  { id: "text", labelKey: "inspector.cursor.variant.text" },
+  { id: "resize", labelKey: "inspector.cursor.variant.resize" },
 ];
 
 const PREVIEW_PATHS: Record<PreviewVariant, string> = {
@@ -111,16 +114,17 @@ function packColors(style: CursorStyle): { fill: string; stroke: string } {
 }
 
 function CursorPreview({ style }: { style: CursorStyle }): ReactElement {
+  const t = useInspectorT();
   const { fill, stroke } = packColors(style);
   return (
     <div
-      aria-label="Cursor preview"
+      aria-label={t("inspector.cursor.preview")}
       style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--space-1)" }}
     >
       {PREVIEW_VARIANTS.map((v) => (
         <div
           key={v.id}
-          title={v.label}
+          title={t(v.labelKey)}
           style={{
             display: "flex",
             alignItems: "center",
@@ -131,7 +135,7 @@ function CursorPreview({ style }: { style: CursorStyle }): ReactElement {
             border: "1px solid var(--border-strong)",
           }}
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" role="img" aria-label={v.label}>
+          <svg width="24" height="24" viewBox="0 0 24 24" role="img" aria-label={t(v.labelKey)}>
             {style === "minimal-dot" ? (
               <circle
                 cx="12"
@@ -167,7 +171,12 @@ export function CursorInspector({
   onUploadCustomCursor,
   onUploadCustomSound,
 }: CursorInspectorProps): ReactElement {
+  const t = useInspectorT();
   const ids = { style: useId(), effect: useId(), sound: useId() };
+  const options = <T extends string | number>(
+    list: OptionKeys<T>,
+  ): ReadonlyArray<SegmentedOption<T>> =>
+    list.map((o) => ({ value: o.value, label: t(o.labelKey) }));
   const cursorFileRef = useRef<HTMLInputElement>(null);
   const soundFileRef = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -189,16 +198,15 @@ export function CursorInspector({
   };
 
   return (
-    <div style={rootStyle} aria-label="Cursor inspector">
+    <div style={rootStyle} aria-label={t("inspector.cursor.label")}>
       {!tracked && (
-        <EmptyState title="No cursor data — rendered cursor unavailable">
-          This recording has no cursor telemetry, so Reelform can’t draw a styled cursor. Any cursor
-          baked into the video stays as recorded.
+        <EmptyState title={t("inspector.cursor.noData.title")}>
+          {t("inspector.cursor.noData.body")}
         </EmptyState>
       )}
 
       <Switch
-        label="Show cursor"
+        label={t("inspector.cursor.show")}
         checked={value.show}
         disabled={!tracked}
         onChange={(show) => patch({ show })}
@@ -208,12 +216,12 @@ export function CursorInspector({
         disabled={controlsDisabled}
         style={{ ...fieldsetStyle, opacity: controlsDisabled ? 0.5 : 1 }}
       >
-        <Section title="Style">
-          <Group label="Cursor style">
+        <Section title={t("inspector.common.style")}>
+          <Group label={t("inspector.cursor.cursorStyle")}>
             <Segmented
               name={ids.style}
               value={value.style}
-              options={STYLE_OPTIONS}
+              options={options(STYLE_OPTIONS)}
               onChange={(style) => {
                 setUploadError(null);
                 patch({ style });
@@ -227,7 +235,7 @@ export function CursorInspector({
                 ref={cursorFileRef}
                 type="file"
                 accept={CURSOR_ACCEPT}
-                aria-label="Custom cursor file"
+                aria-label={t("inspector.cursor.customFile")}
                 hidden
                 onChange={(e) => {
                   handleCursorFile(e.target.files?.[0]);
@@ -244,7 +252,7 @@ export function CursorInspector({
                     disabled={!onUploadCustomCursor}
                     onClick={() => cursorFileRef.current?.click()}
                   >
-                    Replace
+                    {t("inspector.common.replace")}
                   </Button>
                 </div>
               ) : (
@@ -253,12 +261,10 @@ export function CursorInspector({
                   disabled={!onUploadCustomCursor}
                   onClick={() => cursorFileRef.current?.click()}
                 >
-                  Upload PNG or SVG…
+                  {t("inspector.cursor.upload")}
                 </Button>
               )}
-              <span style={hintStyle}>
-                Replaces the arrow; other cursor types use the macOS set.
-              </span>
+              <span style={hintStyle}>{t("inspector.cursor.customHint")}</span>
               {uploadError && (
                 <span role="alert" style={errorStyle}>
                   {uploadError}
@@ -270,7 +276,7 @@ export function CursorInspector({
           )}
 
           <Slider
-            label="Size"
+            label={t("inspector.common.size")}
             value={value.size}
             min={L.size.min}
             max={L.size.max}
@@ -279,17 +285,17 @@ export function CursorInspector({
             onChange={(size) => patch({ size })}
           />
           <Switch
-            label="Scale with zoom"
-            hint="Cursor grows when the camera zooms in"
+            label={t("inspector.cursor.scaleWithZoom")}
+            hint={t("inspector.cursor.scaleWithZoom.hint")}
             checked={value.scaleWithZoom}
             disabled={controlsDisabled}
             onChange={(scaleWithZoom) => patch({ scaleWithZoom })}
           />
         </Section>
 
-        <Section title="Motion">
+        <Section title={t("inspector.common.motion")}>
           <Slider
-            label="Smoothing"
+            label={t("inspector.cursor.smoothing")}
             value={value.smoothing}
             min={L.smoothing.min}
             max={L.smoothing.max}
@@ -304,18 +310,18 @@ export function CursorInspector({
               paddingLeft: "104px",
             }}
           >
-            <span>Snappy</span>
+            <span>{t("inspector.cursor.snappy")}</span>
             <span aria-hidden="true">⟷</span>
-            <span>Silky</span>
+            <span>{t("inspector.cursor.silky")}</span>
           </div>
           <Switch
-            label="Motion blur"
+            label={t("inspector.cursor.motionBlur")}
             checked={value.motionBlur.enabled}
             disabled={controlsDisabled}
             onChange={(enabled) => patch({ motionBlur: { ...value.motionBlur, enabled } })}
           />
           <Slider
-            label="Amount"
+            label={t("inspector.cursor.amount")}
             value={value.motionBlur.amount}
             min={L.motionBlurAmount.min}
             max={L.motionBlurAmount.max}
@@ -323,20 +329,20 @@ export function CursorInspector({
             onChange={(amount) => patch({ motionBlur: { ...value.motionBlur, amount } })}
           />
           <Switch
-            label="Sway"
-            hint="Subtle idle drift"
+            label={t("inspector.cursor.sway")}
+            hint={t("inspector.cursor.sway.hint")}
             checked={value.sway}
             disabled={controlsDisabled}
             onChange={(sway) => patch({ sway })}
           />
           <Switch
-            label="Hide when idle"
+            label={t("inspector.cursor.hideWhenIdle")}
             checked={value.hideWhenIdle.enabled}
             disabled={controlsDisabled}
             onChange={(enabled) => patch({ hideWhenIdle: { ...value.hideWhenIdle, enabled } })}
           />
           <Slider
-            label="Delay"
+            label={t("inspector.cursor.delay")}
             value={value.hideWhenIdle.delaySec}
             min={L.hideIdleDelaySec.min}
             max={L.hideIdleDelaySec.max}
@@ -346,31 +352,31 @@ export function CursorInspector({
             onChange={(delaySec) => patch({ hideWhenIdle: { ...value.hideWhenIdle, delaySec } })}
           />
           <Switch
-            label="Loop mode"
-            hint="Returns to start position for seamless GIF loops"
+            label={t("inspector.cursor.loop")}
+            hint={t("inspector.cursor.loop.hint")}
             checked={value.loop}
             disabled={controlsDisabled}
             onChange={(loop) => patch({ loop })}
           />
         </Section>
 
-        <Section title="Click effect">
-          <Group label="Click effect">
+        <Section title={t("inspector.cursor.clickEffect")}>
+          <Group label={t("inspector.cursor.clickEffect")}>
             <Segmented
               name={ids.effect}
               value={value.clickEffect.type}
-              options={EFFECT_OPTIONS}
+              options={options(EFFECT_OPTIONS)}
               onChange={(type) => patch({ clickEffect: { ...value.clickEffect, type } })}
             />
           </Group>
           <ColorField
-            label="Color"
+            label={t("inspector.common.color")}
             value={value.clickEffect.color}
             disabled={controlsDisabled || value.clickEffect.type === "none"}
             onChange={(color) => patch({ clickEffect: { ...value.clickEffect, color } })}
           />
           <Slider
-            label="Effect size"
+            label={t("inspector.cursor.effectSize")}
             value={value.clickEffect.size}
             min={L.clickEffectSize.min}
             max={L.clickEffectSize.max}
@@ -380,12 +386,12 @@ export function CursorInspector({
           />
         </Section>
 
-        <Section title="Click sound">
-          <Group label="Click sound">
+        <Section title={t("inspector.cursor.clickSound")}>
+          <Group label={t("inspector.cursor.clickSound")}>
             <Segmented
               name={ids.sound}
               value={value.clickSound.type}
-              options={SOUND_OPTIONS}
+              options={options(SOUND_OPTIONS)}
               onChange={(type) => patch({ clickSound: { ...value.clickSound, type } })}
             />
           </Group>
@@ -395,7 +401,7 @@ export function CursorInspector({
                 ref={soundFileRef}
                 type="file"
                 accept="audio/*"
-                aria-label="Custom click sound file"
+                aria-label={t("inspector.cursor.customSoundFile")}
                 hidden
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -413,12 +419,14 @@ export function CursorInspector({
                 disabled={!onUploadCustomSound}
                 onClick={() => soundFileRef.current?.click()}
               >
-                {value.clickSound.customSound ? "Replace" : "Choose sound…"}
+                {value.clickSound.customSound
+                  ? t("inspector.common.replace")
+                  : t("inspector.cursor.chooseSound")}
               </Button>
             </div>
           )}
           <Slider
-            label="Volume"
+            label={t("inspector.common.volume")}
             value={value.clickSound.volume}
             min={L.clickSoundVolume.min}
             max={L.clickSoundVolume.max}
@@ -429,21 +437,20 @@ export function CursorInspector({
         </Section>
       </fieldset>
 
-      <Section title="Cursor data">
+      <Section title={t("inspector.cursor.data")}>
         {tracked ? (
           <div>
-            <Tag variant="accent">Tracked ✓ {formatPointCount(cursorPointCount)}</Tag>
+            <Tag variant="accent">
+              {t("inspector.cursor.tracked", { points: formatPointCount(cursorPointCount) })}
+            </Tag>
           </div>
         ) : (
           <div
             role="note"
             style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}
           >
-            <span style={errorStyle}>No cursor data — rendered cursor unavailable</span>
-            <span style={hintStyle}>
-              Cursor movement wasn’t tracked for this recording (e.g. imported video or input
-              monitoring was off). Auto-zoom and cursor effects need it.
-            </span>
+            <span style={errorStyle}>{t("inspector.cursor.noData.title")}</span>
+            <span style={hintStyle}>{t("inspector.cursor.noData.note")}</span>
           </div>
         )}
       </Section>

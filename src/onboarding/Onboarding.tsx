@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { OnboardingView } from "./OnboardingView";
+import { useOnboardingT } from "./i18n";
 import {
   type OnboardingDraft,
   PERMISSION_POLL_MS,
@@ -43,6 +44,7 @@ export function Onboarding({
   timer = windowTimer,
   pollIntervalMs = PERMISSION_POLL_MS,
 }: OnboardingContainerProps) {
+  const t = useOnboardingT();
   const [state, dispatch] = useReducer(reduceOnboarding, initialDraft, initialOnboardingState);
   const polling = useRef<{ refresh(): void } | null>(null);
   const live = useRef(true);
@@ -115,9 +117,9 @@ export function Onboarding({
     dispatch(
       ok
         ? { type: "SAVE_OK" }
-        : { type: "SAVE_FAILED", message: "Couldn't save your settings. Try again." },
+        : { type: "SAVE_FAILED", message: t("onboarding.defaults.saveFailed") },
     );
-  }, [port]);
+  }, [port, t]);
 
   return (
     <OnboardingView

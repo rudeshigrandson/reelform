@@ -1,3 +1,5 @@
+import { type InspectorMessageKey, translatedRecord } from "../i18n";
+
 /**
  * Annotation model (ENGINEERING_SPEC §9.7, design guide S19).
  *
@@ -160,18 +162,30 @@ export type AnnotationOf<K extends AnnotationKind> = Extract<Annotation, { kind:
 /** Per-kind properties, without the common base fields. */
 export type AnnotationProps<K extends AnnotationKind> = Omit<AnnotationOf<K>, keyof AnnotationBase>;
 
-export const TOOL_LABELS: Readonly<Record<AnnotationTool, string>> = {
-  text: "Text",
-  arrow: "Arrow",
-  line: "Line",
-  rect: "Rectangle",
-  ellipse: "Ellipse",
-  highlight: "Highlight",
-  blur: "Blur region",
-  image: "Image",
-  emoji: "Emoji",
-  numberBadge: "Number badge",
-  keystrokeBadge: "Keystroke badge",
+export const TOOL_LABEL_KEYS: Readonly<Record<AnnotationTool, InspectorMessageKey>> = {
+  text: "inspector.annotations.tool.text",
+  arrow: "inspector.annotations.tool.arrow",
+  line: "inspector.annotations.tool.line",
+  rect: "inspector.annotations.tool.rect",
+  ellipse: "inspector.annotations.tool.ellipse",
+  highlight: "inspector.annotations.tool.highlight",
+  blur: "inspector.annotations.tool.blur",
+  image: "inspector.annotations.tool.image",
+  emoji: "inspector.annotations.tool.emoji",
+  numberBadge: "inspector.annotations.tool.numberBadge",
+  keystrokeBadge: "inspector.annotations.tool.keystrokeBadge",
+};
+
+/** Tool names in the active window language (non-React callers, e.g. timeline item labels). */
+export const TOOL_LABELS: Readonly<Record<AnnotationTool, string>> =
+  translatedRecord(TOOL_LABEL_KEYS);
+
+/** Display names of the bundled text fonts (the stored value stays the id). */
+export const TEXT_FONT_LABEL_KEYS: Readonly<Record<TextFont, InspectorMessageKey>> = {
+  Inter: "inspector.annotations.font.inter",
+  System: "inspector.annotations.font.system",
+  Mono: "inspector.annotations.font.mono",
+  Serif: "inspector.annotations.font.serif",
 };
 
 export const TOOL_GLYPHS: Readonly<Record<AnnotationTool, string>> = {

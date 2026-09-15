@@ -1,6 +1,7 @@
 import { Button, Dialog } from "@design/components";
 import { type ReactElement, useMemo, useState } from "react";
 import { NumberField, Slider } from "../controls";
+import { useInspectorT } from "../i18n";
 import { detectSilentGaps, formatSilencePreview, summarizeGaps } from "./logic";
 import {
   type AudioEnvelope,
@@ -28,6 +29,7 @@ export function RemoveSilenceDialog({
   initialParams = DEFAULT_SILENCE_PARAMS,
   onApply,
 }: RemoveSilenceDialogProps): ReactElement {
+  const t = useInspectorT();
   const [params, setParams] = useState<SilenceParams>(initialParams);
   const gaps = useMemo(
     () => (envelope ? detectSilentGaps(envelope.envelopeDb, envelope.sampleRateHz, params) : []),
@@ -40,11 +42,11 @@ export function RemoveSilenceDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Remove silence"
+      title={t("inspector.effects.removeSilence")}
       actions={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t("inspector.common.cancel")}
           </Button>
           <Button
             variant="primary"
@@ -54,7 +56,7 @@ export function RemoveSilenceDialog({
               onClose();
             }}
           >
-            Remove
+            {t("inspector.common.remove")}
           </Button>
         </>
       }
@@ -68,7 +70,7 @@ export function RemoveSilenceDialog({
         }}
       >
         <Slider
-          label="Threshold"
+          label={t("inspector.effects.threshold")}
           value={params.thresholdDb}
           min={L.silenceThresholdDb.min}
           max={L.silenceThresholdDb.max}
@@ -76,7 +78,7 @@ export function RemoveSilenceDialog({
           onChange={(thresholdDb) => setParams((p) => ({ ...p, thresholdDb }))}
         />
         <NumberField
-          label="Min silence"
+          label={t("inspector.effects.minSilence")}
           value={params.minSilenceMs}
           min={L.minSilenceMs.min}
           max={L.minSilenceMs.max}
@@ -92,7 +94,7 @@ export function RemoveSilenceDialog({
             paddingTop: "var(--space-1)",
           }}
         >
-          {envelope ? formatSilencePreview(summary) : "No audio to analyze"}
+          {envelope ? formatSilencePreview(summary) : t("inspector.effects.noAudio")}
         </div>
       </div>
     </Dialog>

@@ -7,6 +7,7 @@ import type {
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { shortcutScopeProps } from "../../shortcuts/matcher";
 import { visibleFilmstrip, visibleWaveform } from "./filmstrip";
+import { useTimelineT } from "./i18n";
 import { collectSnapTargets } from "./snapping";
 import {
   type TimeScale,
@@ -32,7 +33,7 @@ import {
   selectInRange,
 } from "./trackOps";
 import {
-  ITEM_NOUNS,
+  ITEM_NOUN_KEYS,
   type TimeSpan,
   type TimelineItem,
   type TimelineMedia,
@@ -225,7 +226,9 @@ function ClipMedia({
   pxPerMs,
   visibleStartMs,
   visibleEndMs,
+  waveformTitle,
 }: {
+  waveformTitle: string;
   media: TimelineMedia;
   startMs: number;
   endMs: number;
@@ -283,7 +286,7 @@ function ClipMedia({
           height={WAVEFORM_HEIGHT_PX}
           style={{ position: "absolute", left: 0, bottom: 0, color: "var(--text-1)", opacity: 0.6 }}
         >
-          <title>Audio waveform</title>
+          <title>{waveformTitle}</title>
           <path d={path} fill="currentColor" />
         </svg>
       )}
@@ -455,6 +458,7 @@ function itemStyle(
 
 export function Timeline(props: TimelineProps): ReactElement {
   const { durationMs, currentMs, fps, tracks, selectedIds, onAddAtPlayhead } = props;
+  const tl = useTimelineT();
 
   const rootRef = useRef<HTMLElement>(null);
   const rulerRef = useRef<HTMLDivElement>(null);
@@ -795,7 +799,7 @@ export function Timeline(props: TimelineProps): ReactElement {
     <section
       ref={rootRef}
       style={rootStyle}
-      aria-label="Timeline"
+      aria-label={tl("timeline.region")}
       // Focusable so a click inside puts focus in the `timeline` shortcut scope (§6.9).
       tabIndex={-1}
       {...shortcutScopeProps("timeline")}
@@ -863,8 +867,8 @@ export function Timeline(props: TimelineProps): ReactElement {
                 <button
                   type="button"
                   style={addButtonStyle}
-                  aria-label={`Add ${track.label} at playhead`}
-                  title={`Add ${track.label} at playhead`}
+                  aria-label={tl("timeline.addAtPlayhead", { track: track.label })}
+                  title={tl("timeline.addAtPlayhead", { track: track.label })}
                   onClick={() => onAddAtPlayhead(track.kind)}
                 >
                   +
@@ -885,7 +889,7 @@ export function Timeline(props: TimelineProps): ReactElement {
               key={track.kind}
               style={laneStyle}
               role="group"
-              aria-label={`${track.label} track`}
+              aria-label={tl("timeline.trackGroup", { track: track.label })}
               data-track-kind={track.kind}
             >
               {ready &&
@@ -904,7 +908,12 @@ export function Timeline(props: TimelineProps): ReactElement {
                       tabIndex={0}
                       aria-pressed={selected}
                       aria-invalid={invalid || undefined}
-                      aria-label={`${ITEM_NOUNS[track.kind]} ${item.label} ${formatClock(startMs)}–${formatClock(endMs)}`}
+                      aria-label={tl("timeline.itemName", {
+                        noun: tl(ITEM_NOUN_KEYS[track.kind]),
+                        label: item.label,
+                        start: formatClock(startMs),
+                        end: formatClock(endMs),
+                      })}
                       data-ghost={ghost || undefined}
                       style={itemStyle(
                         track.kind,
@@ -920,6 +929,7 @@ export function Timeline(props: TimelineProps): ReactElement {
                       {track.media && item.sourceStartMs !== undefined && (
                         <ClipMedia
                           media={track.media}
+                          waveformTitle={tl("timeline.waveform")}
                           startMs={startMs}
                           endMs={endMs}
                           sourceStartMs={item.sourceStartMs}

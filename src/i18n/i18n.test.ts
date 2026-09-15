@@ -5,16 +5,16 @@ import { createMainTranslator } from "../../electron/i18n";
 import {
   assertValidMessage,
   createTranslator,
+  EN_MESSAGES,
   formatMessage,
   resolveLanguage,
   setActiveLanguage,
   t,
 } from "./format";
-import en from "./locales/en.json";
 
 const SRC = join(__dirname, "..");
 const ROOT = join(SRC, "..");
-const messages = en as Record<string, string>;
+const messages = EN_MESSAGES as Record<string, string>;
 
 afterEach(() => setActiveLanguage("en"));
 
@@ -116,9 +116,26 @@ describe("translators", () => {
 // ── Extraction contract ─────────────────────────────────────────────────────
 
 /** Folders whose strings are extracted; add a folder here when it is migrated. */
-const EXTRACTED_DIRS = ["src/settings", "src/app/settings", "src/i18n"];
+const EXTRACTED_DIRS = [
+  "src/settings",
+  "src/app/settings",
+  "src/i18n",
+  "src/launcher",
+  "src/onboarding",
+  "src/hud",
+  "src/overlays",
+  "src/editor/inspector",
+  "src/editor/shell",
+  "src/editor/timeline",
+  "src/app/export",
+  "src/projects",
+  "src/shortcuts",
+];
 const EXTRACTED_FILES = ["electron/i18n.ts"];
-const KEY_LITERAL = /["'`]((?:common|settings|main)\.[A-Za-z0-9_.-]*[A-Za-z0-9_])["'`]/g;
+// `editor.*` and `timeline.*` are also shortcut action ids and export stage names,
+// so only the sub-namespaces those catalogs actually use count as message keys.
+const KEY_LITERAL =
+  /["'`]((?:(?:common|settings|main|exportFlow|hud|inspector|launcher|onboarding|overlays|projects|shortcuts|editor\.shell)\.[A-Za-z0-9_.-]*[A-Za-z0-9_])|timeline\.(?:addAtPlayhead|clipLabel|item|itemName|region|track|trackGroup|waveform)(?:\.[A-Za-z0-9_.-]*[A-Za-z0-9_])?)["'`]/g;
 
 function walk(dir: string, acc: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

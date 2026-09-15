@@ -1,4 +1,5 @@
 import { clamp } from "../controls";
+import { ti } from "../i18n";
 import {
   type AspectPreset,
   FRAME_LIMITS,
@@ -139,9 +140,12 @@ export function validateCustomSize(widthText: string, heightText: string): Custo
   const w = parse(widthText);
   const h = parse(heightText);
   if (w === null || h === null)
-    return { ok: false, error: "Width and height must be whole numbers" };
+    return { ok: false, error: ti("inspector.frame.error.wholeNumbers") };
   if (w < min || w > max || h < min || h > max)
-    return { ok: false, error: `Size must be between ${min} and ${max} px` };
+    return {
+      ok: false,
+      error: ti("inspector.frame.error.range", { min: String(min), max: String(max) }),
+    };
   return { ok: true, width: w, height: h };
 }
 

@@ -1,5 +1,6 @@
 import type { RequestOf, ResponseOf } from "@contracts";
 import type { ExportSink, ExportSinkBeginInfo } from "../../export/engine/muxer";
+import { t } from "../../i18n/format";
 import { invoke } from "../ipc";
 
 /**
@@ -37,7 +38,7 @@ export function ipcExportTransport(): ExportIpc {
     payload: RequestOf<K>,
   ): Promise<ResponseOf<K>> => {
     const res = await invoke(channel, payload);
-    if (res === null) throw new ExportFlowError("NOT_BRIDGED", "Export needs the desktop app");
+    if (res === null) throw new ExportFlowError("NOT_BRIDGED", t("exportFlow.error.notBridged"));
     return res;
   };
   return {

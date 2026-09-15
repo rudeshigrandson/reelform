@@ -1,6 +1,7 @@
 import { Button } from "@design/components";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { useT } from "../i18n";
 import { SNAP_THRESHOLD_PX, snapRect } from "./snap";
 import type { Bounds, RegionSelectorProps } from "./types";
 
@@ -39,9 +40,10 @@ export function RegionSelector({
   onConfirm,
   onCancel,
   minSize = 32,
-  hint = "Drag to select a region · Esc to cancel",
+  hint,
   snapTargets,
 }: RegionSelectorProps) {
+  const t = useT();
   const [bounds, setBounds] = useState<Bounds>(initialBounds);
   const dragRef = useRef<Drag | null>(null);
   const snapRef = useRef(snapTargets);
@@ -131,13 +133,17 @@ export function RegionSelector({
 
   useEffect(() => () => endDrag(), [endDrag]);
 
-  const readout = `${Math.round(bounds.width)}×${Math.round(bounds.height)}`;
+  // Strings, not numbers: a pixel size reads "1920×1080", never "1,920×1,080".
+  const readout = t("overlays.region.readout", {
+    width: String(Math.round(bounds.width)),
+    height: String(Math.round(bounds.height)),
+  });
 
   return (
     <div
       data-testid="region-overlay"
       role="dialog"
-      aria-label="Select capture region"
+      aria-label={t("overlays.region.label")}
       style={{
         position: "fixed",
         inset: 0,
@@ -163,7 +169,7 @@ export function RegionSelector({
           pointerEvents: "none",
         }}
       >
-        {hint}
+        {hint ?? t("overlays.region.hint")}
       </div>
 
       {/* Selection rectangle */}
@@ -191,7 +197,7 @@ export function RegionSelector({
             <div
               key={h}
               data-testid={`handle-${h}`}
-              aria-label={`Resize ${h}`}
+              aria-label={t("overlays.region.resizeHandle", { handle: h })}
               onPointerDown={startDrag(h)}
               style={{
                 position: "absolute",
@@ -227,7 +233,7 @@ export function RegionSelector({
           pointerEvents: "none",
         }}
       >
-        {readout} px
+        {readout}
       </div>
 
       {/* Toolbar */}
@@ -248,10 +254,10 @@ export function RegionSelector({
         }}
       >
         <Button variant="ghost" onClick={onCancel}>
-          Cancel
+          {t("common.cancel")}
         </Button>
         <Button variant="primary" onClick={() => onConfirm(bounds)}>
-          Record
+          {t("overlays.region.record")}
         </Button>
       </div>
     </div>

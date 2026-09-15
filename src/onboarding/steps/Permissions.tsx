@@ -1,4 +1,5 @@
 import { Button, Tag } from "@design/components";
+import { type OnboardingKey, type OnboardingTranslate, useOnboardingT } from "../i18n";
 import { canLeavePermissions, hasPendingOptional, permissionRows } from "../machine";
 import type {
   OsPermissionKind,
@@ -17,27 +18,43 @@ export interface PermissionsProps {
   onContinue: () => void;
 }
 
-const COPY: Record<OsPermissionKind, { label: string; description: string }> = {
-  screen: { label: "Screen Recording", description: "Capture your displays and windows." },
-  microphone: { label: "Microphone", description: "Record voice-over while you capture." },
-  camera: { label: "Camera", description: "Add a webcam bubble to recordings." },
-  accessibility: {
-    label: "Accessibility",
-    description: "Track the cursor and detect clicks for auto-zoom.",
+const COPY: Record<OsPermissionKind, { label: OnboardingKey; description: OnboardingKey }> = {
+  screen: {
+    label: "onboarding.permission.screen",
+    description: "onboarding.permission.screen.description",
   },
-  notifications: { label: "Notifications", description: "Know when exports finish." },
+  microphone: {
+    label: "onboarding.permission.microphone",
+    description: "onboarding.permission.microphone.description",
+  },
+  camera: {
+    label: "onboarding.permission.camera",
+    description: "onboarding.permission.camera.description",
+  },
+  accessibility: {
+    label: "onboarding.permission.accessibility",
+    description: "onboarding.permission.accessibility.description",
+  },
+  notifications: {
+    label: "onboarding.permission.notifications",
+    description: "onboarding.permission.notifications.description",
+  },
 };
 
-const STATUS_LABEL: Record<OsPermissionStatus, string> = {
-  granted: "Granted",
-  denied: "Denied",
-  "not-determined": "Not determined",
-  restricted: "Restricted",
-  "not-applicable": "Not needed",
+const STATUS_LABEL: Record<OsPermissionStatus, OnboardingKey> = {
+  granted: "onboarding.status.granted",
+  denied: "onboarding.status.denied",
+  "not-determined": "onboarding.status.notDetermined",
+  restricted: "onboarding.status.restricted",
+  "not-applicable": "onboarding.status.notApplicable",
 };
 
-function settingsName(platform: PermissionsSnapshot["platform"]): string {
-  return platform === "win32" ? "Settings" : "System Settings";
+function settingsName(platform: PermissionsSnapshot["platform"], t: OnboardingTranslate): string {
+  return t(
+    platform === "win32"
+      ? "onboarding.permissions.settingsName.win32"
+      : "onboarding.permissions.settingsName.other",
+  );
 }
 
 function Row({
@@ -53,10 +70,12 @@ function Row({
   onRequest: () => void;
   onOpenSettings: () => void;
 }) {
-  const { label, description } = COPY[entry.kind];
+  const t = useOnboardingT();
+  const label = t(COPY[entry.kind].label);
+  const description = t(COPY[entry.kind].description);
   const granted = entry.status === "granted";
   const blocked = entry.status === "denied" || entry.status === "restricted";
-  const settings = settingsName(platform);
+  const settings = settingsName(platform, t);
   return (
     <li
       aria-label={label}
@@ -74,22 +93,27 @@ function Row({
         <div style={{ flex: 1, textAlign: "left" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
             <span style={{ fontWeight: 600 }}>{label}</span>
-            {entry.required ? <Tag variant="accent">Required</Tag> : null}
+            {entry.required ? (
+              <Tag variant="accent">{t("onboarding.permissions.required")}</Tag>
+            ) : null}
           </div>
           <div style={{ fontSize: "13px", color: "var(--text-2)" }}>{description}</div>
         </div>
         <Tag variant={granted ? "accent-2" : blocked ? "outline" : "neutral"}>
           {granted ? "✓ " : ""}
-          {STATUS_LABEL[entry.status]}
+          {t(STATUS_LABEL[entry.status])}
         </Tag>
         {granted ? null : blocked || !entry.canRequest ? (
           entry.canOpenSettings ? (
             <Button
               variant="secondary"
               onClick={onOpenSettings}
-              aria-label={`Open ${settings} for ${label}`}
+              aria-label={t("onboarding.permissions.openSettingsLabel", {
+                settings,
+                permission: label,
+              })}
             >
-              Open {settings}
+              {t("onboarding.permissions.openSettings", { settings })}
             </Button>
           ) : null
         ) : (
@@ -97,22 +121,27 @@ function Row({
             variant="secondary"
             onClick={onRequest}
             disabled={requesting}
-            aria-label={`Allow ${label}`}
+            aria-label={t("onboarding.permissions.allowLabel", { permission: label })}
           >
-            {requesting ? "Waiting…" : "Allow…"}
+            {requesting ? t("onboarding.permissions.waiting") : t("onboarding.permissions.allow")}
           </Button>
         )}
       </div>
       {blocked ? (
         <p style={{ margin: 0, fontSize: "12px", color: "var(--warning)", textAlign: "left" }}>
           {entry.status === "restricted"
-            ? `${label} is restricted by a device policy.`
-            : `Access was denied. Turn on Reelform under ${settings} › Privacy${platform === "darwin" ? " & Security" : ""} › ${label}.`}
+            ? t("onboarding.permissions.restricted", { permission: label })
+            : t(
+                platform === "darwin"
+                  ? "onboarding.permissions.denied.darwin"
+                  : "onboarding.permissions.denied.other",
+                { settings, permission: label },
+              )}
         </p>
       ) : null}
       {entry.kind === "screen" && platform === "darwin" && !granted ? (
         <p style={{ margin: 0, fontSize: "12px", color: "var(--text-3)", textAlign: "left" }}>
-          macOS will ask you to restart Reelform after granting.
+          {t("onboarding.permissions.restartNote")}
         </p>
       ) : null}
     </li>
@@ -129,6 +158,7 @@ export function Permissions({
   onOpenSettings,
   onContinue,
 }: PermissionsProps) {
+  const t = useOnboardingT();
   const rows = permissionRows(snapshot);
   const canContinue = canLeavePermissions({ snapshot, unavailable });
   const skippable = canContinue && hasPendingOptional(snapshot);
@@ -142,39 +172,38 @@ export function Permissions({
         id="onboarding-permissions-title"
         style={{ fontSize: "22px", fontWeight: 600, margin: 0 }}
       >
-        Reelform needs a few permissions
+        {t("onboarding.permissions.title")}
       </h2>
 
       {snapshot?.platform === "win32" ? (
         <p style={{ margin: 0, color: "var(--text-2)", fontSize: "13px" }}>
-          Screen capture needs no permission on Windows. Microphone and camera access are controlled
-          in Settings › Privacy.
+          {t("onboarding.permissions.windowsNote")}
         </p>
       ) : null}
 
       {statusError ? (
         <p role="alert" style={{ margin: 0, color: "var(--danger)", fontSize: "13px" }}>
-          Couldn't check permissions ({statusError}). Retrying…
+          {t("onboarding.permissions.statusError", { error: statusError })}
         </p>
       ) : null}
 
       {unavailable ? (
         <output style={{ display: "block", margin: 0, color: "var(--text-3)" }}>
-          Permissions are managed by the desktop app.
+          {t("onboarding.permissions.unavailable")}
         </output>
       ) : snapshot === null ? (
         statusError ? null : (
           <output style={{ display: "block", margin: 0, color: "var(--text-3)" }}>
-            Checking permissions…
+            {t("onboarding.permissions.checking")}
           </output>
         )
       ) : rows.length === 0 ? (
         <output style={{ display: "block", margin: 0, color: "var(--text-3)" }}>
-          No permissions are needed on this system.
+          {t("onboarding.permissions.noneNeeded")}
         </output>
       ) : (
         <ul
-          aria-label="Permissions"
+          aria-label={t("onboarding.permissions.listLabel")}
           style={{
             listStyle: "none",
             margin: 0,
@@ -200,11 +229,11 @@ export function Permissions({
       <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-2)" }}>
         {skippable ? (
           <Button variant="ghost" onClick={onContinue}>
-            Skip for now
+            {t("onboarding.permissions.skip")}
           </Button>
         ) : null}
         <Button variant="primary" disabled={!canContinue} onClick={onContinue}>
-          Continue
+          {t("onboarding.permissions.continue")}
         </Button>
       </div>
     </section>

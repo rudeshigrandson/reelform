@@ -1,4 +1,5 @@
 import type { Clip, Project } from "../../model/schema";
+import { ti } from "../i18n";
 import type { DateFormatOptions, ProjectFsMeta, ProjectInfo, SourceInfo } from "./types";
 
 const UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
@@ -89,7 +90,7 @@ export function buildProjectInfo(project: Project, meta: ProjectFsMeta): Project
       codec: video.codec,
       captureBackend: meta.captureBackend ?? null,
       cursorPointCount: meta.cursorPointCount ?? null,
-      audioTracks: meta.audioTracks ?? (video.hasAudio ? ["Source audio"] : []),
+      audioTracks: meta.audioTracks ?? (video.hasAudio ? [ti("inspector.common.sourceAudio")] : []),
     },
   };
 }

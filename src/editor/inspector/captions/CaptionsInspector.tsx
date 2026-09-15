@@ -1,8 +1,8 @@
 import { Button, Input, Segmented } from "@design/components";
-import type { SegmentedOption } from "@design/components";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, ReactElement } from "react";
 import { ColorField, EmptyState, NumberField, Section, Slider, Switch, clamp } from "../controls";
+import { type InspectorMessageKey, useInspectorT } from "../i18n";
 import {
   addCaptionAt,
   filterCaptions,
@@ -98,10 +98,10 @@ const selectStyle: CSSProperties = {
   fontSize: "12px",
 };
 
-const POSITION_OPTIONS: ReadonlyArray<SegmentedOption<CaptionPosition>> = [
-  { value: "bottom", label: "Bottom" },
-  { value: "top", label: "Top" },
-  { value: "custom", label: "Custom Y" },
+const POSITION_OPTIONS: ReadonlyArray<{ value: CaptionPosition; labelKey: InspectorMessageKey }> = [
+  { value: "bottom", labelKey: "inspector.captions.position.bottom" },
+  { value: "top", labelKey: "inspector.captions.position.top" },
+  { value: "custom", labelKey: "inspector.captions.position.custom" },
 ];
 
 function ProgressBar({ value, label }: { value: number; label: string }): ReactElement {
@@ -133,6 +133,7 @@ interface FocusRequest {
 
 /** Captions inspector tab (design guide S18). Presentational — all state via props. */
 export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
+  const t = useInspectorT();
   const {
     captions,
     onCaptionsChange,
@@ -211,12 +212,12 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
   };
 
   return (
-    <div style={rootStyle} aria-label="Captions inspector">
+    <div style={rootStyle} aria-label={t("inspector.captions.label")}>
       {/* ── Generate ─────────────────────────────────────────── */}
-      <Section title="Generate">
+      <Section title={t("inspector.captions.generate")}>
         <div style={rowStyle}>
           <label htmlFor="captions-language" style={labelStyle}>
-            Language
+            {t("inspector.captions.language")}
           </label>
           <select
             id="captions-language"
@@ -227,14 +228,14 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
           >
             {languages.map((l) => (
               <option key={l.code} value={l.code}>
-                {l.label}
+                {l.labelKey ? t(l.labelKey) : l.label}
               </option>
             ))}
           </select>
         </div>
         <div style={rowStyle}>
           <label htmlFor="captions-model" style={labelStyle}>
-            Model
+            {t("inspector.captions.model")}
           </label>
           <select
             id="captions-model"
@@ -248,7 +249,7 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
           >
             {CAPTION_MODELS.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.label} · {m.size}
+                {t(m.labelKey)} · {m.size}
               </option>
             ))}
           </select>
@@ -260,13 +261,16 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
             style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}
           >
             <span>
-              Downloading {info.label} model {Math.round(clamp(status.progress, 0, 1) * 100)}%… (
-              {info.size})
+              {t("inspector.captions.downloading", {
+                model: t(info.labelKey),
+                percent: Math.round(clamp(status.progress, 0, 1) * 100),
+                size: info.size,
+              })}
             </span>
-            <ProgressBar value={status.progress} label="Model download" />
+            <ProgressBar value={status.progress} label={t("inspector.captions.modelDownload")} />
             {props.onCancelDownload && (
               <Button variant="ghost" onClick={props.onCancelDownload}>
-                Cancel
+                {t("inspector.common.cancel")}
               </Button>
             )}
           </div>
@@ -276,18 +280,21 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
             style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}
           >
             <span style={{ fontVariantNumeric: "tabular-nums" }}>
-              Transcribing {Math.round(clamp(status.progress, 0, 1) * 100)}%…{" "}
-              {formatClock(status.doneMs)}/{formatClock(status.totalMs)}
+              {t("inspector.captions.transcribing", {
+                percent: Math.round(clamp(status.progress, 0, 1) * 100),
+                done: formatClock(status.doneMs),
+                total: formatClock(status.totalMs),
+              })}
             </span>
-            <ProgressBar value={status.progress} label="Transcription" />
+            <ProgressBar value={status.progress} label={t("inspector.captions.transcription")} />
           </div>
         ) : modelDownloaded ? (
           <Button variant="primary" block onClick={onGenerate}>
-            Generate captions
+            {t("inspector.captions.generateCaptions")}
           </Button>
         ) : (
           <Button variant="primary" block onClick={onDownloadModel}>
-            Download ({info.size})
+            {t("inspector.captions.download", { size: info.size })}
           </Button>
         )}
 
@@ -305,38 +312,38 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
             <span>{status.message}</span>
             {modelDownloaded && (
               <Button variant="ghost" onClick={onGenerate}>
-                Try again
+                {t("inspector.captions.tryAgain")}
               </Button>
             )}
           </div>
         )}
-        <span style={hintStyle}>Runs on-device. Nothing leaves your computer.</span>
+        <span style={hintStyle}>{t("inspector.captions.onDevice")}</span>
       </Section>
 
       {/* ── Caption list ─────────────────────────────────────── */}
-      <Section title="Captions">
+      <Section title={t("inspector.captions.captions")}>
         {captions.length === 0 ? (
           status.kind === "transcribing" ? null : (
-            <EmptyState title="No captions yet">
-              Generate captions from your recording's audio, or add one at the playhead.
+            <EmptyState title={t("inspector.captions.empty.title")}>
+              {t("inspector.captions.empty.body")}
             </EmptyState>
           )
         ) : (
           <>
             <Input
               type="search"
-              aria-label="Search captions"
-              placeholder="Search captions"
+              aria-label={t("inspector.captions.search")}
+              placeholder={t("inspector.captions.search")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
             {visible.length === 0 ? (
               <span role="status" style={hintStyle}>
-                No captions match “{query.trim()}”.
+                {t("inspector.captions.noMatch", { query: query.trim() })}
               </span>
             ) : (
               <ul
-                aria-label="Caption list"
+                aria-label={t("inspector.captions.list")}
                 style={{
                   listStyle: "none",
                   margin: 0,
@@ -380,10 +387,12 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
                           if (el) inputs.current.set(c.id, el);
                           else inputs.current.delete(c.id);
                         }}
-                        aria-label={`Caption ${formatCueTime(c.startMs)}`}
+                        aria-label={t("inspector.captions.caption", {
+                          time: formatCueTime(c.startMs),
+                        })}
                         rows={Math.max(1, c.text.split("\n").length)}
                         value={c.text}
-                        placeholder="Type caption…"
+                        placeholder={t("inspector.captions.placeholder")}
                         onFocus={() => setEditingId(c.id)}
                         onBlur={() => setEditingId((id) => (id === c.id ? null : id))}
                         onChange={(e) =>
@@ -412,18 +421,18 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
           variant="secondary"
           block
           disabled={!addAtPlayhead}
-          title={addAtPlayhead ? undefined : "Playhead is inside a caption"}
+          title={addAtPlayhead ? undefined : t("inspector.captions.playheadInside")}
           onClick={handleAdd}
         >
-          Add caption
+          {t("inspector.captions.add")}
         </Button>
       </Section>
 
       {/* ── Style ────────────────────────────────────────────── */}
-      <Section title="Style">
+      <Section title={t("inspector.common.style")}>
         <div
           role="radiogroup"
-          aria-label="Caption preset"
+          aria-label={t("inspector.captions.preset")}
           style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-1)" }}
         >
           {CAPTION_PRESETS.map((p) => {
@@ -447,14 +456,14 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
                   color: selected ? "var(--on-accent)" : "var(--text-1)",
                 }}
               >
-                {p.label}
+                {t(p.labelKey)}
               </button>
             );
           })}
         </div>
         <div style={rowStyle}>
           <label htmlFor="captions-font" style={labelStyle}>
-            Font
+            {t("inspector.common.font")}
           </label>
           <select
             id="captions-font"
@@ -470,21 +479,29 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
                 {f}
               </option>
             ))}
-            {onAddCustomFont && <option value={ADD_FONT}>Add custom font…</option>}
+            {onAddCustomFont && <option value={ADD_FONT}>{t("inspector.captions.addFont")}</option>}
           </select>
         </div>
         <Slider
-          label="Size"
+          label={t("inspector.common.size")}
           value={style.sizePx}
           min={12}
           max={120}
           unit="px"
           onChange={(v) => set("sizePx", v)}
         />
-        <ColorField label="Color" value={style.color} onChange={(v) => set("color", v)} />
-        <ColorField label="Background" value={style.bgColor} onChange={(v) => set("bgColor", v)} />
+        <ColorField
+          label={t("inspector.common.color")}
+          value={style.color}
+          onChange={(v) => set("color", v)}
+        />
+        <ColorField
+          label={t("inspector.common.background")}
+          value={style.bgColor}
+          onChange={(v) => set("bgColor", v)}
+        />
         <Slider
-          label="Bg opacity"
+          label={t("inspector.captions.bgOpacity")}
           value={style.bgOpacity}
           min={0}
           max={100}
@@ -492,18 +509,18 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
           onChange={(v) => set("bgOpacity", v)}
         />
         <div style={rowStyle}>
-          <span style={labelStyle}>Position</span>
+          <span style={labelStyle}>{t("inspector.common.position")}</span>
           <Segmented
             name="captions-position"
             size="sm"
             value={style.position}
-            options={POSITION_OPTIONS}
+            options={POSITION_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
             onChange={(v) => set("position", v)}
           />
         </div>
         {style.position === "custom" && (
           <Slider
-            label="Y"
+            label={t("inspector.common.y")}
             value={style.customY}
             min={0}
             max={100}
@@ -512,42 +529,46 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
           />
         )}
         <NumberField
-          label="Max lines"
+          label={t("inspector.captions.maxLines")}
           value={style.maxLines}
           min={1}
           max={3}
           onChange={(v) => set("maxLines", Math.round(v))}
         />
         <Switch
-          label="Word highlight"
-          hint="Karaoke — highlights the current word"
+          label={t("inspector.captions.wordHighlight")}
+          hint={t("inspector.captions.wordHighlight.hint")}
           checked={style.wordHighlight}
           onChange={(v) => set("wordHighlight", v)}
         />
         {style.wordHighlight && (
           <ColorField
-            label="Highlight"
+            label={t("inspector.common.highlight")}
             value={style.highlightColor}
             onChange={(v) => set("highlightColor", v)}
           />
         )}
-        <Switch label="Uppercase" checked={style.uppercase} onChange={(v) => set("uppercase", v)} />
+        <Switch
+          label={t("inspector.captions.uppercase")}
+          checked={style.uppercase}
+          onChange={(v) => set("uppercase", v)}
+        />
       </Section>
 
       {/* ── Export ───────────────────────────────────────────── */}
-      <Section title="Export">
-        <Switch label="Burn into video" checked={burnIn} onChange={onBurnInChange} />
+      <Section title={t("inspector.captions.export")}>
+        <Switch label={t("inspector.captions.burnIn")} checked={burnIn} onChange={onBurnInChange} />
         <div style={{ display: "flex", gap: "var(--space-2)" }}>
           <Button variant="secondary" disabled={!hasExportable} onClick={onExportSrt}>
-            Export .srt
+            {t("inspector.captions.exportSrt")}
           </Button>
           <Button variant="secondary" disabled={!hasExportable} onClick={onExportVtt}>
-            Export .vtt
+            {t("inspector.captions.exportVtt")}
           </Button>
         </div>
         {props.onImportSidecar && (
           <Button variant="ghost" disabled={busy} onClick={props.onImportSidecar}>
-            Import .srt/.vtt…
+            {t("inspector.captions.importButton")}
           </Button>
         )}
         {props.exportNotice ? (

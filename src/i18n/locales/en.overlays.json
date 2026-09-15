@@ -1,0 +1,13 @@
+{
+  "overlays.region.label": "Select capture region",
+  "overlays.region.hint": "Drag to select a region · Esc to cancel",
+  "overlays.region.resizeHandle": "Resize {handle}",
+  "overlays.region.readout": "{width}×{height} px",
+  "overlays.region.record": "Record",
+
+  "overlays.countdown.label": "Recording countdown",
+  "overlays.countdown.go": "Go",
+  "overlays.countdown.hint": "Press Esc to cancel",
+
+  "overlays.webcam.label": "Webcam preview"
+}

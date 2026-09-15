@@ -1,5 +1,6 @@
 import { Button } from "@design/components";
 import type { CSSProperties, ReactElement } from "react";
+import { t as translate, useT } from "../../i18n";
 import { formatBytes, formatDuration } from "./config";
 import type { ExportFlowPhase } from "./runner";
 import { type ExportProgressData, useExportProgress } from "./useExportProgress";
@@ -18,13 +19,15 @@ const row: CSSProperties = {
   marginTop: "var(--space-4)",
 };
 
-const number = new Intl.NumberFormat("en-US");
-
+/** Headline over the progress bar, in the active window language. */
 export function progressHeadline(phase: Phase<"running">): string {
   const p = phase.progress;
-  if (phase.cancelling) return "Cancelling…";
+  if (phase.cancelling) return translate("exportFlow.progress.cancelling");
   if (p.phase === "rendering" && p.framesTotal > 0) {
-    return `Rendering frames ${number.format(p.framesDone)} / ${number.format(p.framesTotal)}`;
+    return translate("exportFlow.progress.renderingFrames", {
+      done: p.framesDone,
+      total: p.framesTotal,
+    });
   }
   return p.label;
 }
@@ -58,23 +61,34 @@ export function ExportProgressView(props: {
   onBackground(): void;
 }): ReactElement {
   const { phase } = props;
+  const t = useT();
   const p = phase.progress;
   return (
     <div data-testid="export-progress">
       <div style={text} data-testid="export-progress-label">
         {progressHeadline(phase)}
       </div>
-      <ProgressBar fraction={p.fraction} label="Export progress" />
+      <ProgressBar fraction={p.fraction} label={t("exportFlow.progress.label")} />
       <div style={{ ...muted, display: "flex", gap: "var(--space-4)", flexWrap: "wrap" }}>
-        <span>{Math.round(p.fraction * 100)}%</span>
-        <span data-testid="export-eta">{formatDuration(p.etaMs)} left</span>
+        <span>{t("exportFlow.progress.percent", { percent: Math.round(p.fraction * 100) })}</span>
+        <span data-testid="export-eta">
+          {t("exportFlow.progress.timeLeft", { duration: formatDuration(p.etaMs) })}
+        </span>
         {p.speed !== null ? (
-          <span data-testid="export-speed">{p.speed.toFixed(1)}× realtime</span>
+          <span data-testid="export-speed">
+            {t("exportFlow.progress.speed", { speed: p.speed.toFixed(1) })}
+          </span>
         ) : null}
         {phase.estimatedBytes !== null ? (
-          <span data-testid="export-estimate">~{formatBytes(phase.estimatedBytes)} est.</span>
+          <span data-testid="export-estimate">
+            {t("exportFlow.progress.estimate", { size: formatBytes(phase.estimatedBytes) })}
+          </span>
         ) : null}
-        <span>{p.encoder === "hardware" ? "Hardware encoder" : "Software encoder"}</span>
+        <span>
+          {p.encoder === "hardware"
+            ? t("exportFlow.progress.hardwareEncoder")
+            : t("exportFlow.progress.softwareEncoder")}
+        </span>
       </div>
       {phase.notice ? (
         <div role="note" style={{ ...muted, color: "var(--warning)", marginTop: "var(--space-2)" }}>
@@ -83,10 +97,10 @@ export function ExportProgressView(props: {
       ) : null}
       <div style={row}>
         <Button variant="ghost" onClick={props.onBackground}>
-          Run in background
+          {t("exportFlow.progress.runInBackground")}
         </Button>
         <Button variant="secondary" onClick={props.onCancel} disabled={phase.cancelling}>
-          Cancel
+          {t("common.cancel")}
         </Button>
       </div>
     </div>
@@ -102,6 +116,7 @@ export function ExportDoneView(props: {
   onClose(): void;
 }): ReactElement {
   const { phase } = props;
+  const t = useT();
   return (
     <div data-testid="export-done">
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
@@ -120,7 +135,9 @@ export function ExportDoneView(props: {
         >
           ✓
         </span>
-        <span style={{ ...text, fontFamily: "var(--font-heading)" }}>Export complete</span>
+        <span style={{ ...text, fontFamily: "var(--font-heading)" }}>
+          {t("exportFlow.done.title")}
+        </span>
       </div>
       <div
         style={{
@@ -137,7 +154,7 @@ export function ExportDoneView(props: {
         </div>
         {phase.sidecars.map((s) => (
           <div key={s} style={muted}>
-            + {s.split(/[\\/]/).pop()}
+            {t("exportFlow.done.sidecar", { name: s.split(/[\\/]/).pop() ?? s })}
           </div>
         ))}
       </div>
@@ -149,24 +166,24 @@ export function ExportDoneView(props: {
       {props.copyState !== "idle" ? (
         <output style={{ ...muted, display: "block", marginTop: "var(--space-2)" }}>
           {props.copyState === "copied"
-            ? "Copied to clipboard"
+            ? t("exportFlow.done.copied")
             : props.copyState === "path-copied"
-              ? "File path copied"
-              : "Couldn't copy"}
+              ? t("exportFlow.done.pathCopied")
+              : t("exportFlow.done.copyFailed")}
         </output>
       ) : null}
       <div style={row}>
         <Button variant="secondary" onClick={props.onReveal}>
-          Reveal
+          {t("exportFlow.action.reveal")}
         </Button>
         <Button variant="secondary" onClick={props.onCopy}>
-          Copy
+          {t("exportFlow.action.copy")}
         </Button>
         <Button variant="secondary" onClick={props.onExportAnother}>
-          Export another
+          {t("exportFlow.done.exportAnother")}
         </Button>
         <Button variant="primary" onClick={props.onClose}>
-          Done
+          {t("exportFlow.done.done")}
         </Button>
       </div>
     </div>
@@ -183,12 +200,13 @@ export function ExportProblemView(props: {
   onBack(): void;
 }): ReactElement {
   const { phase } = props;
+  const t = useT();
   const title =
     phase.kind === "low-disk"
-      ? "Not enough disk space"
+      ? t("exportFlow.problem.lowDiskTitle")
       : phase.kind === "codec-unsupported"
-        ? "Codec not supported"
-        : "Export failed";
+        ? t("exportFlow.problem.codecTitle")
+        : t("exportFlow.failed");
   return (
     <div data-testid={`export-${phase.kind}`}>
       <div role="alert">
@@ -211,30 +229,30 @@ export function ExportProblemView(props: {
       ) : null}
       {props.diagnosticsCopied ? (
         <output style={{ ...muted, display: "block", marginTop: "var(--space-2)" }}>
-          Diagnostics copied
+          {t("exportFlow.problem.diagnosticsCopied")}
         </output>
       ) : null}
       <div style={row}>
         <Button variant="ghost" onClick={props.onBack}>
-          Change settings
+          {t("exportFlow.problem.changeSettings")}
         </Button>
         <Button variant="secondary" onClick={props.onCopyDiagnostics}>
-          Copy diagnostics
+          {t("exportFlow.problem.copyDiagnostics")}
         </Button>
         {phase.kind === "low-disk" ? (
           <>
             <Button variant="secondary" onClick={props.onChooseFolder}>
-              Choose another folder
+              {t("exportFlow.problem.chooseFolder")}
             </Button>
             <Button variant="primary" onClick={props.onRetry}>
-              Try again
+              {t("exportFlow.problem.tryAgain")}
             </Button>
           </>
         ) : null}
         {(phase.kind === "failed" && phase.canRetrySoftware) ||
         phase.kind === "codec-unsupported" ? (
           <Button variant="primary" onClick={props.onRetrySoftware}>
-            Retry with software encoder
+            {t("exportFlow.problem.retrySoftware")}
           </Button>
         ) : null}
       </div>
@@ -251,14 +269,18 @@ export interface ExportToastProps {
   onDismiss(): void;
 }
 
+/** Toast text for the shared progress state, in the active window language. */
 export function toastMessage(s: ExportProgressData): string | null {
   switch (s.activity) {
     case "running":
-      return `Exporting ${Math.round(s.fraction * 100)}% · ${formatDuration(s.etaMs)} left`;
+      return translate("exportFlow.toast.running", {
+        percent: Math.round(s.fraction * 100),
+        duration: formatDuration(s.etaMs),
+      });
     case "done":
       return s.label;
     case "failed":
-      return "Export failed";
+      return translate("exportFlow.failed");
     default:
       return null;
   }
@@ -267,6 +289,7 @@ export function toastMessage(s: ExportProgressData): string | null {
 /** S28 progress / success / error toast, bound to {@link useExportProgress}. */
 export function ExportToast(props: ExportToastProps): ReactElement | null {
   const state = useExportProgress();
+  const t = useT();
   const message = toastMessage(state);
   if (message === null) return null;
   const tone =
@@ -297,31 +320,35 @@ export function ExportToast(props: ExportToastProps): ReactElement | null {
       <span>{message}</span>
       {state.activity === "running" ? (
         <Button variant="ghost" onClick={props.onCancel}>
-          Cancel
+          {t("common.cancel")}
         </Button>
       ) : null}
       {state.activity === "done" ? (
         <>
           <Button variant="ghost" onClick={props.onReveal}>
-            Reveal
+            {t("exportFlow.action.reveal")}
           </Button>
           <Button variant="ghost" onClick={props.onCopy}>
-            Copy
+            {t("exportFlow.action.copy")}
           </Button>
         </>
       ) : null}
       {state.activity === "failed" ? (
         <>
           <Button variant="ghost" onClick={props.onRetry}>
-            Retry
+            {t("exportFlow.action.retry")}
           </Button>
           <Button variant="ghost" onClick={props.onDetails}>
-            Details
+            {t("exportFlow.toast.details")}
           </Button>
         </>
       ) : null}
       {state.activity !== "running" ? (
-        <Button variant="ghost" aria-label="Dismiss" onClick={props.onDismiss}>
+        <Button
+          variant="ghost"
+          aria-label={t("exportFlow.toast.dismiss")}
+          onClick={props.onDismiss}
+        >
           ×
         </Button>
       ) : null}

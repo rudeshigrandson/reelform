@@ -2,6 +2,7 @@ import { Input, Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
 import type { ReactElement, ReactNode } from "react";
 import type { GifDither, GifFps, GifSizePreset } from "../../export/gif/types";
+import { type MessageKey, type Translate, useT } from "../../i18n";
 import type {
   AudioChoice,
   CaptionsChoice,
@@ -24,30 +25,36 @@ export interface ExportOptionsProps {
   hasCaptions: boolean;
 }
 
-const RANGE: ReadonlyArray<SegmentedOption<RangeChoice>> = [
-  { value: "entire", label: "Entire project" },
-  { value: "selection", label: "Selection" },
-  { value: "in-out", label: "In–Out" },
+interface KeyedOption<T extends string | number> {
+  value: T;
+  labelKey: MessageKey;
+}
+
+const RANGE: ReadonlyArray<KeyedOption<RangeChoice>> = [
+  { value: "entire", labelKey: "exportFlow.options.range.entire" },
+  { value: "selection", labelKey: "exportFlow.options.range.selection" },
+  { value: "in-out", labelKey: "exportFlow.options.range.inOut" },
 ];
 
-const CAPTIONS: ReadonlyArray<SegmentedOption<CaptionsChoice>> = [
-  { value: "none", label: "None" },
-  { value: "burn-in", label: "Burn in" },
-  { value: "srt", label: "Sidecar .srt" },
-  { value: "vtt", label: ".vtt" },
+const CAPTIONS: ReadonlyArray<KeyedOption<CaptionsChoice>> = [
+  { value: "none", labelKey: "common.none" },
+  { value: "burn-in", labelKey: "exportFlow.options.captions.burnIn" },
+  { value: "srt", labelKey: "exportFlow.options.captions.srt" },
+  { value: "vtt", labelKey: "exportFlow.options.captions.vtt" },
 ];
 
-const AUDIO: ReadonlyArray<SegmentedOption<AudioChoice>> = [
-  { value: "aac", label: "AAC 192k" },
-  { value: "mute", label: "Mute" },
+const AUDIO: ReadonlyArray<KeyedOption<AudioChoice>> = [
+  { value: "aac", labelKey: "exportFlow.options.audio.aac" },
+  { value: "mute", labelKey: "exportFlow.options.audio.mute" },
 ];
 
-const GIF_SIZE: ReadonlyArray<SegmentedOption<GifSizePreset>> = [
-  { value: 480, label: "Small 480p" },
-  { value: 720, label: "Medium 720p" },
-  { value: 1080, label: "Large 1080p" },
+const GIF_SIZE: ReadonlyArray<KeyedOption<GifSizePreset>> = [
+  { value: 480, labelKey: "exportFlow.options.size.small" },
+  { value: 720, labelKey: "exportFlow.options.size.medium" },
+  { value: 1080, labelKey: "exportFlow.options.size.large" },
 ];
 
+/** Plain numbers: nothing to translate. */
 const GIF_FPS: ReadonlyArray<SegmentedOption<GifFps>> = [
   { value: 10, label: "10" },
   { value: 15, label: "15" },
@@ -55,16 +62,21 @@ const GIF_FPS: ReadonlyArray<SegmentedOption<GifFps>> = [
   { value: 30, label: "30" },
 ];
 
-const DITHER: ReadonlyArray<SegmentedOption<GifDither>> = [
-  { value: "none", label: "No dither" },
-  { value: "bayer4", label: "Bayer" },
-  { value: "floyd-steinberg", label: "Floyd" },
+const DITHER: ReadonlyArray<KeyedOption<GifDither>> = [
+  { value: "none", labelKey: "exportFlow.options.dither.none" },
+  { value: "bayer4", labelKey: "exportFlow.options.dither.bayer" },
+  { value: "floyd-steinberg", labelKey: "exportFlow.options.dither.floyd" },
 ];
 
-const PALETTE: ReadonlyArray<SegmentedOption<GifPalette>> = [
-  { value: "global", label: "Global" },
-  { value: "adaptive", label: "Adaptive" },
+const PALETTE: ReadonlyArray<KeyedOption<GifPalette>> = [
+  { value: "global", labelKey: "exportFlow.options.palette.global" },
+  { value: "adaptive", labelKey: "exportFlow.options.palette.adaptive" },
 ];
+
+const translated = <T extends string | number>(
+  options: ReadonlyArray<KeyedOption<T>>,
+  t: Translate,
+): Array<SegmentedOption<T>> => options.map((o) => ({ value: o.value, label: t(o.labelKey) }));
 
 const labelStyle = {
   display: "block",
@@ -118,45 +130,46 @@ const hint = (text: string): ReactElement => (
 
 export function ExportOptions(props: ExportOptionsProps): ReactElement {
   const { config, onChange } = props;
+  const t = useT();
   const isGif = config.format === "gif";
   return (
     <div data-testid="export-options">
-      <Row label="Range">
+      <Row label={t("exportFlow.options.range")}>
         <Segmented
           name="export-range"
           value={config.range}
-          options={RANGE}
+          options={translated(RANGE, t)}
           onChange={(range) => onChange({ range })}
         />
         {config.range === "selection" && !props.hasSelection
-          ? hint("Select a range on the timeline first")
+          ? hint(t("exportFlow.issue.selectRange"))
           : null}
-        {config.range === "in-out" && !props.hasInOut ? hint("Set In and Out points first") : null}
+        {config.range === "in-out" && !props.hasInOut ? hint(t("exportFlow.issue.setInOut")) : null}
       </Row>
 
-      <Row label="Captions">
+      <Row label={t("exportFlow.options.captions")}>
         <Segmented
           name="export-captions"
           value={config.captions}
-          options={CAPTIONS}
+          options={translated(CAPTIONS, t)}
           onChange={(captions) => onChange({ captions })}
         />
         {!props.hasCaptions && config.captions !== "none"
-          ? hint("This project has no captions")
+          ? hint(t("exportFlow.issue.noCaptions"))
           : null}
       </Row>
 
       {isGif ? (
         <>
-          <Row label="Size">
+          <Row label={t("exportFlow.options.size")}>
             <Segmented
               name="export-gif-size"
               value={config.gif.sizePreset}
-              options={GIF_SIZE}
+              options={translated(GIF_SIZE, t)}
               onChange={(sizePreset) => onChange({ gif: { ...config.gif, sizePreset } })}
             />
           </Row>
-          <Row label="GIF frame rate">
+          <Row label={t("exportFlow.options.gifFps")}>
             <Segmented
               name="export-gif-fps"
               value={config.gif.fps}
@@ -164,29 +177,29 @@ export function ExportOptions(props: ExportOptionsProps): ReactElement {
               onChange={(fps) => onChange({ gif: { ...config.gif, fps } })}
             />
           </Row>
-          <Row label="Dither">
+          <Row label={t("exportFlow.options.dither")}>
             <Segmented
               name="export-gif-dither"
               value={config.gif.dither}
-              options={DITHER}
+              options={translated(DITHER, t)}
               onChange={(dither) => onChange({ gif: { ...config.gif, dither } })}
             />
           </Row>
-          <Row label="Palette">
+          <Row label={t("exportFlow.options.palette")}>
             <Segmented
               name="export-gif-palette"
               value={config.gif.palette ?? "global"}
-              options={PALETTE}
+              options={translated(PALETTE, t)}
               onChange={(palette) => onChange({ gif: { ...config.gif, palette } })}
             />
             {config.gif.palette === "adaptive"
-              ? hint("A palette per frame — truer colors, larger file")
+              ? hint(t("exportFlow.options.palette.adaptiveHint"))
               : null}
           </Row>
-          <Row label={`Colors · ${config.gif.colors}`}>
+          <Row label={t("exportFlow.options.colorsValue", { colors: config.gif.colors })}>
             <input
               type="range"
-              aria-label="Colors"
+              aria-label={t("exportFlow.options.colors")}
               min={32}
               max={256}
               step={8}
@@ -196,23 +209,23 @@ export function ExportOptions(props: ExportOptionsProps): ReactElement {
             />
           </Row>
           <Toggle
-            label="Loop"
+            label={t("exportFlow.options.loop")}
             checked={config.gif.loop}
             onChange={(loop) => onChange({ gif: { ...config.gif, loop } })}
           />
         </>
       ) : (
         <>
-          <Row label="Audio">
+          <Row label={t("exportFlow.options.audio")}>
             <Segmented
               name="export-audio"
               value={config.audio}
-              options={AUDIO}
+              options={translated(AUDIO, t)}
               onChange={(audio) => onChange({ audio })}
             />
           </Row>
           <Toggle
-            label="Hardware acceleration (auto)"
+            label={t("exportFlow.options.hardwareAcceleration")}
             checked={config.hardwareAcceleration}
             onChange={(hardwareAcceleration) => onChange({ hardwareAcceleration })}
           />
@@ -221,19 +234,19 @@ export function ExportOptions(props: ExportOptionsProps): ReactElement {
 
       <div style={{ margin: "var(--space-3) 0" }}>
         <Input
-          label="Filename"
-          aria-label="Filename"
+          label={t("exportFlow.options.fileName")}
+          aria-label={t("exportFlow.options.fileName")}
           value={config.fileName}
           onChange={(e) => onChange({ fileName: e.target.value })}
         />
       </div>
       <Toggle
-        label="Reveal after export"
+        label={t("exportFlow.options.revealAfter")}
         checked={config.revealAfter}
         onChange={(revealAfter) => onChange({ revealAfter })}
       />
       <Toggle
-        label="Copy to clipboard after export"
+        label={t("exportFlow.options.copyAfter")}
         checked={config.copyAfter}
         onChange={(copyAfter) => onChange({ copyAfter })}
       />
