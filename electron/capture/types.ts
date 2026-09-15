@@ -26,6 +26,11 @@ export const DisplayInfo = z.object({
   scaleFactor: z.number().positive(),
   /** data: URL thumbnail. */
   thumbnail: z.string().optional(),
+  /**
+   * Chromium desktop-capture id (`screen:<n>:0`) for `chromeMediaSourceId`.
+   * Only the Electron backend reports it; the renderer needs it to capture a display.
+   */
+  mediaSourceId: z.string().optional(),
 });
 export type DisplayInfo = z.infer<typeof DisplayInfo>;
 
@@ -55,7 +60,11 @@ export type SourceRef = z.infer<typeof SourceRef>;
 export const Track = z.enum(["screen", "mic", "system", "webcam"]);
 export type Track = z.infer<typeof Track>;
 
-/** `recording:start` request body (§3). Region is display-local pixels. */
+/**
+ * `recording:start` request body (§3). `region` is display-local, in the same
+ * units as `DisplayInfo.bounds` (DIP / points); multiply by the display's
+ * `scaleFactor` for device pixels.
+ */
 export const StartRequest = z.object({
   source: SourceRef,
   region: Rect.optional(),
@@ -102,6 +111,8 @@ export interface StopResult {
   /** Backend-measured duration (paused time excluded) when known. */
   durationMs: number | null;
   paths: Partial<Record<Track, string>>;
+  /** Electron backend: tracks the renderer never ended (`recording:endTrack`) before close. */
+  incompleteTracks?: Track[] | undefined;
 }
 
 /** Timing sent by the renderer with the first screen chunk (Electron backend, §5.6). */
@@ -126,10 +137,24 @@ export interface Session {
   discard(): Promise<void>;
   /** Flush + close writers and report the files on disk. Idempotent. */
   close(): Promise<StopResult>;
-  /** Electron backend only: the renderer streams encoded chunks to main. */
+  /**
+   * Electron backend only: the renderer streams encoded chunks to main. `seq` is
+   * 0-based per track and must arrive without gaps (see `electronBackend.ts`).
+   */
   writeChunk?:
-    | ((track: Track, chunk: Uint8Array, timing?: ChunkTiming | undefined) => Promise<void>)
+    | ((
+        track: Track,
+        chunk: Uint8Array,
+        seq: number,
+        timing?: ChunkTiming | undefined,
+      ) => Promise<void>)
     | undefined;
+  /**
+   * Electron backend only: the renderer wrote its last chunk for `track`.
+   * Resolves with the chunk count on disk; rejects `CHUNK_COUNT_MISMATCH` (after
+   * still ending the track) when it differs from `chunkCount`.
+   */
+  endTrack?: ((track: Track, chunkCount: number) => Promise<{ chunkCount: number }>) | undefined;
 }
 
 export interface Availability {

@@ -96,4 +96,24 @@ describe("RecordingHud", () => {
     const lit = meter.querySelectorAll('[data-lit="true"]');
     expect(lit.length).toBe(6);
   });
+
+  it("finalizing shows a processing status without recording controls", () => {
+    renderHud({ phase: "finalizing", elapsedMs: 42_000 });
+    expect(screen.getByTestId("hud-status")).toHaveTextContent("Processing recording…");
+    expect(screen.getByTestId("hud-processing")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop recording" })).toBeNull();
+  });
+
+  it("interrupted shows what was saved and why", () => {
+    renderHud({
+      phase: "interrupted",
+      elapsedMs: 42_000,
+      interruptedMessage: "The display was disconnected",
+    });
+    const status = screen.getByTestId("hud-status");
+    expect(status).toHaveTextContent("Recording saved up to 00:42");
+    expect(status).toHaveTextContent("The display was disconnected");
+    expect(screen.getByText("Interrupted")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Discard recording" })).toBeNull();
+  });
 });

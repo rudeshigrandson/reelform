@@ -5,7 +5,10 @@ import type { CountdownProps } from "./types";
  * Centered pre-record countdown. Shows a large number with a pulsing ring
  * and an Esc-to-cancel hint. Escape calls onCancel.
  */
-export function Countdown({ count, onCancel }: CountdownProps) {
+export function Countdown({ count, total, onCancel }: CountdownProps) {
+  const go = count <= 0;
+  const progress =
+    total !== undefined && total > 0 ? Math.min(1, Math.max(0, (total - count) / total)) : 1;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onCancel();
@@ -36,13 +39,16 @@ export function Countdown({ count, onCancel }: CountdownProps) {
         data-testid="countdown-ring"
         style={{
           position: "relative",
-          width: 200,
-          height: 200,
+          width: 160,
+          height: 160,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           borderRadius: "50%",
-          border: "4px solid var(--accent)",
+          // Ring progress: accent sweep over a hairline track.
+          border: "4px solid transparent",
+          backgroundClip: "padding-box",
+          outline: "1px solid var(--border-strong)",
           // Glass disc (guide §2.4) so the numeral reads in both themes.
           background: "color-mix(in srgb, var(--bg-panel) 70%, transparent)",
           backdropFilter: "blur(24px)",
@@ -51,18 +57,31 @@ export function Countdown({ count, onCancel }: CountdownProps) {
         }}
       >
         <span
+          aria-hidden="true"
+          data-testid="countdown-progress"
+          data-progress={progress.toFixed(3)}
+          style={{
+            position: "absolute",
+            inset: -4,
+            borderRadius: "50%",
+            background: `conic-gradient(var(--accent) ${progress * 360}deg, var(--accent-soft) 0deg)`,
+            WebkitMask: "radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0)",
+            mask: "radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0)",
+          }}
+        />
+        <span
           data-testid="countdown-number"
           aria-live="assertive"
           style={{
             fontFamily: "var(--font-heading)",
-            fontSize: 96,
+            fontSize: 56,
             fontWeight: 700,
             lineHeight: 1,
             color: "var(--text-1)",
             fontVariantNumeric: "tabular-nums",
           }}
         >
-          {count}
+          {go ? "Go" : count}
         </span>
       </div>
 

@@ -18,7 +18,7 @@ describe("createChunkPump", () => {
     const writes: WriteChunkRequest[] = [];
     const pump = createChunkPump({
       sessionId: "s1",
-      track: "video",
+      track: "screen",
       write: async (r) => {
         writes.push(r);
       },
@@ -33,7 +33,7 @@ describe("createChunkPump", () => {
       [3],
       [4, 5, 6],
     ]);
-    expect(writes.every((w) => w.sessionId === "s1" && w.track === "video")).toBe(true);
+    expect(writes.every((w) => w.sessionId === "s1" && w.track === "screen")).toBe(true);
     expect(pump.written).toBe(3);
     expect(pump.pending).toBe(0);
   });
@@ -63,7 +63,7 @@ describe("createChunkPump", () => {
     const read: number[] = [];
     const pump = createChunkPump({
       sessionId: "s",
-      track: "video",
+      track: "screen",
       write: async () => {
         inFlight++;
         maxInFlight = Math.max(maxInFlight, inFlight);
@@ -98,7 +98,7 @@ describe("createChunkPump", () => {
     const seqs: number[] = [];
     const pump = createChunkPump({
       sessionId: "s",
-      track: "video",
+      track: "screen",
       write: async (r) => {
         if (r.seq === 1) throw { code: "disk-full", message: "ENOSPC" };
         seqs.push(r.seq);
@@ -118,7 +118,7 @@ describe("createChunkPump", () => {
   });
 
   it("treats a failing arrayBuffer() like a write error", async () => {
-    const pump = createChunkPump({ sessionId: "s", track: "video", write: async () => {} });
+    const pump = createChunkPump({ sessionId: "s", track: "screen", write: async () => {} });
     pump.push({ size: 3, arrayBuffer: () => Promise.reject(new Error("read")) });
     await expect(pump.flush()).rejects.toThrow("read");
   });
@@ -128,7 +128,7 @@ describe("createChunkPump", () => {
     const seqs: number[] = [];
     const pump = createChunkPump({
       sessionId: "s",
-      track: "video",
+      track: "screen",
       write: async (r) => {
         if (r.seq === 0) await gate.promise;
         seqs.push(r.seq);

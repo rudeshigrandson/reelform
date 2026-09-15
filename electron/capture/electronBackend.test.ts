@@ -108,9 +108,9 @@ describe("electron backend session", () => {
     const session = await s.backend.start(opts, s.sink);
     const write = session.writeChunk;
     if (!write) throw new Error("expected writeChunk");
-    const p1 = write("screen", new Uint8Array([1, 2]));
-    const p2 = write("screen", new Uint8Array([3]));
-    const p3 = write("mic", new Uint8Array([9]));
+    const p1 = write("screen", new Uint8Array([1, 2]), 0);
+    const p2 = write("screen", new Uint8Array([3]), 1);
+    const p3 = write("mic", new Uint8Array([9]), 0);
     await flush();
     await p3;
     expect(s.files.get("/rec/s1/mic.webm")).toEqual([9]);
@@ -123,10 +123,10 @@ describe("electron backend session", () => {
     const s = setup();
     const session = await s.backend.start(opts, s.sink);
     const t = { timeOriginMs: 1000, recorderStartMs: 5 };
-    await session.writeChunk?.("mic", new Uint8Array([1]), t);
+    await session.writeChunk?.("mic", new Uint8Array([1]), 0, t);
     expect(s.events).toEqual([]);
-    await session.writeChunk?.("screen", new Uint8Array([1]), t);
-    await session.writeChunk?.("screen", new Uint8Array([1]), {
+    await session.writeChunk?.("screen", new Uint8Array([1]), 0, t);
+    await session.writeChunk?.("screen", new Uint8Array([1]), 1, {
       timeOriginMs: 9999,
       recorderStartMs: 0,
     });
@@ -137,14 +137,14 @@ describe("electron backend session", () => {
     const s = setup();
     s.delayFirstWrite();
     const session = await s.backend.start(opts, s.sink);
-    void session.writeChunk?.("screen", new Uint8Array([7]));
+    void session.writeChunk?.("screen", new Uint8Array([7]), 0);
     await flush();
     const closing = session.close();
     for (const g of s.gates) g();
     expect(await closing).toEqual({ durationMs: null, paths: { screen: "/rec/s1/screen.webm" } });
     expect(s.files.get("/rec/s1/screen.webm")).toEqual([7]);
     expect(s.closed).toEqual(["/rec/s1/screen.webm"]);
-    await expect(session.writeChunk?.("screen", new Uint8Array([8]))).rejects.toMatchObject({
+    await expect(session.writeChunk?.("screen", new Uint8Array([8]), 1)).rejects.toMatchObject({
       code: "SESSION_CLOSED",
     });
     expect(await session.close()).toEqual({
@@ -153,14 +153,19 @@ describe("electron backend session", () => {
     });
   });
 
-  it("ENOSPC interrupts with diskLow but later writes still proceed", async () => {
+  it("ENOSPC interrupts with diskLow; the failed seq may be retried, later seqs are gaps", async () => {
     const s = setup((_p, n) =>
       n === 1 ? Object.assign(new Error("no space"), { code: "ENOSPC" }) : null,
     );
     const session = await s.backend.start(opts, s.sink);
-    await expect(session.writeChunk?.("screen", new Uint8Array([1]))).rejects.toThrow("no space");
+    await expect(session.writeChunk?.("screen", new Uint8Array([1]), 0)).rejects.toThrow(
+      "no space",
+    );
     expect(s.events).toEqual([{ type: "interrupted", reason: "diskLow", detail: "no space" }]);
-    await session.writeChunk?.("screen", new Uint8Array([2]));
+    await expect(session.writeChunk?.("screen", new Uint8Array([2]), 1)).rejects.toMatchObject({
+      code: "CHUNK_GAP",
+    });
+    await session.writeChunk?.("screen", new Uint8Array([2]), 0);
     expect(s.files.get("/rec/s1/screen.webm")).toEqual([2]);
   });
 
@@ -170,7 +175,7 @@ describe("electron backend session", () => {
     await session.pause();
     await session.resume();
     await session.stop();
-    await session.writeChunk?.("webcam", new Uint8Array([1]));
+    await session.writeChunk?.("webcam", new Uint8Array([1]), 0);
     await session.discard();
     expect(s.closed).toEqual(["/rec/s1/webcam.webm"]);
   });

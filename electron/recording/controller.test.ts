@@ -601,7 +601,12 @@ describe("recording controller — state guards", () => {
     const t = harness();
     await t.startRecording();
     await expect(
-      t.h["recording:writeChunk"]({ sessionId: "s1", track: "screen", chunk: new Uint8Array([1]) }),
+      t.h["recording:writeChunk"]({
+        sessionId: "s1",
+        track: "screen",
+        seq: 0,
+        chunk: new Uint8Array([1]),
+      }),
     ).rejects.toMatchObject({ code: "WRONG_BACKEND" });
   });
 });
@@ -683,6 +688,7 @@ describe("recording controller — Electron backend", () => {
           t.h["recording:writeChunk"]({
             sessionId: r.sessionId,
             track: "screen",
+            seq: 0,
             chunk: new Uint8Array([0]),
           }),
         ).rejects.toMatchObject({ code: "INVALID_STATE" });
@@ -695,6 +701,7 @@ describe("recording controller — Electron backend", () => {
     await t.h["recording:writeChunk"]({
       sessionId: "s1",
       track: "screen",
+      seq: 0,
       chunk: new Uint8Array([1, 2]).buffer,
       timing: { timeOriginMs: EPOCH_MS, recorderStartMs: 3050 },
     });
@@ -705,12 +712,14 @@ describe("recording controller — Electron backend", () => {
     await t.h["recording:writeChunk"]({
       sessionId: "s1",
       track: "mic",
+      seq: 0,
       chunk: new Uint8Array([9]),
     });
     await t.h["recording:stop"]({ sessionId: "s1" });
     await t.h["recording:writeChunk"]({
       sessionId: "s1",
       track: "screen",
+      seq: 1,
       chunk: new Uint8Array([3]),
     });
 
@@ -725,7 +734,12 @@ describe("recording controller — Electron backend", () => {
     expect(tel.keys).toEqual([[200, 0x1e, 8]]);
 
     await expect(
-      t.h["recording:writeChunk"]({ sessionId: "s1", track: "screen", chunk: new Uint8Array([4]) }),
+      t.h["recording:writeChunk"]({
+        sessionId: "s1",
+        track: "screen",
+        seq: 2,
+        chunk: new Uint8Array([4]),
+      }),
     ).rejects.toMatchObject({ code: "INVALID_STATE" });
   });
 
@@ -736,6 +750,7 @@ describe("recording controller — Electron backend", () => {
     await t.h["recording:writeChunk"]({
       sessionId: "s1",
       track: "screen",
+      seq: 0,
       chunk: new Uint8Array([1]),
       timing: { timeOriginMs: EPOCH_MS, recorderStartMs: 0 },
     });
@@ -743,5 +758,112 @@ describe("recording controller — Electron backend", () => {
     await t.h["recording:stop"]({ sessionId: "s1" });
     await t.h["recording:finalize"]({ sessionId: "s1" });
     expect(t.telemetryOf().keys).toEqual([[0, 0x1e, 0]]);
+  });
+  it("forwards seq ordering errors with their stable code and details", async () => {
+    const t = electronHarness();
+    await t.startRecording();
+    const w = (seq: number) =>
+      t.h["recording:writeChunk"]({
+        sessionId: "s1",
+        track: "screen",
+        seq,
+        chunk: new Uint8Array([seq]),
+      });
+    await w(0);
+    await expect(w(2)).rejects.toMatchObject({
+      name: "RecordingError",
+      code: "CHUNK_GAP",
+      details: { track: "screen", expected: 1, received: 2 },
+    });
+    await w(1);
+    await w(1); // idempotent retry
+    expect(t.disk.get("/rec/s1/screen.webm")).toEqual([0, 1]);
+  });
+
+  it("endTrack completes tracks; mismatches reject but keep the data for finalize", async () => {
+    const t = electronHarness();
+    await t.startRecording();
+    const write = (track: "screen" | "mic", seq: number) =>
+      t.h["recording:writeChunk"]({ sessionId: "s1", track, seq, chunk: new Uint8Array([7]) });
+    await expect(
+      t.h["recording:endTrack"]({ sessionId: "s1", track: "screen", chunkCount: 0 }),
+    ).resolves.toEqual({ ok: true, chunkCount: 0 });
+    await expect(write("screen", 0)).rejects.toMatchObject({ code: "TRACK_ENDED" });
+    await write("mic", 0);
+    await t.h["recording:stop"]({ sessionId: "s1" });
+    await expect(
+      t.h["recording:endTrack"]({ sessionId: "s1", track: "mic", chunkCount: 2 }),
+    ).rejects.toMatchObject({ code: "CHUNK_COUNT_MISMATCH" });
+    await expect(t.h["recording:finalize"]({ sessionId: "s1" })).rejects.toMatchObject({
+      code: "NO_MEDIA", // screen never wrote → nothing to open, but the mic file is still there
+    });
+    expect(t.disk.get("/rec/s1/mic.webm")).toEqual([7]);
+  });
+
+  it("interrupted sessions still accept the renderer's final flush and endTrack", async () => {
+    const t = electronHarness();
+    await t.startRecording();
+    await t.h["recording:writeChunk"]({
+      sessionId: "s1",
+      track: "screen",
+      seq: 0,
+      chunk: new Uint8Array([1]),
+    });
+    t.env.free = INTERRUPT_FREE_BYTES - 1;
+    await t.timers.advanceAsync(1000);
+    expect(t.controller.stateOf("s1")).toBe("interrupted");
+    await t.h["recording:writeChunk"]({
+      sessionId: "s1",
+      track: "screen",
+      seq: 1,
+      chunk: new Uint8Array([2]),
+    });
+    await t.h["recording:endTrack"]({ sessionId: "s1", track: "screen", chunkCount: 2 });
+    const fin = await t.h["recording:finalize"]({ sessionId: "s1" });
+    expect(fin.meta.interrupted).toBe("diskLow");
+    expect(fin.video).toEqual({ path: "/rec/s1/screen.webm", bytes: 2 });
+  });
+
+  it("endTrack is refused for native backends and unknown sessions", async () => {
+    const t = harness();
+    await t.startRecording();
+    await expect(
+      t.h["recording:endTrack"]({ sessionId: "s1", track: "screen", chunkCount: 1 }),
+    ).rejects.toMatchObject({ code: "WRONG_BACKEND" });
+    await expect(
+      t.h["recording:endTrack"]({ sessionId: "nope", track: "screen", chunkCount: 1 }),
+    ).rejects.toMatchObject({ code: "NO_SESSION" });
+  });
+
+  it("finalize reports tracks the renderer never ended when the backend enforces completion", async () => {
+    const disk = new Map<string, number[]>();
+    const timers = new FakeTimers();
+    const electron = createElectronBackend({
+      join: (...p) => p.join("/"),
+      getSources: async () => SOURCES,
+      openWriter: async (path): Promise<TrackWriter> => {
+        disk.set(path, []);
+        return { write: async (b) => void disk.get(path)?.push(...b), close: async () => {} };
+      },
+      timers,
+      endTrackGraceMs: 2000,
+    });
+    const t = harness({
+      backends: [electron],
+      deps: { platform: "linux", fileSize: async (p) => disk.get(p)?.length ?? null },
+    });
+    await t.startRecording();
+    await t.h["recording:writeChunk"]({
+      sessionId: "s1",
+      track: "screen",
+      seq: 0,
+      chunk: new Uint8Array([1]),
+    });
+    await t.h["recording:stop"]({ sessionId: "s1" });
+    const finalizing = t.h["recording:finalize"]({ sessionId: "s1" });
+    await timers.advanceAsync(2000);
+    const fin = await finalizing;
+    expect(fin.meta.incompleteTracks).toEqual(["screen"]);
+    expect(fin.video.bytes).toBe(1);
   });
 });

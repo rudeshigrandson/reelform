@@ -181,7 +181,7 @@ export async function startCapture(
       acquired.push(videoStream);
     }
     streams.unshift({
-      kind: "video",
+      kind: "screen",
       stream: videoStream,
       mimeType: videoMime.mimeType,
       bps: videoBitrate(pixel, opts.fps),
@@ -217,6 +217,9 @@ export async function startCapture(
   };
   const errors: { track: TrackKind; error: RecordingError }[] = [];
   let state: CaptureState = "recording";
+  // Monotonic (performance.now) stamps sent with screen chunk 0 for alignment (§5.6).
+  let recorderStartNow = 0;
+  let firstDataNow: number | undefined;
 
   const reportError = (track: TrackKind, err: unknown): void => {
     const e = toRecordingError(err);
@@ -233,6 +236,15 @@ export async function startCapture(
         track: s.kind,
         write: (req) => deps.port.writeChunk(req),
         onError: (err) => reportError(s.kind, err),
+        firstChunkTiming:
+          s.kind === "screen"
+            ? () => ({
+                timeOriginMs: deps.timeOrigin,
+                recorderStartMs: recorderStartNow,
+                firstDataMs: firstDataNow,
+                timesliceMs: TIMESLICE_MS,
+              })
+            : undefined,
       });
       let resolveStopped: () => void = () => {};
       const stopped = new Promise<void>((r) => {
@@ -256,8 +268,9 @@ export async function startCapture(
           : { mimeType: s.mimeType, videoBitsPerSecond: s.bps },
         {
           onData: (blob) => {
-            if (s.kind === "video" && timing.firstDataEpochMs === null && blob.size > 0) {
-              timing.firstDataEpochMs = epoch();
+            if (s.kind === "screen" && timing.firstDataEpochMs === null && blob.size > 0) {
+              firstDataNow = deps.now();
+              timing.firstDataEpochMs = deps.timeOrigin + firstDataNow;
             }
             if (state !== "discarded") pump.push(blob);
           },
@@ -289,7 +302,8 @@ export async function startCapture(
       }
     }
 
-    timing.recorderStartEpochMs = epoch();
+    recorderStartNow = deps.now();
+    timing.recorderStartEpochMs = deps.timeOrigin + recorderStartNow;
     for (const t of active) t.recorder?.start(TIMESLICE_MS);
   } catch (err) {
     // Recorder construction/start failed: release everything already acquired.

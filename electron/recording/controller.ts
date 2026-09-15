@@ -196,6 +196,14 @@ export const DEFAULT_STATS_INTERVAL_MS = 1000;
 
 const errMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
+/** Keep a backend error's stable `code` (and `details`) when crossing IPC. */
+function toRecordingError(err: unknown, fallbackCode: string): RecordingError {
+  if (err instanceof RecordingError) return err;
+  const e = err as { code?: unknown; details?: unknown } | null;
+  const code = e && typeof e.code === "string" ? e.code : fallbackCode;
+  return new RecordingError(code, errMessage(err), e?.details);
+}
+
 export interface RecordingController {
   handlers: RecordingHandlers;
   stateOf(sessionId: string): RecordingState | null;
@@ -480,6 +488,7 @@ export function createRecordingController(deps: RecordingDeps): RecordingControl
       interrupted: rec.interrupted?.reason,
       interruptedDetail: rec.interrupted?.detail,
       stopReason: rec.stopReason ?? undefined,
+      incompleteTracks: stop.incompleteTracks,
     };
     await deps.writeFile(
       deps.join(rec.outDir, "meta.json"),
@@ -509,6 +518,21 @@ export function createRecordingController(deps: RecordingDeps): RecordingControl
   };
 
   // ---- handlers -------------------------------------------------------------
+
+  /** Session that accepts renderer chunks now (Electron backend, §5.2). */
+  const chunkSession = (rec: Rec, op: "writeChunk" | "endTrack"): Session => {
+    const session = rec.session;
+    if (!session) throw new RecordingError("INVALID_STATE", `cannot ${op} while ${rec.state}`);
+    if (!session[op])
+      throw new RecordingError(
+        "WRONG_BACKEND",
+        `backend ${session.backend} does not accept chunks`,
+      );
+    if (!(isCapturing(rec.state) || rec.state === "finalizing" || rec.state === "interrupted")) {
+      throw new RecordingError("INVALID_STATE", `cannot ${op} while ${rec.state}`);
+    }
+    return session;
+  };
 
   const choose = async () => {
     const settings = deps.settings();
@@ -668,30 +692,29 @@ export function createRecordingController(deps: RecordingDeps): RecordingControl
       return { ok: true as const };
     },
 
-    "recording:writeChunk": async ({ sessionId, track, chunk, timing }) => {
+    "recording:writeChunk": async ({ sessionId, track, seq, chunk, timing }) => {
       const rec = get(sessionId);
-      const write = rec.session?.writeChunk;
-      if (!rec.session)
-        throw new RecordingError("INVALID_STATE", `cannot write chunks while ${rec.state}`);
-      if (!write)
-        throw new RecordingError(
-          "WRONG_BACKEND",
-          `backend ${rec.session.backend} does not accept chunks`,
-        );
-      if (!(isCapturing(rec.state) || rec.state === "finalizing" || rec.state === "interrupted")) {
-        throw new RecordingError("INVALID_STATE", `cannot write chunks while ${rec.state}`);
-      }
+      const write = chunkSession(rec, "writeChunk").writeChunk;
+      if (!write) throw new RecordingError("WRONG_BACKEND", "backend does not accept chunks");
       const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
       try {
-        await write(track, bytes, timing);
+        await write(track, bytes, seq, timing);
       } catch (err) {
-        const code =
-          err instanceof Error && "code" in err && typeof err.code === "string"
-            ? err.code
-            : "WRITE_FAILED";
-        throw new RecordingError(code, errMessage(err));
+        throw toRecordingError(err, "WRITE_FAILED");
       }
       return { ok: true as const };
+    },
+
+    "recording:endTrack": async ({ sessionId, track, chunkCount }) => {
+      const rec = get(sessionId);
+      const end = chunkSession(rec, "endTrack").endTrack;
+      if (!end) throw new RecordingError("WRONG_BACKEND", "backend does not accept chunks");
+      try {
+        const res = await end(track, chunkCount);
+        return { ok: true as const, chunkCount: res.chunkCount };
+      } catch (err) {
+        throw toRecordingError(err, "END_TRACK_FAILED");
+      }
     },
 
     "recording:finalize": async ({ sessionId }) => {

@@ -10,6 +10,7 @@ describe("recording contracts", () => {
     expect(Object.keys(recordingContracts).sort()).toEqual(
       [
         "recording:discard",
+        "recording:endTrack",
         "recording:finalize",
         "recording:listSources",
         "recording:pause",
@@ -39,16 +40,27 @@ describe("recording contracts", () => {
 
   it("writeChunk accepts binary chunks only", () => {
     const req = recordingContracts["recording:writeChunk"].request;
+    const ok = { sessionId: "s", track: "screen", seq: 0, chunk: new Uint8Array([1]) };
+    expect(req.safeParse(ok).success).toBe(true);
+    expect(req.safeParse({ ...ok, track: "mic", chunk: new ArrayBuffer(2) }).success).toBe(true);
+    expect(req.safeParse({ ...ok, chunk: "AAAA" }).success).toBe(false);
+    expect(req.safeParse({ ...ok, track: "cursor" }).success).toBe(false);
+    // The renderer's old "video" track name is not a main track.
+    expect(req.safeParse({ ...ok, track: "video" }).success).toBe(false);
+    expect(req.safeParse({ ...ok, seq: -1 }).success).toBe(false);
+    expect(req.safeParse({ ...ok, seq: 1.5 }).success).toBe(false);
+    const { seq: _seq, ...noSeq } = ok;
+    expect(req.safeParse(noSeq).success).toBe(false);
+  });
+
+  it("endTrack requires a non-negative integer chunk count", () => {
+    const req = recordingContracts["recording:endTrack"].request;
+    expect(req.safeParse({ sessionId: "s", track: "webcam", chunkCount: 0 }).success).toBe(true);
     expect(
-      req.safeParse({ sessionId: "s", track: "screen", chunk: new Uint8Array([1]) }).success,
+      req.safeParse({ sessionId: "s", track: "mic", chunkCount: 3, mimeType: "audio/webm" })
+        .success,
     ).toBe(true);
-    expect(req.safeParse({ sessionId: "s", track: "mic", chunk: new ArrayBuffer(2) }).success).toBe(
-      true,
-    );
-    expect(req.safeParse({ sessionId: "s", track: "screen", chunk: "AAAA" }).success).toBe(false);
-    expect(
-      req.safeParse({ sessionId: "s", track: "cursor", chunk: new Uint8Array() }).success,
-    ).toBe(false);
+    expect(req.safeParse({ sessionId: "s", track: "mic", chunkCount: -1 }).success).toBe(false);
   });
 
   it("event payloads discriminate by type", () => {

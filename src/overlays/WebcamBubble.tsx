@@ -14,7 +14,7 @@ interface Drag {
  * the video feed (no real camera) and can be repositioned within its parent
  * via pointer drag; position is clamped to non-negative coordinates.
  */
-export function WebcamBubble({ size, shape, initialPosition }: WebcamBubbleProps) {
+export function WebcamBubble({ size, shape, initialPosition, children }: WebcamBubbleProps) {
   const [pos, setPos] = useState<{ x: number; y: number }>(initialPosition ?? { x: 0, y: 0 });
   const dragRef = useRef<Drag | null>(null);
 
@@ -70,25 +70,26 @@ export function WebcamBubble({ size, shape, initialPosition }: WebcamBubbleProps
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background:
-          "radial-gradient(circle at 50% 40%, var(--color-neutral-700, #333), var(--color-neutral-900, #111))",
-        border: "2px solid rgba(255, 255, 255, 0.25)",
+        background: "var(--bg-sunken)",
+        border: "2px solid var(--border-strong)",
         boxShadow: "var(--shadow-lg)",
         userSelect: "none",
       }}
     >
-      {/* Camera glyph placeholder — no real video feed. */}
-      <span
-        data-testid="webcam-glyph"
-        aria-hidden="true"
-        style={{
-          fontSize: Math.max(20, size * 0.28),
-          lineHeight: 1,
-          opacity: 0.7,
-        }}
-      >
-        📷
-      </span>
+      {children ?? (
+        // Camera glyph placeholder when no feed is supplied.
+        <span
+          data-testid="webcam-glyph"
+          aria-hidden="true"
+          style={{
+            fontSize: Math.max(20, size * 0.28),
+            lineHeight: 1,
+            opacity: 0.7,
+          }}
+        >
+          📷
+        </span>
+      )}
     </div>
   );
 }

@@ -314,7 +314,18 @@ describe("HUD position persistence", () => {
 
 describe("windows handlers", () => {
   it("delegate to the manager", async () => {
-    const manager = { openEditor: vi.fn(), openSettings: vi.fn(), openLauncher: vi.fn() };
+    const manager = {
+      openEditor: vi.fn(),
+      openSettings: vi.fn(),
+      openLauncher: vi.fn(),
+      openHud: vi.fn(),
+      openCountdown: vi.fn(),
+      openRegionOverlays: vi.fn(() => []),
+      setRegionSelecting: vi.fn(),
+      openWebcamBubble: vi.fn(),
+      closeKind: vi.fn(),
+      keys: vi.fn(() => []),
+    };
     const h = createWindowsHandlers({ manager });
     expect(await h["windows:openEditor"]({ projectId: "p" })).toEqual({ ok: true });
     await h["windows:openSettings"]();

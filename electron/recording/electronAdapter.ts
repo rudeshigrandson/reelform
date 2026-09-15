@@ -14,6 +14,7 @@ import {
   type RecordingSettings,
   createRecordingController,
 } from "./controller";
+import { createCursorPollHook } from "./cursorPollHook";
 import type { InputHook } from "./telemetry";
 
 /** Thin, untested adapter: wires the recording controller to Electron + node. */
@@ -26,7 +27,12 @@ export interface RecordingMainOptions {
   /** Windows that receive `recording:event` (launcher, HUD, editor). */
   targets(): BrowserWindow[];
   recordingsDir?: string | undefined;
-  /** uiohook-napi (Win/Linux) or the cursor-monitor bridge (mac); omit for none. */
+  /**
+   * Global input hook for cursor/click/key telemetry: uiohook-napi (Win/Linux)
+   * or the `reelform-cursor-monitor` bridge (mac) — wired by the composition
+   * root once available. Omitted → cursor positions only, polled from
+   * `screen.getCursorScreenPoint()` (no clicks/keys). `null` → no telemetry.
+   */
   inputHook?: InputHook | null | undefined;
 }
 
@@ -82,7 +88,13 @@ export function createRecordingMain(opts: RecordingMainOptions): RecordingContro
     emit: (event: RecordingEvent) => {
       for (const w of opts.targets()) if (!w.isDestroyed()) w.webContents.send(eventName, event);
     },
-    inputHook: opts.inputHook,
+    inputHook:
+      opts.inputHook !== undefined
+        ? opts.inputHook
+        : createCursorPollHook({
+            getCursorPoint: () => screen.getCursorScreenPoint(),
+            timers: nodeHelperDeps.timers,
+          }),
     onDisplayRemoved: (listener) => {
       const h = (_e: unknown, d: Electron.Display) => listener(String(d.id));
       screen.on("display-removed", h);

@@ -19,4 +19,11 @@ describe("Countdown", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onCancel).toHaveBeenCalledOnce();
   });
+  it("draws ring progress and a Go frame at zero", () => {
+    const { rerender } = render(<Countdown count={2} total={3} onCancel={vi.fn()} />);
+    expect(screen.getByTestId("countdown-progress")).toHaveAttribute("data-progress", "0.333");
+    rerender(<Countdown count={0} total={3} onCancel={vi.fn()} />);
+    expect(screen.getByTestId("countdown-number")).toHaveTextContent("Go");
+    expect(screen.getByTestId("countdown-progress")).toHaveAttribute("data-progress", "1.000");
+  });
 });

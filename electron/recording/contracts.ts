@@ -62,6 +62,8 @@ export const RecordingMeta = z.object({
   interrupted: InterruptReason.optional(),
   interruptedDetail: z.string().optional(),
   stopReason: z.enum(["user", "maxLength"]).optional(),
+  /** Electron backend: tracks whose final chunks never arrived (file kept as written). */
+  incompleteTracks: z.array(Track).optional(),
 });
 export type RecordingMeta = z.infer<typeof RecordingMeta>;
 
@@ -103,11 +105,28 @@ export const recordingContracts = {
     request: z.object({
       sessionId: z.string(),
       track: Track,
+      /**
+       * 0-based per track, strictly increasing without gaps. Main refuses a gap
+       * (`CHUNK_GAP`) and treats a seq already on disk as an idempotent retry.
+       */
+      seq: z.number().int().nonnegative(),
       chunk: ChunkBytes,
       /** Sent with the first screen chunk (Electron backend alignment, §5.6). */
       timing: ChunkTiming.optional(),
     }),
     response: Ok,
+  },
+  "recording:endTrack": {
+    name: "recording:endTrack",
+    request: z.object({
+      sessionId: z.string(),
+      track: Track,
+      /** Chunks the renderer wrote successfully (= last seq + 1). */
+      chunkCount: z.number().int().nonnegative(),
+      mimeType: z.string().optional(),
+    }),
+    /** Rejects `CHUNK_COUNT_MISMATCH` (track still ended, data kept) when counts differ. */
+    response: z.object({ ok: z.literal(true), chunkCount: z.number().int().nonnegative() }),
   },
   "recording:finalize": {
     name: "recording:finalize",

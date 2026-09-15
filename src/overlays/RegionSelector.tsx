@@ -37,6 +37,7 @@ export function RegionSelector({
   onConfirm,
   onCancel,
   minSize = 32,
+  hint = "Drag to select a region · Esc to cancel",
 }: RegionSelectorProps) {
   const [bounds, setBounds] = useState<Bounds>(initialBounds);
   const dragRef = useRef<Drag | null>(null);
@@ -135,6 +136,24 @@ export function RegionSelector({
         fontFamily: "var(--font-body)",
       }}
     >
+      <div
+        data-testid="region-hint"
+        style={{
+          position: "absolute",
+          top: "var(--space-6)",
+          left: "50%",
+          transform: "translateX(-50%)",
+          padding: "var(--space-1) var(--space-3)",
+          borderRadius: "var(--radius-full)",
+          background: "var(--bg-panel-raised)",
+          color: "var(--text-2)",
+          fontSize: 13,
+          pointerEvents: "none",
+        }}
+      >
+        {hint}
+      </div>
+
       {/* Selection rectangle */}
       <div
         data-testid="region-rect"

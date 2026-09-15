@@ -140,6 +140,63 @@ export function RecordingHud(props: RecordingHudProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const isPaused = phase === "paused";
 
+  if (phase === "finalizing" || phase === "interrupted") {
+    const interrupted = phase === "interrupted";
+    return (
+      <output
+        style={{
+          ...pillStyle,
+          borderColor: interrupted ? "var(--warning)" : "var(--border-strong)",
+        }}
+        data-testid="recording-hud"
+        data-phase={phase}
+      >
+        <DragGrip />
+        {interrupted ? (
+          <Tag variant="outline" style={{ color: "var(--warning)", borderColor: "var(--warning)" }}>
+            Interrupted
+          </Tag>
+        ) : (
+          <span
+            aria-hidden="true"
+            data-testid="hud-processing"
+            style={{
+              width: 14,
+              height: 14,
+              borderRadius: "50%",
+              border: "2px solid var(--border-strong)",
+              borderTopColor: "var(--accent)",
+              animation: "reelform-hud-spin 900ms linear infinite",
+            }}
+          />
+        )}
+        <span
+          data-testid="hud-status"
+          style={{ flex: 1, minWidth: 0, fontSize: 13, color: "var(--text-1)" }}
+        >
+          {interrupted
+            ? `Recording saved up to ${formatElapsed(elapsedMs)}`
+            : "Processing recording…"}
+          {interrupted && props.interruptedMessage ? (
+            <span style={{ color: "var(--text-2)" }}> — {props.interruptedMessage}</span>
+          ) : null}
+        </span>
+        <span
+          data-testid="hud-timer"
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontVariantNumeric: "tabular-nums",
+            fontSize: 13,
+            color: "var(--text-2)",
+          }}
+        >
+          {formatElapsed(elapsedMs)}
+        </span>
+        <style>{"@keyframes reelform-hud-spin { to { transform: rotate(360deg); } }"}</style>
+      </output>
+    );
+  }
+
   if (phase === "countdown") {
     return (
       <div style={pillStyle} data-testid="recording-hud" data-phase={phase}>

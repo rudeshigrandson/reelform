@@ -2,6 +2,7 @@ import type { CaptureControls } from "./sessionStore";
 import {
   createRecordingSessionStore,
   initialRecordingSession,
+  interruptCopy,
   selectHudProps,
   toHudPhase,
   useRecordingSession,
@@ -43,26 +44,28 @@ describe("recording session store", () => {
   it("follows main events for the attached session only", () => {
     const { store, port } = setup();
     store.getState().attach(port, "s1");
-    port.emit({ sessionId: "s1", type: "started" });
+    port.emit({ sessionId: "s1", type: "started", backend: "electron" });
     expect(store.getState().phase).toBe("recording");
-    port.emit({ sessionId: "other", type: "paused" });
+    port.emit({ sessionId: "other", type: "paused", elapsedMs: 1 });
     expect(store.getState().phase).toBe("recording");
-    port.emit({ sessionId: "s1", type: "stats", elapsedMs: 4200 });
+    const stats = { fps: 60, droppedFrames: 0, fileBytes: 10 };
+    port.emit({ sessionId: "s1", type: "stats", elapsedMs: 4200, ...stats });
     expect(store.getState().elapsedMs).toBe(4200);
-    port.emit({ sessionId: "s1", type: "stats", elapsedMs: Number.NaN });
-    port.emit({ sessionId: "s1", type: "stats", elapsedMs: -1 });
-    port.emit({ sessionId: "s1", type: "stats" });
+    port.emit({ sessionId: "s1", type: "stats", elapsedMs: Number.NaN, ...stats });
+    port.emit({ sessionId: "s1", type: "stats", elapsedMs: -1, ...stats });
     expect(store.getState().elapsedMs).toBe(4200);
-    port.emit({ sessionId: "s1", type: "paused" });
-    expect(store.getState().phase).toBe("paused");
-    port.emit({ sessionId: "s1", type: "resumed" });
+    port.emit({ sessionId: "s1", type: "stats", elapsedMs: 4300, micLevel: 0.25, ...stats });
+    expect(store.getState().micLevel).toBe(0.25);
+    port.emit({ sessionId: "s1", type: "paused", elapsedMs: 4400 });
+    expect(store.getState()).toMatchObject({ phase: "paused", elapsedMs: 4400 });
+    port.emit({ sessionId: "s1", type: "resumed", elapsedMs: 4400 });
     expect(store.getState().phase).toBe("recording");
-    port.emit({ sessionId: "s1", type: "diskLow" });
+    port.emit({ sessionId: "s1", type: "diskLow", freeBytes: 1 });
     expect(store.getState().warning).toBe("Disk space is running low");
-    port.emit({ sessionId: "s1", type: "deviceLost", message: "Mic unplugged" });
-    expect(store.getState().warning).toBe("Mic unplugged");
-    port.emit({ sessionId: "s1", type: "stopped" });
-    expect(store.getState().phase).toBe("finalizing");
+    port.emit({ sessionId: "s1", type: "deviceLost", device: "Shure MV7" });
+    expect(store.getState().warning).toBe("A capture device was disconnected (Shure MV7)");
+    port.emit({ sessionId: "s1", type: "stopped", elapsedMs: 5000, reason: "user" });
+    expect(store.getState()).toMatchObject({ phase: "finalizing", elapsedMs: 5000 });
     store.getState().markDone();
     expect(store.getState().phase).toBe("done");
   });
@@ -70,13 +73,24 @@ describe("recording session store", () => {
   it("interrupted sets phase and a stable error", () => {
     const { store, port } = setup();
     store.getState().attach(port, "s1");
-    port.emit({ sessionId: "s1", type: "started" });
+    port.emit({ sessionId: "s1", type: "started", backend: "electron" });
     store.getState().setMicLevel(0.4);
-    port.emit({ sessionId: "s1", type: "interrupted", reason: "display-disconnected" });
+    port.emit({
+      sessionId: "s1",
+      type: "interrupted",
+      reason: "displayDisconnected",
+      elapsedMs: 42_000,
+    });
     expect(store.getState()).toMatchObject({
       phase: "interrupted",
       micLevel: undefined,
-      error: { code: "display-disconnected", message: "Recording interrupted" },
+      elapsedMs: 42_000,
+      error: { code: "displayDisconnected", message: "The display was disconnected" },
+    });
+    expect(selectHudProps(store.getState(), "Display 1")).toMatchObject({
+      phase: "interrupted",
+      elapsedMs: 42_000,
+      interruptedMessage: "The display was disconnected",
     });
   });
 
@@ -84,7 +98,14 @@ describe("recording session store", () => {
     const { store, port } = setup();
     const port2 = new FakePort();
     store.getState().attach(port, "s1");
-    port.emit({ sessionId: "s1", type: "stats", elapsedMs: 9 });
+    port.emit({
+      sessionId: "s1",
+      type: "stats",
+      elapsedMs: 9,
+      fps: 1,
+      droppedFrames: 0,
+      fileBytes: 0,
+    });
     store.getState().attach(port2, "s2");
     expect(port.listeners.size).toBe(0);
     expect(store.getState()).toMatchObject({ sessionId: "s2", elapsedMs: 0 });
@@ -106,7 +127,7 @@ describe("recording session store", () => {
     store.getState().tickCountdown(4000);
     expect(onCountdownComplete).toHaveBeenCalledTimes(1);
     expect(store.getState().phase).toBe("countdown");
-    port.emit({ sessionId: "s1", type: "started" });
+    port.emit({ sessionId: "s1", type: "started", backend: "electron" });
     expect(store.getState().phase).toBe("recording");
     expect(selectHudProps(store.getState(), "x")?.countdownValue).toBeUndefined();
   });
@@ -137,7 +158,7 @@ describe("recording session store", () => {
   it("pauseToggle pauses capture before main, then resumes", async () => {
     const { store, port, order } = setup();
     store.getState().attach(port, "s1", { capture: fakeCapture(order) });
-    port.emit({ sessionId: "s1", type: "started" });
+    port.emit({ sessionId: "s1", type: "started", backend: "electron" });
     await store.getState().pauseToggle();
     expect(store.getState().phase).toBe("paused");
     await store.getState().pauseToggle();
@@ -149,7 +170,7 @@ describe("recording session store", () => {
   it("pauseToggle rolls back the phase and records the error when main fails", async () => {
     const { store, port } = setup();
     store.getState().attach(port, "s1");
-    port.emit({ sessionId: "s1", type: "started" });
+    port.emit({ sessionId: "s1", type: "started", backend: "electron" });
     port.failNext = "pause";
     await store.getState().pauseToggle();
     expect(store.getState().phase).toBe("recording");
@@ -168,7 +189,7 @@ describe("recording session store", () => {
   it("stop flushes renderer capture before telling main to stop", async () => {
     const { store, port, order } = setup();
     store.getState().attach(port, "s1", { capture: fakeCapture(order) });
-    port.emit({ sessionId: "s1", type: "started" });
+    port.emit({ sessionId: "s1", type: "started", backend: "electron" });
     store.getState().setMicLevel(0.7);
     await store.getState().stop();
     expect(order).toEqual(["capture.stop", "port.stop"]);
@@ -178,7 +199,7 @@ describe("recording session store", () => {
   it("discard stops capture, tells main, and detaches", async () => {
     const { store, port, order } = setup();
     store.getState().attach(port, "s1", { capture: fakeCapture(order) });
-    port.emit({ sessionId: "s1", type: "started" });
+    port.emit({ sessionId: "s1", type: "started", backend: "electron" });
     await store.getState().discard();
     expect(order).toEqual(["capture.discard"]);
     expect(port.calls).toEqual(["discard:s1"]);
@@ -199,17 +220,17 @@ describe("recording session store", () => {
   it("a late started event does not resurrect a discarded or finalizing session", async () => {
     const { store, port } = setup();
     store.getState().attach(port, "s1");
-    port.emit({ sessionId: "s1", type: "started" });
-    port.emit({ sessionId: "s1", type: "stopped" });
-    port.emit({ sessionId: "s1", type: "started" });
+    port.emit({ sessionId: "s1", type: "started", backend: "electron" });
+    port.emit({ sessionId: "s1", type: "stopped", elapsedMs: 1, reason: "user" });
+    port.emit({ sessionId: "s1", type: "started", backend: "electron" });
     expect(store.getState().phase).toBe("finalizing");
   });
 
   it("interrupted stops renderer capture so buffered chunks reach disk", async () => {
     const { store, port, order } = setup();
     store.getState().attach(port, "s1", { capture: fakeCapture(order) });
-    port.emit({ sessionId: "s1", type: "started" });
-    port.emit({ sessionId: "s1", type: "interrupted", reason: "disk-low" });
+    port.emit({ sessionId: "s1", type: "started", backend: "electron" });
+    port.emit({ sessionId: "s1", type: "interrupted", reason: "diskLow", elapsedMs: 1 });
     await drain(20);
     expect(order).toEqual(["capture.stop"]);
     expect(store.getState().phase).toBe("interrupted");
@@ -218,7 +239,7 @@ describe("recording session store", () => {
   it("pauseToggle failure also rolls back renderer capture", async () => {
     const { store, port, order } = setup();
     store.getState().attach(port, "s1", { capture: fakeCapture(order) });
-    port.emit({ sessionId: "s1", type: "started" });
+    port.emit({ sessionId: "s1", type: "started", backend: "electron" });
     port.failNext = "pause";
     await store.getState().pauseToggle();
     expect(order).toEqual(["capture.pause", "capture.resume"]);
@@ -232,7 +253,7 @@ describe("recording session store", () => {
       throw { code: "flush-failed", message: "x" };
     };
     store.getState().attach(port, "s1", { capture });
-    port.emit({ sessionId: "s1", type: "started" });
+    port.emit({ sessionId: "s1", type: "started", backend: "electron" });
     await store.getState().stop();
     expect(order).toEqual(["port.stop"]);
     expect(store.getState()).toMatchObject({
@@ -255,8 +276,15 @@ describe("recording session store", () => {
     const { store, port } = setup();
     expect(selectHudProps(store.getState(), "Display 1")).toBeNull();
     store.getState().attach(port, "s1");
-    port.emit({ sessionId: "s1", type: "started" });
-    port.emit({ sessionId: "s1", type: "stats", elapsedMs: 65_000 });
+    port.emit({ sessionId: "s1", type: "started", backend: "electron" });
+    port.emit({
+      sessionId: "s1",
+      type: "stats",
+      elapsedMs: 65_000,
+      fps: 60,
+      droppedFrames: 0,
+      fileBytes: 1,
+    });
     store.getState().setMicLevel(0.6);
     store.getState().setWarning(warningCopy("cursor-not-hideable"));
     const props = selectHudProps(store.getState(), "Display 1");
@@ -274,12 +302,63 @@ describe("recording session store", () => {
     props?.onStop();
     await drain();
     expect(port.calls).toContain("stop:s1");
+    expect(selectHudProps(store.getState(), "Display 1")?.phase).toBe("finalizing");
+    store.getState().markDone();
     expect(selectHudProps(store.getState(), "Display 1")).toBeNull();
   });
 
   it("toHudPhase / warningCopy", () => {
     expect(toHudPhase("paused")).toBe("paused");
-    expect(toHudPhase("finalizing")).toBeNull();
+    expect(toHudPhase("finalizing")).toBe("finalizing");
+    expect(toHudPhase("interrupted")).toBe("interrupted");
+    expect(toHudPhase("done")).toBeNull();
+    expect(toHudPhase("idle")).toBeNull();
+    expect(interruptCopy("helperCrash")).toBe("The capture helper stopped unexpectedly");
+    expect(interruptCopy("bogus")).toBe("Recording was interrupted");
     expect(warningCopy("unknown-code")).toBe("unknown-code");
+  });
+
+  it("main countdown events drive the countdown numeral without a local clock", () => {
+    const { store, port } = setup();
+    store.getState().attach(port, "s1");
+    port.emit({ sessionId: "s1", type: "countdown", remaining: 3 });
+    expect(store.getState().phase).toBe("countdown");
+    expect(selectHudProps(store.getState(), "x")?.countdownValue).toBe(3);
+    port.emit({ sessionId: "s1", type: "countdown", remaining: 2 });
+    expect(selectHudProps(store.getState(), "x")?.countdownValue).toBe(2);
+    expect(store.getState().countdown.totalMs).toBe(3000);
+    port.emit({ sessionId: "s1", type: "countdown", remaining: 0 });
+    expect(selectHudProps(store.getState(), "x")?.countdownValue).toBe(2);
+    port.emit({ sessionId: "s1", type: "started", backend: "electron" });
+    expect(store.getState().phase).toBe("recording");
+    port.emit({ sessionId: "s1", type: "countdown", remaining: 1 }); // late: ignored
+    expect(store.getState().phase).toBe("recording");
+  });
+
+  it("Esc on a main-driven countdown discards the session in main", async () => {
+    const { store, port } = setup();
+    store.getState().attach(port, "s1");
+    port.emit({ sessionId: "s1", type: "countdown", remaining: 5 });
+    store.getState().keyDown("Escape");
+    await drain();
+    expect(port.calls).toEqual(["discard:s1"]);
+    expect(store.getState().phase).toBe("idle");
+  });
+
+  it("discarded and error events from main", () => {
+    const { store, port } = setup();
+    store.getState().attach(port, "s1");
+    port.emit({ sessionId: "s1", type: "countdown", remaining: 3 });
+    port.emit({ sessionId: "s1", type: "error", code: "START_FAILED", message: "helper died" });
+    expect(store.getState()).toMatchObject({
+      phase: "idle",
+      error: { code: "START_FAILED", message: "helper died" },
+    });
+    store.getState().attach(port, "s2");
+    port.emit({ sessionId: "s2", type: "started", backend: "sck" });
+    port.emit({ sessionId: "s2", type: "discarded" });
+    expect(store.getState().phase).toBe("discarded");
+    port.emit({ sessionId: "s2", type: "error", code: "X", message: "late" });
+    expect(store.getState().phase).toBe("discarded");
   });
 });

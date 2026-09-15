@@ -5,6 +5,7 @@ import type {
   Countdown,
   DeviceInfo,
   Fps,
+  LauncherNotice,
   LauncherProps,
   RecordOptions,
   SourceItem,
@@ -152,6 +153,84 @@ function SourceCard({
   );
 }
 
+const NOTICE_COLOR: Record<LauncherNotice["tone"], string> = {
+  info: "var(--accent)",
+  warning: "var(--warning)",
+  danger: "var(--danger)",
+};
+
+function NoticeBanner({ notice }: { notice: LauncherNotice }) {
+  return (
+    <div
+      role={notice.tone === "info" ? "status" : "alert"}
+      data-testid={`launcher-notice-${notice.id}`}
+      data-tone={notice.tone}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--space-3)",
+        padding: "var(--space-2) var(--space-3)",
+        borderRadius: "var(--radius-md)",
+        border: `1px solid ${NOTICE_COLOR[notice.tone]}`,
+        background: "var(--bg-panel-raised)",
+        color: "var(--text-1)",
+        fontSize: 13,
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: "var(--radius-full)",
+          background: NOTICE_COLOR[notice.tone],
+          flex: "none",
+        }}
+      />
+      <span style={{ flex: 1 }}>{notice.message}</span>
+      {notice.action ? (
+        <Button variant="secondary" onClick={notice.action.onClick}>
+          {notice.action.label}
+        </Button>
+      ) : null}
+      {notice.onDismiss ? (
+        <Button variant="ghost" onClick={notice.onDismiss} aria-label="Dismiss">
+          ✕
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function SourcesPlaceholder({ children, testId }: { children: React.ReactNode; testId: string }) {
+  return (
+    <div
+      data-testid={testId}
+      style={{
+        gridColumn: "1 / -1",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: "var(--space-2)",
+        padding: "var(--space-5)",
+        borderRadius: "var(--radius-md)",
+        background: "var(--bg-sunken)",
+        color: "var(--text-2)",
+        fontSize: 13,
+        textAlign: "center",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+const EMPTY_COPY: Record<SourceMode, string> = {
+  screen: "No displays found. Check that a screen is connected.",
+  region: "No displays found. Check that a screen is connected.",
+  window: "No windows to record. Open the app you want to capture.",
+};
+
 /**
  * Launcher — the "Record something great" window (720×520).
  * Presentational: all data arrives via props, ephemeral selection lives in
@@ -162,26 +241,48 @@ export function Launcher({
   micDevices,
   webcamDevices,
   systemAudioSupported,
+  systemAudioNote,
   onStart,
   onOpenSettings,
+  sourcesStatus = "ready",
+  sourcesError,
+  onRetrySources,
+  notices,
+  busy = false,
+  busyLabel,
+  defaults,
 }: LauncherProps) {
-  const [mode, setMode] = useState<SourceMode>("screen");
-  const [selectedId, setSelectedId] = useState<string | null>(sources[0]?.id ?? null);
-  const [mic, setMic] = useState(false);
-  const [micDeviceId, setMicDeviceId] = useState<string>(micDevices[0]?.id ?? "");
-  const [systemAudio, setSystemAudio] = useState(false);
-  const [webcam, setWebcam] = useState(false);
-  const [webcamDeviceId, setWebcamDeviceId] = useState<string>(webcamDevices[0]?.id ?? "");
-  const [fps, setFps] = useState<Fps>(30);
-  const [countdown, setCountdown] = useState<Countdown>(3);
-  const [hideCursor, setHideCursor] = useState(false);
+  const [mode, setMode] = useState<SourceMode>(defaults?.mode ?? "screen");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mic, setMic] = useState(defaults?.mic ?? false);
+  const [micPick, setMicDeviceId] = useState<string>(defaults?.micDeviceId ?? "");
+  const [systemAudio, setSystemAudio] = useState(defaults?.systemAudio ?? false);
+  const [webcam, setWebcam] = useState(defaults?.webcam ?? false);
+  const [webcamPick, setWebcamDeviceId] = useState<string>(defaults?.webcamDeviceId ?? "");
+  const [fps, setFps] = useState<Fps>(defaults?.fps ?? 30);
+  const [countdown, setCountdown] = useState<Countdown>(defaults?.countdown ?? 3);
+  const [hideCursor, setHideCursor] = useState(defaults?.hideCursor ?? false);
 
-  const canRecord = selectedId !== null;
+  // Screen and region capture displays; window mode lists windows. The list
+  // refreshes while open, so keep the selection only while it still exists.
+  const wantKind = mode === "window" ? "window" : "display";
+  const visibleSources = sources.filter((s) => s.kind === wantKind);
+  const effectiveId = visibleSources.some((s) => s.id === selectedId)
+    ? selectedId
+    : (visibleSources[0]?.id ?? null);
+  const micDeviceId = micDevices.some((d) => d.id === micPick)
+    ? micPick
+    : (micDevices[0]?.id ?? "");
+  const webcamDeviceId = webcamDevices.some((d) => d.id === webcamPick)
+    ? webcamPick
+    : (webcamDevices[0]?.id ?? "");
+
+  const canRecord = effectiveId !== null && !busy && sourcesStatus === "ready";
 
   function handleStart() {
-    if (selectedId === null) return;
+    if (effectiveId === null || !canRecord) return;
     const options: RecordOptions = {
-      sourceId: selectedId,
+      sourceId: effectiveId,
       mode,
       mic,
       systemAudio: systemAudioSupported && systemAudio,
@@ -249,6 +350,14 @@ export function Launcher({
         </Button>
       </header>
 
+      {notices && notices.length > 0 ? (
+        <section style={{ ...sectionStyle, gap: "var(--space-2)" }}>
+          {notices.map((n) => (
+            <NoticeBanner key={n.id} notice={n} />
+          ))}
+        </section>
+      ) : null}
+
       {/* Source mode */}
       <section style={sectionStyle}>
         <span style={labelStyle}>Capture</span>
@@ -272,14 +381,33 @@ export function Launcher({
             gap: "var(--space-3)",
           }}
         >
-          {sources.map((source) => (
-            <SourceCard
-              key={source.id}
-              source={source}
-              selected={source.id === selectedId}
-              onSelect={() => setSelectedId(source.id)}
-            />
-          ))}
+          {sourcesStatus === "loading" && visibleSources.length === 0 ? (
+            <SourcesPlaceholder testId="launcher-sources-loading">
+              <output>Looking for screens and windows…</output>
+            </SourcesPlaceholder>
+          ) : sourcesStatus === "error" ? (
+            <SourcesPlaceholder testId="launcher-sources-error">
+              <span role="alert">{sourcesError ?? "Couldn't list screens and windows."}</span>
+              {onRetrySources ? (
+                <Button variant="secondary" onClick={onRetrySources}>
+                  Retry
+                </Button>
+              ) : null}
+            </SourcesPlaceholder>
+          ) : visibleSources.length === 0 ? (
+            <SourcesPlaceholder testId="launcher-sources-empty">
+              {EMPTY_COPY[mode]}
+            </SourcesPlaceholder>
+          ) : (
+            visibleSources.map((source) => (
+              <SourceCard
+                key={source.id}
+                source={source}
+                selected={source.id === effectiveId}
+                onSelect={() => setSelectedId(source.id)}
+              />
+            ))
+          )}
         </div>
       </section>
 
@@ -304,7 +432,9 @@ export function Launcher({
             disabled={!systemAudioSupported}
           />
           {!systemAudioSupported && (
-            <span style={{ fontSize: 12, color: "var(--text-3)" }}>Unavailable on macOS</span>
+            <span style={{ fontSize: 12, color: "var(--text-3)" }}>
+              {systemAudioNote ?? "Unavailable on macOS"}
+            </span>
           )}
         </div>
       </section>
@@ -328,14 +458,14 @@ export function Launcher({
       <section style={sectionStyle}>
         <span style={labelStyle}>Options</span>
         <div style={rowStyle}>
-          <label style={labelStyle}>FPS</label>
+          <span style={labelStyle}>FPS</span>
           <Segmented<`${Fps}`>
             name="launcher-fps"
             value={`${fps}`}
             options={FPS_OPTIONS}
             onChange={(v) => setFps(Number(v) as Fps)}
           />
-          <label style={labelStyle}>Countdown</label>
+          <span style={labelStyle}>Countdown</span>
           <Segmented<`${Countdown}`>
             name="launcher-countdown"
             value={`${countdown}`}
@@ -348,7 +478,7 @@ export function Launcher({
 
       {/* Record */}
       <Button variant="primary" block disabled={!canRecord} onClick={handleStart}>
-        Record
+        {busy ? (busyLabel ?? "Starting…") : mode === "region" ? "Select region" : "Record"}
       </Button>
 
       {/* Recent projects */}

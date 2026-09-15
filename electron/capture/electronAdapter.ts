@@ -61,6 +61,7 @@ export async function electronSources(): Promise<Sources> {
       bounds: d.bounds,
       scaleFactor: d.scaleFactor,
       thumbnail: src?.thumbnail.toDataURL(),
+      mediaSourceId: src?.id,
     };
   });
   const windows = caps
@@ -104,6 +105,12 @@ export function createCaptureBackends(opts: CaptureAdapterOptions): CaptureBacke
   return [
     createSckBackend(native(SCK_HELPER_NAME)),
     createWgcBackend(native(WGC_HELPER_NAME)),
-    createElectronBackend({ getSources: electronSources, openWriter: writer, join }),
+    createElectronBackend({
+      getSources: electronSources,
+      openWriter: writer,
+      join,
+      // close() waits for the renderer to end every track (`recording:endTrack`).
+      timers: nodeHelperDeps.timers,
+    }),
   ];
 }

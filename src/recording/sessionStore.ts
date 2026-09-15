@@ -9,7 +9,7 @@ import {
   startCountdown,
   tickCountdown,
 } from "./countdown";
-import type { RecordingError, RecordingEvent, RecordingPort } from "./port";
+import type { InterruptReasonCode, RecordingError, RecordingEvent, RecordingPort } from "./port";
 import { toRecordingError } from "./port";
 
 /**
@@ -79,10 +79,37 @@ export const WARNING_COPY: Record<string, string> = {
   "system-audio-unsupported-macos": "System audio isn't available with this capture backend",
   "system-audio-unavailable": "System audio couldn't be captured",
   "cursor-not-hideable": "Cursor can't be hidden",
+  maxLength: "Maximum recording length reached",
+  "capture-error": "Part of the recording couldn't be captured or saved",
 };
+
+/** Generic warning for capture/write errors whose raw code has no user copy. */
+export const CAPTURE_ERROR = "capture-error";
 
 export function warningCopy(code: string): string {
   return WARNING_COPY[code] ?? code;
+}
+
+/**
+ * Warning code to surface for a capture/write error: codes with user copy are
+ * kept, anything else (`CHUNK_GAP`, `WRITE_FAILED`, a MediaRecorder error name…)
+ * collapses to {@link CAPTURE_ERROR} so raw codes never reach the HUD/launcher.
+ */
+export function captureWarningCode(code: string): string {
+  return Object.prototype.hasOwnProperty.call(WARNING_COPY, code) ? code : CAPTURE_ERROR;
+}
+
+/** Why capture stopped, for the interrupted HUD pill / post-record card (§5.6). */
+export const INTERRUPT_COPY: Record<InterruptReasonCode, string> = {
+  displayDisconnected: "The display was disconnected",
+  helperCrash: "The capture helper stopped unexpectedly",
+  diskLow: "The disk ran out of space",
+  deviceLost: "A capture device was disconnected",
+  other: "Recording was interrupted",
+};
+
+export function interruptCopy(reason: string): string {
+  return (INTERRUPT_COPY as Record<string, string>)[reason] ?? INTERRUPT_COPY.other;
 }
 
 export function initialRecordingSession(): RecordingSessionData {
@@ -156,7 +183,20 @@ export function createRecordingSessionStore() {
       handleEvent: (e) => {
         const s = get();
         if (e.sessionId !== s.sessionId) return;
+        const validElapsed = (ms: number): boolean => Number.isFinite(ms) && ms >= 0;
         switch (e.type) {
+          case "countdown": {
+            if ((s.phase !== "idle" && s.phase !== "countdown") || !(e.remaining > 0)) break;
+            const remainingMs = e.remaining * 1000;
+            const prev = s.countdown;
+            const totalMs =
+              prev.status === "counting" ? Math.max(prev.totalMs, remainingMs) : remainingMs;
+            set({
+              phase: "countdown",
+              countdown: { status: "counting", totalMs, startedAtMs: 0, remainingMs },
+            });
+            break;
+          }
           case "started":
             // A late `started` must not resurrect a finished/discarded session.
             if (s.phase === "idle" || s.phase === "countdown") {
@@ -165,19 +205,21 @@ export function createRecordingSessionStore() {
             break;
           case "paused":
             if (s.phase === "recording") set({ phase: "paused" });
+            if (validElapsed(e.elapsedMs)) set({ elapsedMs: e.elapsedMs });
             break;
           case "resumed":
             if (s.phase === "paused") set({ phase: "recording" });
+            if (validElapsed(e.elapsedMs)) set({ elapsedMs: e.elapsedMs });
             break;
           case "stats":
-            if (e.elapsedMs !== undefined && Number.isFinite(e.elapsedMs) && e.elapsedMs >= 0) {
-              set({ elapsedMs: e.elapsedMs });
-            }
+            if (validElapsed(e.elapsedMs)) set({ elapsedMs: e.elapsedMs });
+            if (e.micLevel !== undefined) get().setMicLevel(e.micLevel);
             break;
           case "stopped":
             if (s.phase !== "discarded" && s.phase !== "done") {
               set({ phase: "finalizing", micLevel: undefined });
             }
+            if (validElapsed(e.elapsedMs)) set({ elapsedMs: e.elapsedMs });
             break;
           case "interrupted":
             // Stop renderer recorders so buffered chunks are flushed to disk and
@@ -188,15 +230,30 @@ export function createRecordingSessionStore() {
             set({
               phase: "interrupted",
               micLevel: undefined,
-              error: {
-                code: e.reason ?? "interrupted",
-                message: e.message ?? "Recording interrupted",
-              },
+              ...(validElapsed(e.elapsedMs) ? { elapsedMs: e.elapsedMs } : {}),
+              error: { code: e.reason, message: e.message ?? interruptCopy(e.reason) },
             });
             break;
           case "diskLow":
+            set({ warning: warningCopy("diskLow") });
+            break;
           case "deviceLost":
-            set({ warning: e.message ?? warningCopy(e.type) });
+            set({
+              warning: e.device
+                ? `${warningCopy("deviceLost")} (${e.device})`
+                : warningCopy("deviceLost"),
+            });
+            break;
+          case "discarded":
+            if (s.phase !== "done") {
+              set({ phase: "discarded", micLevel: undefined, countdown: IDLE_COUNTDOWN });
+            }
+            break;
+          case "error":
+            set({ error: { code: e.code, message: e.message } });
+            if (s.phase === "countdown" || s.phase === "idle") {
+              set({ phase: "idle", countdown: IDLE_COUNTDOWN });
+            }
             break;
         }
       },
@@ -295,7 +352,13 @@ export type RecordingSessionStore = ReturnType<typeof createRecordingSessionStor
 export const useRecordingSession: RecordingSessionStore = createRecordingSessionStore();
 
 export function toHudPhase(phase: SessionPhase): HudPhase | null {
-  return phase === "countdown" || phase === "recording" || phase === "paused" ? phase : null;
+  return phase === "countdown" ||
+    phase === "recording" ||
+    phase === "paused" ||
+    phase === "finalizing" ||
+    phase === "interrupted"
+    ? phase
+    : null;
 }
 
 /** Props for `<RecordingHud>`; null when the session is not in a HUD phase. */
@@ -311,6 +374,7 @@ export function selectHudProps(
     micLevel: state.micLevel,
     sourceLabel,
     warning: state.warning,
+    interruptedMessage: phase === "interrupted" ? state.error?.message : undefined,
     countdownValue: countdownDisplayValue(state.countdown),
     onStop: () => {
       void state.stop();

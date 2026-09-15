@@ -1,5 +1,5 @@
 import type { BlobLike } from "./media";
-import type { TrackKind, WriteChunkRequest } from "./port";
+import type { ChunkTiming, TrackKind, WriteChunkRequest } from "./port";
 
 /**
  * Streams MediaRecorder `dataavailable` blobs to disk in order (§5.2).
@@ -16,6 +16,8 @@ export interface ChunkPumpOptions {
   track: TrackKind;
   write: (req: WriteChunkRequest) => Promise<void>;
   onError?: ((err: unknown) => void) | undefined;
+  /** Read when chunk 0 is written; attached to it when defined (screen track alignment). */
+  firstChunkTiming?: (() => ChunkTiming | undefined) | undefined;
 }
 
 export interface ChunkPump {
@@ -50,7 +52,12 @@ export function createChunkPump(opts: ChunkPumpOptions): ChunkPump {
         if (aborted || failed) return;
         const chunk = await blob.arrayBuffer();
         if (aborted || failed) return;
-        await opts.write({ sessionId: opts.sessionId, track: opts.track, seq, chunk });
+        const timing = seq === 0 ? opts.firstChunkTiming?.() : undefined;
+        await opts.write(
+          timing
+            ? { sessionId: opts.sessionId, track: opts.track, seq, chunk, timing }
+            : { sessionId: opts.sessionId, track: opts.track, seq, chunk },
+        );
         written++;
       } catch (err) {
         if (!failed) {

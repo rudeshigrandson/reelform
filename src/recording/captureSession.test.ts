@@ -51,7 +51,7 @@ describe("startCapture", () => {
   it("records desktop video with negotiated mime, bitrate and 250ms timeslice", async () => {
     const { env, deps } = setup();
     const s = await startCapture(deps, baseOpts);
-    expect(s.tracks).toEqual(["video"]);
+    expect(s.tracks).toEqual(["screen"]);
     expect(env.recorders).toHaveLength(1);
     const rec = env.recorders[0];
     expect(rec?.options).toEqual({
@@ -84,7 +84,7 @@ describe("startCapture", () => {
       mic: { deviceId: "m1" },
       webcam: { deviceId: "c1", quality: "1080p" },
     });
-    expect(s.tracks).toEqual(["video", "system", "mic", "webcam"]);
+    expect(s.tracks).toEqual(["screen", "system", "mic", "webcam"]);
     expect(s.warnings).toEqual([]);
     const opts = env.recorders.map((r) => r.options);
     expect(opts[1]).toEqual({ mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 192_000 });
@@ -101,7 +101,7 @@ describe("startCapture", () => {
     const { env, deps } = setup();
     const s = await startCapture(deps, { ...baseOpts, platform: "darwin", systemAudio: true });
     expect(s.warnings).toEqual([UNSUPPORTED_SYSTEM_AUDIO_MAC]);
-    expect(s.tracks).toEqual(["video"]);
+    expect(s.tracks).toEqual(["screen"]);
     expect(env.requests[0]?.audio).toBe(false);
   });
 
@@ -110,7 +110,7 @@ describe("startCapture", () => {
     env.failWhen = (c) => c.audio !== false && c.video !== false;
     const s = await startCapture(deps, { ...baseOpts, systemAudio: true });
     expect(s.warnings).toEqual([SYSTEM_AUDIO_UNAVAILABLE]);
-    expect(s.tracks).toEqual(["video"]);
+    expect(s.tracks).toEqual(["screen"]);
   });
 
   it("rejects with a stable error and releases acquired streams when a device is denied", async () => {
@@ -152,11 +152,11 @@ describe("startCapture", () => {
     video?.finishStop(fakeBlob([4]));
     const result = await stopping;
 
-    const videoWrites = port.writes.filter((w) => w.track === "video");
+    const videoWrites = port.writes.filter((w) => w.track === "screen");
     expect(videoWrites.map((w) => w.seq)).toEqual([0, 1, 2]);
     expect(port.writes.filter((w) => w.track === "mic")).toHaveLength(1);
     expect(port.ended).toEqual([
-      { sessionId: "sess", track: "video", chunkCount: 3, mimeType: "video/webm;codecs=vp9" },
+      { sessionId: "sess", track: "screen", chunkCount: 3, mimeType: "video/webm;codecs=vp9" },
       { sessionId: "sess", track: "mic", chunkCount: 1, mimeType: "audio/webm;codecs=opus" },
     ]);
     expect(result.tracks.map((t) => t.chunkCount)).toEqual([3, 1]);
@@ -164,6 +164,26 @@ describe("startCapture", () => {
     expect(s.state).toBe("stopped");
     expect(env.streams.every((st) => st.tracks.every((t) => t.stopped))).toBe(true);
     await expect(s.stop()).rejects.toMatchObject({ code: "capture-not-active" });
+  });
+
+  it("sends alignment timing with screen chunk 0 only (§5.6)", async () => {
+    const { env, port, deps, advance } = setup();
+    const s = await startCapture(deps, { ...baseOpts, mic: {} });
+    advance(300);
+    env.recorders[1]?.emit(fakeBlob([7])); // mic first: never carries timing
+    env.recorders[0]?.emit(fakeBlob([1]));
+    advance(10);
+    env.recorders[0]?.emit(fakeBlob([2]));
+    await s.stop();
+    const screen = port.writes.filter((w) => w.track === "screen");
+    expect(screen[0]?.timing).toEqual({
+      timeOriginMs: 1_700_000_000_000,
+      recorderStartMs: 0,
+      firstDataMs: 300,
+      timesliceMs: 250,
+    });
+    expect(screen[1]?.timing).toBeUndefined();
+    expect(port.writes.find((w) => w.track === "mic")?.timing).toBeUndefined();
   });
 
   it("pause/resume toggles every recorder and records paused ranges", async () => {
@@ -211,12 +231,14 @@ describe("startCapture", () => {
     env.recorders[0]?.emit(fakeBlob([2]));
     env.recorders[0]?.emit(fakeBlob([3]));
     const r = await s.stop();
-    expect(onError).toHaveBeenCalledWith({ code: "disk-full", message: "ENOSPC" }, "video");
-    expect(r.errors).toEqual([{ track: "video", error: { code: "disk-full", message: "ENOSPC" } }]);
+    expect(onError).toHaveBeenCalledWith({ code: "disk-full", message: "ENOSPC" }, "screen");
+    expect(r.errors).toEqual([
+      { track: "screen", error: { code: "disk-full", message: "ENOSPC" } },
+    ]);
     expect(r.tracks[0]?.chunkCount).toBe(1);
     // The track is still ended so main closes the file and keeps chunk 0.
     expect(port.ended).toEqual([
-      { sessionId: "sess", track: "video", chunkCount: 1, mimeType: "video/webm;codecs=vp9" },
+      { sessionId: "sess", track: "screen", chunkCount: 1, mimeType: "video/webm;codecs=vp9" },
     ]);
     expect(port.writes.map((w) => w.seq)).toEqual([0]);
   });
@@ -272,7 +294,7 @@ describe("startCapture", () => {
     });
     const s = await startCapture(deps, { ...baseOpts, mic: {} });
     expect(s.state).toBe("recording");
-    expect(s.tracks).toEqual(["video", "mic"]);
+    expect(s.tracks).toEqual(["screen", "mic"]);
   });
 
   it("loopback request carries the desktop source id for audio and video", async () => {
