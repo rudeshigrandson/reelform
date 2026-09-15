@@ -7,6 +7,15 @@ export {
   type HistorySnapshot,
   createHistory,
 } from "./history";
+export {
+  type DocumentUpdate,
+  type EditorHistoryOptions,
+  EditorHistoryProvider,
+  createDocumentUpdate,
+  createEditorHistory,
+  useDocumentUpdate,
+  useEditorHistory,
+} from "./editorHistory";
 export { type HistoryAction, isTextEntryTarget, matchHistoryShortcut } from "./shortcuts";
 export {
   type HistoryShortcutsOptions,

@@ -28,6 +28,8 @@ const STATE_TAG: Record<ProjectState, { label: string; variant: TagProps["varian
   ready: { label: "Ready", variant: "neutral" },
   recording: { label: "Recording", variant: "accent" },
   interrupted: { label: "Interrupted", variant: "outline" },
+  missing: { label: "Missing", variant: "outline" },
+  corrupt: { label: "Damaged", variant: "outline" },
 };
 
 function formatDuration(ms: number): string {
@@ -359,7 +361,7 @@ export function ProjectBrowser({
       >
         {pendingDelete ? (
           <p style={{ margin: 0 }}>
-            “{pendingDelete.name}” will be permanently removed. This can’t be undone.
+            “{pendingDelete.name}” will be moved to the Trash. You can restore it from Trash.
           </p>
         ) : null}
       </Dialog>

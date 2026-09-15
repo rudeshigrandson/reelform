@@ -18,6 +18,7 @@ import {
 import { DEFAULT_FRAME_SETTINGS, type FrameSettings } from "./inspector/frame";
 import { DEFAULT_WEBCAM_SETTINGS, type WebcamSettings } from "./inspector/webcam";
 import { DEFAULT_ZOOM_SETTINGS, type ZoomRegion, type ZoomSettings } from "./inspector/zoom";
+import type { Clip } from "./model/schema";
 
 /**
  * Editor document state backing the inspector tabs. Pre-persistence: this lives
@@ -26,7 +27,10 @@ import { DEFAULT_ZOOM_SETTINGS, type ZoomRegion, type ZoomSettings } from "./ins
 
 /** The playhead is not document state; it lives in `playback/store` (SPEC §6.2). */
 export interface EditorData {
+  /** Timeline length; derived from `clips` by every clip edit (SPEC §4). */
   durationMs: number;
+  /** Video track: contiguous, ordered source slices (SPEC §4 `timeline.clips`). */
+  clips: Clip[];
   frame: FrameSettings;
   cursor: CursorSettings;
   cursorPointCount: number | null;
@@ -58,6 +62,7 @@ export interface EditorState extends EditorData {
 export function initialEditorData(): EditorData {
   return {
     durationMs: 92_000,
+    clips: [{ id: "clip-1", sourceStartMs: 0, sourceEndMs: 92_000, timelineStartMs: 0 }],
     frame: structuredClone(DEFAULT_FRAME_SETTINGS),
     cursor: structuredClone(DEFAULT_CURSOR_SETTINGS),
     cursorPointCount: 1204,

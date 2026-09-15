@@ -41,8 +41,13 @@ export interface History<S> {
   undoLabel(): string | null;
   redoLabel(): string | null;
   isDirty(): boolean;
-  /** The current state becomes the clean save point. */
-  markSaved(): void;
+  /**
+   * Opaque id of the current state. Capture it when a save starts and pass it to
+   * `markSaved` when the save lands, so edits made mid-save stay dirty.
+   */
+  revision(): number;
+  /** The current state (or the state at `revision`) becomes the clean save point. */
+  markSaved(revision?: number | undefined): void;
   /** Drops both stacks; the current state becomes the save point. */
   clear(): void;
   /** Stable between changes (for `useSyncExternalStore`). */
@@ -171,8 +176,9 @@ export function createHistory<S extends object>(options: HistoryOptions<S>): His
     undoLabel: () => label("Undo", undoStack[undoStack.length - 1]),
     redoLabel: () => label("Redo", redoStack[redoStack.length - 1]),
     isDirty: () => currentRev() !== savedRev,
-    markSaved() {
-      savedRev = currentRev();
+    revision: currentRev,
+    markSaved(revision) {
+      savedRev = revision ?? currentRev();
       lastPushAt = null;
       emit();
     },

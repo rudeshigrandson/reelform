@@ -61,7 +61,10 @@ export interface ProjectMeta {
     telemetry?: TelemetryRefBase | undefined;
     capture?: CaptureInfo | undefined;
   };
-  /** Defaults to one clip spanning the whole video source. */
+  /**
+   * Fallback only: the store's `clips` win when non-empty. Defaults to one clip
+   * spanning the whole video source.
+   */
   clips?: Clip[] | undefined;
   transitions?: TransitionDoc[] | undefined;
   webcamRegions?: RangeDoc[] | undefined;
@@ -87,6 +90,7 @@ export const UI_EDITOR_KEYS = [
 /** Store fields that are document content: changing one makes the project dirty. */
 export const DOCUMENT_EDITOR_KEYS = [
   "durationMs",
+  "clips",
   "frame",
   "cursor",
   "cursorPointCount",
@@ -274,7 +278,7 @@ export function toProjectDocument(editorData: EditorData, meta: ProjectMeta): Pr
   const { intro, outro, ...effects } = data.effects;
   const timeline: ProjectV1["timeline"] = {
     durationMs: data.durationMs,
-    clips: m.clips ?? defaultClips(m.sources.video),
+    clips: data.clips.length > 0 ? data.clips : (m.clips ?? defaultClips(m.sources.video)),
     zooms: data.zoomRegions.map(zoomToDoc),
     speeds: data.speedRegions.map(speedToDoc),
     annotations: data.annotations,
@@ -333,6 +337,7 @@ export function fromProjectDocument(document: ProjectV1): EditorData {
   const t = doc.timeline;
   return {
     durationMs: t.durationMs,
+    clips: t.clips,
     frame: doc.frame,
     cursor: doc.cursor,
     cursorPointCount: doc.sources.telemetry?.pointCount ?? null,

@@ -36,7 +36,9 @@ describe("useProjectSession", () => {
   });
 
   it("reset returns every data field to its initial value", () => {
-    useProjectSession.getState().setSession({ status: "error", mediaOffline: true, projectId: "x" });
+    useProjectSession
+      .getState()
+      .setSession({ status: "error", mediaOffline: true, projectId: "x" });
     useProjectSession.getState().reset();
     const { setSession: _set, reset: _reset, ...data } = useProjectSession.getState();
     expect(data).toEqual(initialProjectSession());

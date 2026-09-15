@@ -18,6 +18,7 @@ export {
   ProjectListEntry,
   projectContracts,
   RecoveryInfo,
+  TrashedProjectEntry,
 } from "./contracts";
 export {
   errnoCode,
@@ -30,7 +31,11 @@ export type { FsLike } from "./fsTypes";
 export {
   checkRelink,
   createProjectHandlers,
+  documentDurationMs,
+  documentId,
   documentModifiedMs,
+  TRASH_DIR,
+  TRASH_MARKER,
   type ProjectDeps,
   RELINK_DURATION_TOLERANCE_MS,
   type RelinkMismatch,

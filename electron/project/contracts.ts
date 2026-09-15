@@ -50,6 +50,10 @@ export const ProjectListEntry = z.object({
   /** Folder exists but project.json is missing or not JSON. */
   corrupt: z.boolean(),
   recent: z.boolean(),
+  /** `ProjectV1.id` (editor route param); null when unreadable. */
+  id: z.string().nullable().default(null),
+  /** `timeline.durationMs`; null when unreadable. */
+  durationMs: z.number().nullable().default(null),
 });
 export type ProjectListEntry = z.infer<typeof ProjectListEntry>;
 
@@ -68,7 +72,53 @@ const DocumentResult = z.object({
   modifiedAt: Iso,
 });
 
+export const TrashedProjectEntry = z.object({
+  /** Current location inside the library trash folder. */
+  path: z.string(),
+  name: z.string(),
+  id: z.string().nullable(),
+  trashedAt: Iso.nullable(),
+  thumbnailPath: z.string().nullable(),
+});
+export type TrashedProjectEntry = z.infer<typeof TrashedProjectEntry>;
+
 export const projectContracts = {
+  /** Editor windows are routed by project id; main maps it back to a folder (library + recents). */
+  "project:resolve": channel(
+    "project:resolve",
+    z.object({ projectId: z.string().min(1) }),
+    z.object({ path: z.string() }),
+  ),
+  /** Rename the folder (uniquified) and the document `name`. */
+  "project:rename": channel(
+    "project:rename",
+    z.object({ path: ProjectPath, name: z.string().min(1) }),
+    DocumentResult,
+  ),
+  /** Soft delete (launcher "Move to Trash"): moves into the library's `.trash/` folder. */
+  "project:moveToTrash": channel(
+    "project:moveToTrash",
+    z.object({ path: ProjectPath }),
+    z.object({ path: z.string() }),
+  ),
+  "project:listTrash": channel(
+    "project:listTrash",
+    z.object({}).optional(),
+    z.object({ projects: z.array(TrashedProjectEntry) }),
+  ),
+  /** Move a soft-deleted project back into the library (uniquified name). */
+  "project:restoreFromTrash": channel(
+    "project:restoreFromTrash",
+    z.object({ path: ProjectPath }),
+    z.object({ path: z.string() }),
+  ),
+  /** Drop every autosave backup (user chose "Don't save" / dismissed recovery). */
+  "project:discardBackups": channel(
+    "project:discardBackups",
+    z.object({ path: ProjectPath }),
+    z.object({ removed: z.number().int().nonnegative() }),
+  ),
+
   "project:create": channel(
     "project:create",
     z.object({

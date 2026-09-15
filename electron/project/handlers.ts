@@ -1,10 +1,18 @@
+import { randomUUID } from "node:crypto";
 import * as path from "node:path";
 import { atomicWriteFile } from "./atomicWrite";
 import { listBackups, resolveBackupPath, writeBackup } from "./backups";
-import type { MediaProbe, ProjectHandlers, ProjectListEntry, RecoveryInfo } from "./contracts";
+import type {
+  MediaProbe,
+  ProjectHandlers,
+  ProjectListEntry,
+  RecoveryInfo,
+  TrashedProjectEntry,
+} from "./contracts";
 import { FsIpcError, errnoCode } from "./errors";
 import type { FsLike } from "./fsTypes";
 import {
+  BACKUPS_DIR,
   CACHE_DIR,
   EXPORTS_DIR,
   MEDIA_DIR,
@@ -38,7 +46,14 @@ export interface ProjectDeps {
   trashItem: (absPath: string) => Promise<void>;
   /** Read duration + video dimensions of a media file. */
   probe: (absPath: string) => Promise<MediaProbe>;
+  /** Fresh project id for `project:saveAs` copies. Defaults to `crypto.randomUUID`. */
+  newId?: (() => string) | undefined;
 }
+
+/** Soft-deleted projects live here, inside the library root. */
+export const TRASH_DIR = ".trash";
+/** Sidecar written into a trashed project's cache folder: where it came from, when. */
+export const TRASH_MARKER = path.join(CACHE_DIR, "trashed.json");
 
 /** §9.9: relinked media must match the stored duration within ±1s. */
 export const RELINK_DURATION_TOLERANCE_MS = 1000;
@@ -95,8 +110,23 @@ export function checkRelink(
   return null;
 }
 
+/** `id` of a document, if it is a non-empty string. */
+export function documentId(doc: unknown): string | null {
+  return isPlainObject(doc) && typeof doc.id === "string" && doc.id !== "" ? doc.id : null;
+}
+
+/** `timeline.durationMs` of a document, if present and finite. */
+export function documentDurationMs(doc: unknown): number | null {
+  if (!isPlainObject(doc) || !isPlainObject(doc.timeline)) return null;
+  const d = doc.timeline.durationMs;
+  return typeof d === "number" && Number.isFinite(d) ? d : null;
+}
+
 export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
   const { fs } = deps;
+  const newId = deps.newId ?? (() => randomUUID());
+  /** projectId → folder, refreshed by `project:resolve` scans and every open/rename. */
+  const idIndex = new Map<string, string>();
 
   /**
    * Per-project write lock: overlapping saves/autosaves/restores on one folder
@@ -238,6 +268,8 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
       missing: false,
       corrupt: false,
       recent,
+      id: null,
+      durationMs: null,
     };
     if (!(await pathExists(fs, dir))) return { ...base, missing: true };
     const thumb = path.join(dir, THUMBNAIL_FILE);
@@ -246,14 +278,221 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
       const doc = await readJson(path.join(dir, PROJECT_FILE));
       const ms = documentModifiedMs(doc);
       const name = isPlainObject(doc) && typeof doc.name === "string" ? doc.name : fallbackName;
-      return { ...base, name, thumbnailPath, modifiedAt: ms === null ? null : iso(ms) };
+      return {
+        ...base,
+        name,
+        thumbnailPath,
+        modifiedAt: ms === null ? null : iso(ms),
+        id: documentId(doc),
+        durationMs: documentDurationMs(doc),
+      };
     } catch (e) {
       if (!(e instanceof FsIpcError)) throw e;
       return { ...base, thumbnailPath, corrupt: true };
     }
   };
 
+  const libraryProjectDirs = async (root: string): Promise<string[]> => {
+    const dirs: string[] = [];
+    try {
+      for (const ent of await fs.readdir(root, { withFileTypes: true })) {
+        if (ent.isDirectory() && path.extname(ent.name).toLowerCase() === PROJECT_EXT) {
+          dirs.push(path.join(root, ent.name));
+        }
+      }
+    } catch (e) {
+      const code = errnoCode(e);
+      if (code !== "ENOENT" && code !== "ENOTDIR") throw e;
+    }
+    return dirs;
+  };
+
+  /** Id of the project at `dir`, or null when missing/corrupt. */
+  const idAt = async (dir: string): Promise<string | null> => {
+    try {
+      return documentId(await readJson(path.join(dir, PROJECT_FILE)));
+    } catch (e) {
+      if (e instanceof FsIpcError) return null;
+      const code = errnoCode(e);
+      if (code === "EACCES" || code === "EPERM") return null;
+      throw e;
+    }
+  };
+
+  const remember = async (dir: string, doc?: unknown): Promise<void> => {
+    const id = doc === undefined ? await idAt(dir) : documentId(doc);
+    if (id !== null) idIndex.set(id, dir);
+  };
+
+  /** rename, falling back to copy + remove across devices. */
+  const move = async (from: string, to: string): Promise<void> => {
+    try {
+      await fs.rename(from, to);
+    } catch (e) {
+      if (errnoCode(e) !== "EXDEV") throw e;
+      await fs.cp(from, to, { recursive: true, errorOnExist: true, force: false });
+      await fs.rm(from, { recursive: true, force: true });
+    }
+  };
+
+  const requireProjectFile = async (dir: string): Promise<void> => {
+    if (!(await pathExists(fs, path.join(dir, PROJECT_FILE)))) {
+      throw new FsIpcError("PROJECT_NOT_FOUND", "Not a Reelform project folder", { path: dir });
+    }
+  };
+
+  const readTrashMarker = async (
+    dir: string,
+  ): Promise<{ originalPath: string | null; trashedAt: string | null }> => {
+    try {
+      const raw: unknown = JSON.parse(await fs.readFile(path.join(dir, TRASH_MARKER), "utf8"));
+      if (!isPlainObject(raw)) return { originalPath: null, trashedAt: null };
+      return {
+        originalPath: typeof raw.originalPath === "string" ? raw.originalPath : null,
+        trashedAt: typeof raw.trashedAt === "string" ? raw.trashedAt : null,
+      };
+    } catch {
+      return { originalPath: null, trashedAt: null };
+    }
+  };
+
   return {
+    "project:resolve": async (req) => {
+      const cached = idIndex.get(req.projectId);
+      if (cached !== undefined && (await idAt(cached)) === req.projectId) return { path: cached };
+      idIndex.delete(req.projectId);
+      const root = await deps.libraryRoot();
+      // Recents first: the most recently opened copy wins when a project was duplicated by hand.
+      const candidates = [
+        ...(await deps.recents.list()).map((p) => path.resolve(p)),
+        ...(await libraryProjectDirs(root)),
+      ];
+      const seen = new Set<string>();
+      for (const dir of candidates) {
+        if (seen.has(dir)) continue;
+        seen.add(dir);
+        const id = await idAt(dir);
+        if (id === null) continue;
+        if (!idIndex.has(id)) idIndex.set(id, dir);
+        if (id === req.projectId) {
+          idIndex.set(id, dir);
+          return { path: dir };
+        }
+      }
+      throw new FsIpcError("PROJECT_NOT_FOUND", "No project with that id", {
+        projectId: req.projectId,
+      });
+    },
+
+    "project:rename": async (req) => {
+      const src = requireProjectPath(req.path);
+      await requireDir(src);
+      const name = requireName(req.name);
+      return withLock(src, async () => {
+        const doc = await validated(await readJson(path.join(src, PROJECT_FILE)));
+        const parent = path.dirname(src);
+        const same = path.basename(src).toLowerCase() === `${name}${PROJECT_EXT}`.toLowerCase();
+        const dir = same ? src : path.join(parent, await freeDirName(parent, name));
+        if (!same) await move(src, dir);
+        try {
+          const written = await writeProjectFile(dir, doc, { name: req.name.trim() });
+          if (!same) await deps.recents.remove(src).catch(() => undefined);
+          await touchRecent(dir);
+          await remember(dir, written.document);
+          return { path: dir, ...written };
+        } catch (e) {
+          if (!same) await move(dir, src).catch(() => undefined);
+          throw e;
+        }
+      });
+    },
+
+    "project:moveToTrash": async (req) => {
+      const dir = requireProjectPath(req.path);
+      await requireDir(dir);
+      await requireProjectFile(dir);
+      const trash = path.join(await deps.libraryRoot(), TRASH_DIR);
+      if (isWithin(trash, dir)) {
+        throw new FsIpcError("INVALID_PATH", "Project is already in the trash", { path: dir });
+      }
+      return withLock(dir, async () => {
+        await fs.mkdir(trash, { recursive: true });
+        const dest = path.join(
+          trash,
+          await uniqueName(path.basename(dir), (c) => pathExists(fs, path.join(trash, c))),
+        );
+        await fs.mkdir(path.join(dir, CACHE_DIR), { recursive: true });
+        await atomicWriteFile(
+          fs,
+          path.join(dir, TRASH_MARKER),
+          JSON.stringify({ originalPath: dir, trashedAt: iso(deps.now()) }),
+        );
+        await move(dir, dest);
+        await deps.recents.remove(dir).catch(() => undefined);
+        for (const [id, p] of idIndex) if (p === dir) idIndex.delete(id);
+        return { path: dest };
+      });
+    },
+
+    "project:listTrash": async () => {
+      const trash = path.join(await deps.libraryRoot(), TRASH_DIR);
+      const projects: TrashedProjectEntry[] = [];
+      for (const dir of await libraryProjectDirs(trash)) {
+        const summary = await summarize(dir, false);
+        const marker = await readTrashMarker(dir);
+        projects.push({
+          path: dir,
+          name: summary.name,
+          id: summary.id,
+          trashedAt: marker.trashedAt,
+          thumbnailPath: summary.thumbnailPath,
+        });
+      }
+      projects.sort((a, b) => (b.trashedAt ?? "").localeCompare(a.trashedAt ?? ""));
+      return { projects };
+    },
+
+    "project:restoreFromTrash": async (req) => {
+      const dir = requireProjectPath(req.path);
+      const root = await deps.libraryRoot();
+      const trash = path.join(root, TRASH_DIR);
+      if (!isWithin(trash, dir) || path.resolve(trash) === dir) {
+        throw new FsIpcError("INVALID_PATH", "Project is not in the trash", { path: dir });
+      }
+      await requireDir(dir);
+      const marker = await readTrashMarker(dir);
+      let parent = root;
+      if (marker.originalPath !== null && path.isAbsolute(marker.originalPath)) {
+        const originalParent = path.dirname(marker.originalPath);
+        if (!isWithin(trash, originalParent) && (await pathExists(fs, originalParent))) {
+          parent = originalParent;
+        }
+      }
+      const preferred =
+        marker.originalPath !== null ? path.basename(marker.originalPath) : path.basename(dir);
+      const dest = path.join(
+        parent,
+        await uniqueName(preferred, (c) => pathExists(fs, path.join(parent, c))),
+      );
+      await move(dir, dest);
+      await fs.rm(path.join(dest, TRASH_MARKER), { force: true }).catch(() => undefined);
+      await touchRecent(dest);
+      await remember(dest);
+      return { path: dest };
+    },
+
+    "project:discardBackups": async (req) => {
+      const dir = requireProjectPath(req.path);
+      await requireDir(dir);
+      return withLock(dir, async () => {
+        const backups = await listBackups(fs, dir);
+        for (const b of backups) {
+          await fs.rm(path.join(dir, BACKUPS_DIR, b.name), { force: true });
+        }
+        return { removed: backups.length };
+      });
+    },
+
     "project:create": async (req) => {
       const parent = req.parentDir ? requireAbsolute(req.parentDir) : await deps.libraryRoot();
       const media = req.media ?? [];
@@ -281,6 +520,7 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
         if (m.move) await fs.rm(m.sourcePath, { force: true }).catch(() => undefined);
       }
       await touchRecent(dir);
+      await remember(dir, written.document).catch(() => undefined);
       return { path: dir, ...written, mediaFiles };
     },
 
@@ -289,6 +529,7 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
       await requireDir(dir);
       const document = await validated(await readJson(path.join(dir, PROJECT_FILE)));
       await touchRecent(dir);
+      await remember(dir, document);
       const ms = documentModifiedMs(document);
       return {
         path: dir,
@@ -331,10 +572,14 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
         }
         const thumb = path.join(src, THUMBNAIL_FILE);
         if (await pathExists(fs, thumb)) await fs.copyFile(thumb, path.join(dir, THUMBNAIL_FILE));
-        const extra =
+        const extra: Record<string, unknown> =
           isPlainObject(req.document) && "name" in req.document ? { name: req.name } : {};
+        // A copy is a new project: sharing the id would make `project:resolve` (and so
+        // the editor route) open whichever copy it found first.
+        if (isPlainObject(req.document) && "id" in req.document) extra.id = newId();
         const { document, modifiedAt } = await writeProjectFile(dir, req.document, extra);
         await touchRecent(dir);
+        await remember(dir, document).catch(() => undefined);
         return { path: dir, document, modifiedAt };
       } catch (e) {
         await cleanup(dir);
@@ -344,17 +589,7 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
 
     "project:list": async () => {
       const root = await deps.libraryRoot();
-      const libraryDirs: string[] = [];
-      try {
-        for (const ent of await fs.readdir(root, { withFileTypes: true })) {
-          if (ent.isDirectory() && path.extname(ent.name).toLowerCase() === PROJECT_EXT) {
-            libraryDirs.push(path.join(root, ent.name));
-          }
-        }
-      } catch (e) {
-        const code = errnoCode(e);
-        if (code !== "ENOENT" && code !== "ENOTDIR") throw e;
-      }
+      const libraryDirs = await libraryProjectDirs(root);
       const recents = new Set((await deps.recents.list()).map((p) => path.resolve(p)));
       const all = new Set([...libraryDirs, ...recents]);
       const projects: ProjectListEntry[] = [];

@@ -310,11 +310,29 @@ const speedRegions = withIds<SpeedRegionEdit>(
   "s",
 );
 
+/** 1–4 contiguous clips with ids k1…kn (fixtures' transitions reference k1). */
+const clips = fc
+  .array(fc.tuple(ms, int(1, 60_000)), { minLength: 1, maxLength: 4 })
+  .map((parts) => {
+    let at = 0;
+    return parts.map(([sourceStartMs, len], i) => {
+      const clip = {
+        id: `k${i + 1}`,
+        sourceStartMs,
+        sourceEndMs: sourceStartMs + len,
+        timelineStartMs: at,
+      };
+      at += len;
+      return clip;
+    });
+  });
+
 const nullableId = fc.option(fc.string({ minLength: 1, maxLength: 8 }), { nil: null });
 
 /** Schema-valid editor document state. `captionStatus` is always idle (transient). */
 export const editorDataArb: fc.Arbitrary<EditorData> = fc.record({
   durationMs: ms,
+  clips,
   frame,
   cursor,
   cursorPointCount: fc.option(int(0, 1_000_000), { nil: null }),

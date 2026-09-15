@@ -1,6 +1,6 @@
 import { Button, Input, Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties, ReactElement } from "react";
 import {
   type EditorShellProps,
@@ -9,6 +9,7 @@ import {
   type PreviewQuality,
   TIMELINE_LANES,
 } from "./types";
+import { useNarrowLayout } from "./useNarrowLayout";
 
 const QUALITY_OPTIONS: ReadonlyArray<SegmentedOption<PreviewQuality>> = [
   { value: "auto", label: "Auto" },
@@ -122,6 +123,7 @@ const laneTrackStyle: CSSProperties = {
 
 const inspectorStyle: CSSProperties = {
   gridArea: "inspector",
+  position: "relative",
   display: "flex",
   background: "var(--bg-panel)",
   borderLeft: "1px solid var(--border)",
@@ -144,6 +146,29 @@ const inspectorBodyStyle: CSSProperties = {
   overflowY: "auto",
   overflowX: "hidden",
   padding: "var(--space-4)",
+};
+
+/** Narrow layout: the active tab's panel floats left of the icon rail. */
+const popoverStyle: CSSProperties = {
+  position: "absolute",
+  top: "var(--space-2)",
+  right: "calc(100% + var(--space-1))",
+  bottom: "var(--space-2)",
+  width: "320px",
+  zIndex: 2,
+  display: "flex",
+  flexDirection: "column",
+  background: "var(--bg-panel-raised)",
+  border: "1px solid var(--border-strong)",
+  borderRadius: "var(--radius-lg)",
+  boxShadow: "var(--shadow-lg)",
+};
+
+const dirtyDotStyle: CSSProperties = {
+  color: "var(--text-2)",
+  fontSize: "18px",
+  lineHeight: 1,
+  marginLeft: "calc(-1 * var(--space-2))",
 };
 
 function tabButtonStyle(active: boolean): CSSProperties {
@@ -177,17 +202,44 @@ export function EditorShell(props: EditorShellProps): ReactElement {
     renderPreview,
     renderPlaybackBar,
     renderTimeline,
+    onTabChange,
+    onBack,
+    dirty = false,
+    history,
   } = props;
 
-  const [activeTab, setActiveTab] = useState<InspectorTab>("Frame");
+  const [uncontrolledTab, setUncontrolledTab] = useState<InspectorTab>("Frame");
+  const activeTab = props.activeTab ?? uncontrolledTab;
+  const setActiveTab = (tab: InspectorTab): void => {
+    setUncontrolledTab(tab);
+    onTabChange?.(tab);
+  };
+
+  const narrow = useNarrowLayout(props.narrow);
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  useEffect(() => {
+    if (!narrow) setPopoverOpen(false);
+  }, [narrow]);
+  useEffect(() => {
+    if (!narrow || !popoverOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPopoverOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [narrow, popoverOpen]);
 
   const playheadPct =
     durationMs > 0 ? Math.min(100, Math.max(0, (currentMs / durationMs) * 100)) : 0;
 
+  const timelineRow = narrow ? "180px" : renderPlaybackBar ? "260px" : "220px";
+  const baseStyle: CSSProperties = narrow
+    ? { ...shellStyle, gridTemplateColumns: "minmax(0, 1fr) auto" }
+    : shellStyle;
   const gridStyle: CSSProperties = renderPlaybackBar
     ? {
-        ...shellStyle,
-        gridTemplateRows: "56px 1fr 44px 260px",
+        ...baseStyle,
+        gridTemplateRows: `56px 1fr 44px ${timelineRow}`,
         gridTemplateAreas: `
           "topbar   topbar"
           "stage    inspector"
@@ -195,16 +247,43 @@ export function EditorShell(props: EditorShellProps): ReactElement {
           "timeline inspector"
         `,
       }
-    : shellStyle;
+    : { ...baseStyle, gridTemplateRows: `56px 1fr ${timelineRow}` };
+
+  const onTabClick = (tab: InspectorTab): void => {
+    if (narrow) setPopoverOpen((open) => !(open && tab === activeTab));
+    if (tab !== activeTab) setActiveTab(tab);
+  };
+  const showPanel = !narrow || popoverOpen;
+  const panel = (
+    <div
+      style={narrow ? { ...inspectorBodyStyle, flex: "1 1 auto" } : inspectorBodyStyle}
+      role="tabpanel"
+      aria-label={narrow ? `${activeTab} panel` : undefined}
+    >
+      <h2
+        style={{
+          margin: 0,
+          fontFamily: "var(--font-heading)",
+          fontSize: "18px",
+          color: "var(--text-1)",
+        }}
+      >
+        {activeTab}
+      </h2>
+      <div style={{ marginTop: "var(--space-3)", color: "var(--text-2)" }}>
+        {renderInspector ? renderInspector(activeTab) : `${activeTab} inspector`}
+      </div>
+    </div>
+  );
 
   return (
-    <div style={gridStyle} data-testid="editor-shell">
+    <div style={gridStyle} data-testid="editor-shell" data-layout={narrow ? "narrow" : "wide"}>
       {/* Top bar */}
       <header style={topBarStyle}>
-        <Button icon variant="ghost" aria-label="Back">
+        <Button icon variant="ghost" aria-label="Back" title="Projects" onClick={() => onBack?.()}>
           ‹
         </Button>
-        <div style={{ width: "240px" }}>
+        <div style={{ width: narrow ? "180px" : "240px" }}>
           <Input
             aria-label="Project name"
             value={projectName}
@@ -212,6 +291,35 @@ export function EditorShell(props: EditorShellProps): ReactElement {
             readOnly={!onRename}
           />
         </div>
+        {dirty && (
+          <output aria-label="Unsaved changes" title="Unsaved changes" style={dirtyDotStyle}>
+            •
+          </output>
+        )}
+        {history && (
+          <div style={{ display: "flex", gap: "var(--space-1)" }}>
+            <Button
+              icon
+              variant="ghost"
+              aria-label="Undo"
+              title={history.undoLabel ?? "Nothing to undo"}
+              disabled={!history.canUndo}
+              onClick={() => history.onUndo()}
+            >
+              ↶
+            </Button>
+            <Button
+              icon
+              variant="ghost"
+              aria-label="Redo"
+              title={history.redoLabel ?? "Nothing to redo"}
+              disabled={!history.canRedo}
+              onClick={() => history.onRedo()}
+            >
+              ↷
+            </Button>
+          </div>
+        )}
         <Segmented<PreviewQuality>
           name="preview-quality"
           value={previewQuality}
@@ -308,29 +416,26 @@ export function EditorShell(props: EditorShellProps): ReactElement {
                 type="button"
                 role="tab"
                 aria-selected={active}
-                style={tabButtonStyle(active)}
-                onClick={() => setActiveTab(tab)}
+                aria-expanded={narrow ? active && popoverOpen : undefined}
+                title={narrow ? tab : undefined}
+                aria-label={narrow ? tab : undefined}
+                style={
+                  narrow
+                    ? {
+                        ...tabButtonStyle(active && popoverOpen),
+                        padding: "var(--space-2)",
+                        fontSize: "12px",
+                      }
+                    : tabButtonStyle(active)
+                }
+                onClick={() => onTabClick(tab)}
               >
-                {tab}
+                {narrow ? tab.slice(0, 2) : tab}
               </button>
             );
           })}
         </nav>
-        <div style={inspectorBodyStyle} role="tabpanel">
-          <h2
-            style={{
-              margin: 0,
-              fontFamily: "var(--font-heading)",
-              fontSize: "18px",
-              color: "var(--text-1)",
-            }}
-          >
-            {activeTab}
-          </h2>
-          <div style={{ marginTop: "var(--space-3)", color: "var(--text-2)" }}>
-            {renderInspector ? renderInspector(activeTab) : `${activeTab} inspector`}
-          </div>
-        </div>
+        {showPanel && (narrow ? <div style={popoverStyle}>{panel}</div> : panel)}
       </aside>
     </div>
   );

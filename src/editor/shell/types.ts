@@ -34,8 +34,32 @@ export const TIMELINE_LANES: readonly string[] = [
   "Audio",
 ] as const;
 
+/** Undo/redo state for the top bar (from `useHistoryState`). */
+export interface HistoryControls {
+  canUndo: boolean;
+  canRedo: boolean;
+  /** "Undo: Move zoom" — shown as the button tooltip. */
+  undoLabel: string | null;
+  redoLabel: string | null;
+  onUndo: () => void;
+  onRedo: () => void;
+}
+
 export interface EditorShellProps {
   projectName: string;
+  /** Controlled inspector tab (auto-switch on selection, §6.8); uncontrolled when omitted. */
+  activeTab?: InspectorTab | undefined;
+  onTabChange?: ((tab: InspectorTab) => void) | undefined;
+  /** "‹ Projects" in the top bar. */
+  onBack?: (() => void) | undefined;
+  /** Unsaved changes: "•" after the project name (guide S12 state 12). */
+  dirty?: boolean | undefined;
+  history?: HistoryControls | undefined;
+  /**
+   * Narrow layout (guide S12 state 14): inspector collapses to its icon rail
+   * with popover panels, timeline 180px. Omitted → follows the window width.
+   */
+  narrow?: boolean | undefined;
   durationMs: number;
   currentMs: number;
   isPlaying: boolean;

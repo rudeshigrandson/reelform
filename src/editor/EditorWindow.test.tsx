@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorWindow } from "./EditorWindow";
 import { usePlaybackStore } from "./playback";
 import type { CreatePreviewStage, PreviewStage, SceneState } from "./preview";
+import { createEditorHistory } from "./state";
 import { useEditorStore } from "./store";
 
 function fakeStageFactory() {
@@ -163,6 +164,126 @@ describe("EditorWindow", () => {
     await waitFor(() => {
       const last = renders[renders.length - 1];
       expect(last?.camera.scale).toBeCloseTo(2);
+    });
+  });
+
+  describe("history + clip operations", () => {
+    it("S splits the clip at the playhead; ⌘Z undoes it and the tooltip names it", () => {
+      const { createStage } = fakeStageFactory();
+      render(<EditorWindow projectName="Demo" onExport={() => {}} createStage={createStage} />);
+      expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
+      act(() => {
+        usePlaybackStore.getState().seek(30_000);
+      });
+      act(() => {
+        fireEvent.keyDown(window, { key: "s", code: "KeyS" });
+      });
+      expect(useEditorStore.getState().clips).toHaveLength(2);
+      const undo = screen.getByRole("button", { name: "Undo" });
+      expect(undo).toBeEnabled();
+      expect(undo).toHaveAttribute("title", "Undo: Split clip");
+
+      act(() => {
+        fireEvent.keyDown(window, { key: "z", code: "KeyZ", metaKey: true });
+      });
+      expect(useEditorStore.getState().clips).toHaveLength(1);
+      expect(screen.getByRole("button", { name: "Redo" })).toHaveAttribute(
+        "title",
+        "Redo: Split clip",
+      );
+      act(() => {
+        fireEvent.keyDown(window, { key: "z", code: "KeyZ", metaKey: true, shiftKey: true });
+      });
+      expect(useEditorStore.getState().clips).toHaveLength(2);
+    });
+
+    it("the playback bar split button uses the same command", () => {
+      const { createStage } = fakeStageFactory();
+      render(<EditorWindow projectName="Demo" onExport={() => {}} createStage={createStage} />);
+      act(() => {
+        usePlaybackStore.getState().seek(10_000);
+      });
+      fireEvent.click(screen.getByRole("button", { name: /split/i }));
+      expect(useEditorStore.getState().clips.map((c) => c.timelineStartMs)).toEqual([0, 10_000]);
+    });
+
+    it("[ trims the clip start to the playhead, rippling duration and parking the playhead", () => {
+      const { createStage } = fakeStageFactory();
+      render(<EditorWindow projectName="Demo" onExport={() => {}} createStage={createStage} />);
+      act(() => {
+        usePlaybackStore.getState().seek(12_000);
+      });
+      act(() => {
+        fireEvent.keyDown(window, { key: "[", code: "BracketLeft" });
+      });
+      expect(useEditorStore.getState().durationMs).toBe(80_000);
+      expect(useEditorStore.getState().clips[0]).toMatchObject({ sourceStartMs: 12_000 });
+      expect(usePlaybackStore.getState().durationMs).toBe(80_000);
+      expect(usePlaybackStore.getState().currentMs).toBe(0);
+      act(() => {
+        usePlaybackStore.getState().seek(40_000);
+      });
+      act(() => {
+        fireEvent.keyDown(window, { key: "]", code: "BracketRight" });
+      });
+      expect(useEditorStore.getState().durationMs).toBe(40_000);
+      expect(screen.getByRole("button", { name: "Undo" })).toHaveAttribute(
+        "title",
+        "Undo: Trim clip end",
+      );
+    });
+
+    it("trim keys are ignored while typing", () => {
+      const { createStage } = fakeStageFactory();
+      render(
+        <>
+          <input aria-label="scratch" />
+          <EditorWindow projectName="Demo" onExport={() => {}} createStage={createStage} />
+        </>,
+      );
+      act(() => {
+        usePlaybackStore.getState().seek(12_000);
+      });
+      fireEvent.keyDown(screen.getByLabelText("scratch"), { key: "[", code: "BracketLeft" });
+      expect(useEditorStore.getState().durationMs).toBe(92_000);
+    });
+
+    it("adds go through an injected history (undo removes the zoom and its selection)", () => {
+      const { createStage } = fakeStageFactory();
+      const history = createEditorHistory({ now: () => 0 });
+      render(
+        <EditorWindow
+          projectName="Demo"
+          onExport={() => {}}
+          createStage={createStage}
+          history={history}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Add Zoom at playhead" }));
+      expect(history.undoLabel()).toBe("Undo: Add zoom");
+      act(() => {
+        history.undo();
+      });
+      expect(useEditorStore.getState().zoomRegions).toEqual([]);
+      expect(useEditorStore.getState().selectedZoomId).toBeNull();
+      expect(screen.getByRole("button", { name: /delete selection/i })).toBeDisabled();
+    });
+
+    it("passes dirty and Back through to the shell", () => {
+      const { createStage } = fakeStageFactory();
+      const onBack = vi.fn();
+      render(
+        <EditorWindow
+          projectName="Demo"
+          onExport={() => {}}
+          createStage={createStage}
+          dirty
+          onBack={onBack}
+        />,
+      );
+      expect(screen.getByLabelText("Unsaved changes")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      expect(onBack).toHaveBeenCalledTimes(1);
     });
   });
 });
