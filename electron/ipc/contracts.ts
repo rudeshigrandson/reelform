@@ -7,6 +7,7 @@ import { permissionsContracts, permissionsEvents } from "../permissions/contract
 import { projectContracts } from "../project/contracts";
 import { recordingContracts, recordingEvents } from "../recording/contracts";
 import { settingsContracts, settingsEvents } from "../settings/contracts";
+import { systemFileContracts, systemProjectFileContracts } from "../system/contracts";
 import { updaterContracts, updaterEvents } from "../updater/contracts";
 import { windowsContracts } from "../windows/contracts";
 
@@ -63,6 +64,9 @@ export const contracts = {
   ...settingsContracts,
   ...updaterContracts,
   ...diagnosticsContracts,
+  // After diagnostics: the system domain owns `system:pickFolder` (same shape).
+  ...systemFileContracts,
+  ...systemProjectFileContracts,
   ...windowsContracts,
 } as const;
 

@@ -1,0 +1,107 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  NotBridgedError,
+  type SystemInvoke,
+  createInspectorSystemPort,
+} from "./inspectorSystemPort";
+
+type Call = { channel: string; payload: unknown };
+
+function fakeInvoke(responses: Record<string, unknown>) {
+  const calls: Call[] = [];
+  const invoke = (async (channel: string, payload: unknown) => {
+    calls.push({ channel, payload });
+    return channel in responses ? responses[channel] : null;
+  }) as unknown as SystemInvoke;
+  return { invoke, calls };
+}
+
+const SRT = [{ name: "Subtitles", extensions: ["srt", "vtt"] }] as const;
+
+describe("createInspectorSystemPort", () => {
+  it("pickFile forwards title and copies filters; cancel → null", async () => {
+    const { invoke, calls } = fakeInvoke({ "system:pickFile": { path: "/Users/me/a.srt" } });
+    const port = createInspectorSystemPort(invoke, () => {});
+    expect(await port.pickFile({ title: "Import captions", filters: SRT })).toBe("/Users/me/a.srt");
+    expect(calls[0]).toEqual({
+      channel: "system:pickFile",
+      payload: {
+        title: "Import captions",
+        filters: [{ name: "Subtitles", extensions: ["srt", "vtt"] }],
+      },
+    });
+
+    const cancelled = createInspectorSystemPort(
+      fakeInvoke({ "system:pickFile": { path: null } }).invoke,
+      () => {},
+    );
+    expect(await cancelled.pickFile({ title: "x", filters: SRT })).toBeNull();
+  });
+
+  it("saveFile asks for a path then writes the contents there", async () => {
+    const { invoke, calls } = fakeInvoke({
+      "system:saveDialog": { path: "/Users/me/Demo.srt" },
+      "system:writeTextFile": { ok: true },
+    });
+    const port = createInspectorSystemPort(invoke, () => {});
+    const saved = await port.saveFile({
+      title: "Export captions",
+      defaultName: "Demo.srt",
+      filters: SRT,
+      contents: "1\n00:00:00,000 --> 00:00:01,000\nHi\n",
+    });
+    expect(saved).toBe("/Users/me/Demo.srt");
+    expect(calls.map((c) => c.channel)).toEqual(["system:saveDialog", "system:writeTextFile"]);
+    expect(calls[1]?.payload).toEqual({
+      path: "/Users/me/Demo.srt",
+      contents: "1\n00:00:00,000 --> 00:00:01,000\nHi\n",
+    });
+  });
+
+  it("saveFile does not write when the dialog is cancelled", async () => {
+    const { invoke, calls } = fakeInvoke({ "system:saveDialog": { path: null } });
+    const port = createInspectorSystemPort(invoke, () => {});
+    expect(
+      await port.saveFile({ title: "t", defaultName: "a.vtt", filters: SRT, contents: "WEBVTT" }),
+    ).toBeNull();
+    expect(calls.map((c) => c.channel)).toEqual(["system:saveDialog"]);
+  });
+
+  it("copyIntoProject returns the relative path and statFiles the stats", async () => {
+    const { invoke, calls } = fakeInvoke({
+      "system:copyIntoProject": { relPath: "media/imported/webcam/cam.mp4" },
+      "system:statFiles": {
+        stats: { "media/screen.mp4": { sizeBytes: 42 }, "media/mic.m4a": null },
+      },
+    });
+    const port = createInspectorSystemPort(invoke, () => {});
+    expect(await port.copyIntoProject("/p/Demo.reelform", "webcam", "/Users/me/cam.mp4")).toBe(
+      "media/imported/webcam/cam.mp4",
+    );
+    expect(await port.statFiles("/p/Demo.reelform", ["media/screen.mp4", "media/mic.m4a"])).toEqual(
+      {
+        "media/screen.mp4": { sizeBytes: 42 },
+        "media/mic.m4a": null,
+      },
+    );
+    expect(calls[1]?.payload).toEqual({
+      projectPath: "/p/Demo.reelform",
+      relPaths: ["media/screen.mp4", "media/mic.m4a"],
+    });
+  });
+
+  it("outside Electron: required results throw a coded error, optional ones degrade", async () => {
+    const { invoke } = fakeInvoke({});
+    const closeWindow = vi.fn();
+    const port = createInspectorSystemPort(invoke, closeWindow);
+    await expect(port.readTextFile("/a.srt")).rejects.toBeInstanceOf(NotBridgedError);
+    await expect(port.copyIntoProject("/p", "audio", "/a.mp3")).rejects.toMatchObject({
+      code: "NOT_BRIDGED",
+    });
+    expect(await port.statFiles("/p", ["media/a"])).toEqual({});
+    expect(await port.pickFile({ title: "x", filters: SRT })).toBeNull();
+    await expect(port.reveal("/p")).resolves.toBeUndefined();
+    port.closeWindow?.();
+    expect(closeWindow).toHaveBeenCalledOnce();
+  });
+});

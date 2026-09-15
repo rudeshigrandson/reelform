@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { InspectorPanel } from "./inspector/InspectorPanel";
+import type { InspectorHost } from "./inspector/host/types";
 import {
   PlaybackBar,
   rateAtFromRegions,
@@ -94,6 +95,12 @@ export interface EditorWindowProps {
   sourceDurationMs?: number | undefined;
   /** Force the narrow layout; omitted → follows the window width. */
   narrow?: boolean | undefined;
+  /**
+   * Builds the inspector host (dialogs, project folder, captions runtime,
+   * history) from this window's document history. Called once per history;
+   * omitted → the inspector's store-only fallback host.
+   */
+  createInspectorHost?: ((history: History<EditorState>) => InspectorHost) | undefined;
 }
 
 /** Inspector tab for the first selected item kind (§6.8 auto-switch). */
@@ -120,6 +127,7 @@ export function EditorWindow({
   onLocateMedia,
   sourceDurationMs,
   narrow,
+  createInspectorHost,
 }: EditorWindowProps): ReactElement {
   const durationMs = useEditorStore((e) => e.durationMs);
   const clips = useEditorStore((e) => e.clips);
@@ -244,6 +252,11 @@ export function EditorWindow({
   const viewportPx = Math.max(0, timelineWidth - HEADER_WIDTH_PX);
   const pxPerMs = viewportPx > 0 ? zoomToScale(timelineZoom, durationMs, viewportPx) : undefined;
   const playback = usePlaybackStore.getState();
+  // One host per history: re-creating it re-decodes audio (pass a stable factory).
+  const inspectorHost = useMemo(
+    () => createInspectorHost?.(history),
+    [createInspectorHost, history],
+  );
 
   return (
     <EditorHistoryProvider history={history}>
@@ -268,7 +281,7 @@ export function EditorWindow({
           onUndo: () => void history.undo(),
           onRedo: () => void history.redo(),
         }}
-        renderInspector={(tab) => <InspectorPanel tab={tab} />}
+        renderInspector={(tab) => <InspectorPanel tab={tab} host={inspectorHost} />}
         renderPreview={() => (
           <EditorPreview createStage={createStage} onLocateMedia={onLocateMedia} />
         )}

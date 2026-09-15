@@ -93,3 +93,48 @@ export type SystemFileRequest<K extends keyof SystemFileContracts> = z.infer<
 export type SystemFileResponse<K extends keyof SystemFileContracts> = z.infer<
   SystemFileContracts[K]["response"]
 >;
+
+/**
+ * Project-folder file access for the editor inspector (SPEC §9.4 webcam import,
+ * §9.5 extra audio, §9.6 SRT/VTT import/export, §9.9 source sizes). Imports are
+ * confined to `<project>/media/imported/<kind>/`; project-relative lookups may
+ * not escape the project folder.
+ */
+export const ImportKind = z.enum(["webcam", "audio", "image"]);
+export type ImportKind = z.infer<typeof ImportKind>;
+
+export const systemProjectFileContracts = {
+  "system:readTextFile": channel(
+    "system:readTextFile",
+    z.object({ path: absPath }),
+    z.object({ text: z.string() }),
+  ),
+  "system:writeTextFile": channel(
+    "system:writeTextFile",
+    z.object({ path: absPath, contents: z.string().max(50_000_000) }),
+    z.object({ ok: z.literal(true) }),
+  ),
+  "system:copyIntoProject": channel(
+    "system:copyIntoProject",
+    z.object({ projectPath: absPath, kind: ImportKind, sourcePath: absPath }),
+    /** Project-relative, posix separators. */
+    z.object({ relPath: z.string().min(1) }),
+  ),
+  "system:statFiles": channel(
+    "system:statFiles",
+    z.object({
+      projectPath: absPath,
+      relPaths: z.array(z.string().min(1).max(4096)).max(500),
+    }),
+    /** null = missing; an absent key = unknown (e.g. rejected path). */
+    z.object({ stats: z.record(z.object({ sizeBytes: z.number().nonnegative() }).nullable()) }),
+  ),
+} as const;
+
+export type SystemProjectFileContracts = typeof systemProjectFileContracts;
+
+export type SystemProjectFileHandlers = {
+  [K in keyof SystemProjectFileContracts]: (
+    req: z.infer<SystemProjectFileContracts[K]["request"]>,
+  ) => Promise<z.infer<SystemProjectFileContracts[K]["response"]>>;
+};

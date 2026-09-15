@@ -1,6 +1,6 @@
 import fc from "fast-check";
-import { z } from "zod";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { IPC_ERROR_PREFIX, ReelformIpcError, decodeIpcError, toIpcError } from "./errors";
 
 /** What the renderer actually receives from a rejected ipcRenderer.invoke. */
@@ -12,7 +12,11 @@ function overElectron(err: unknown, channel = "project:open"): Error {
 describe("toIpcError", () => {
   it("uses an error's own toIpcError serializer", () => {
     const err = Object.assign(new Error("nope"), {
-      toIpcError: () => ({ code: "PROJECT_NOT_FOUND", message: "missing", details: { path: "/x" } }),
+      toIpcError: () => ({
+        code: "PROJECT_NOT_FOUND",
+        message: "missing",
+        details: { path: "/x" },
+      }),
     });
     expect(toIpcError(err)).toEqual({
       code: "PROJECT_NOT_FOUND",
@@ -46,7 +50,10 @@ describe("toIpcError", () => {
 
 describe("decodeIpcError", () => {
   it("recovers the IpcError from Electron's wrapped message", () => {
-    const err = Object.assign(new Error("gone"), { code: "EXPORT_NOT_FOUND", details: { id: "e1" } });
+    const err = Object.assign(new Error("gone"), {
+      code: "EXPORT_NOT_FOUND",
+      details: { id: "e1" },
+    });
     expect(decodeIpcError(overElectron(err))).toEqual({
       code: "EXPORT_NOT_FOUND",
       message: "gone",

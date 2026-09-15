@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { EditorWindow } from "../../editor/EditorWindow";
+import { EditorWindow, type EditorWindowProps } from "../../editor/EditorWindow";
 import { type IntervalTimer, bindBlurAutosave } from "../../editor/persistence";
 import type { CreatePreviewStage } from "../../editor/preview";
 import { createEditorHistory, useHistoryState } from "../../editor/state";
@@ -51,6 +51,8 @@ export interface ProjectEditorProps {
   windowPort?: EditorWindowPort | undefined;
   createStage?: CreatePreviewStage | undefined;
   onLocateMedia?: (() => void) | undefined;
+  /** Passed to EditorWindow: builds the inspector host from the document history. */
+  createInspectorHost?: EditorWindowProps["createInspectorHost"];
   /** Autosave interval timer (tests). */
   timer?: IntervalTimer | undefined;
   /** Blur / beforeunload / ⌘S source. Defaults to `window`. */
@@ -126,6 +128,7 @@ export function ProjectEditor({
   windowPort,
   createStage,
   onLocateMedia,
+  createInspectorHost,
   timer,
   eventTarget,
 }: ProjectEditorProps): ReactElement {
@@ -364,6 +367,7 @@ export function ProjectEditor({
         onBack={() => requestLeave("back")}
         onLocateMedia={onLocateMedia}
         sourceDurationMs={sourceDurationMs}
+        createInspectorHost={createInspectorHost}
       />
 
       <Dialog

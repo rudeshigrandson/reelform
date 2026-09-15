@@ -7,5 +7,12 @@ release/
 .vite/
 coverage/
 
+# generated runtime binaries (fetched/built by scripts/, shipped via extraResources)
+resources/whisper/
+resources/ffmpeg/
+.cache/
+electron/native/**/build/
+electron/native/mac/.build/
+
 # agent worktrees (git worktrees, not part of the tree)
 .claude/worktrees/

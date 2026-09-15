@@ -10,7 +10,9 @@ import type { IpcError } from "./contracts";
 export const IPC_ERROR_PREFIX = "__reelform_ipc_error__:";
 
 function hasCode(err: unknown): err is { code: string; message?: unknown; details?: unknown } {
-  return typeof err === "object" && err !== null && typeof (err as { code?: unknown }).code === "string";
+  return (
+    typeof err === "object" && err !== null && typeof (err as { code?: unknown }).code === "string"
+  );
 }
 
 /** Normalise anything a handler throws into an IpcError. */
