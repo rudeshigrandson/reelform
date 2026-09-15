@@ -1,6 +1,7 @@
 import { Button, Card, CardMeta, CardTitle, Segmented, Tag } from "@design/components";
 import type { SegmentedOption } from "@design/components";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { usePrefersReducedMotion } from "../overlays/reducedMotion";
 import { SourcePicker } from "./SourcePicker";
 import { effectiveDeviceId, effectiveSourceId, modeForPick, sourceKindFor } from "./selection";
 import type {
@@ -111,6 +112,7 @@ function SourceCard({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const reduceMotion = usePrefersReducedMotion();
   return (
     <Card
       elevation={selected ? "md" : "sm"}
@@ -129,7 +131,7 @@ function SourceCard({
         padding: "var(--space-2)",
         outline: selected ? "2px solid var(--accent)" : "2px solid transparent",
         borderRadius: "var(--radius-md)",
-        transition: "outline-color 120ms ease",
+        transition: reduceMotion ? "none" : "outline-color 120ms ease",
       }}
     >
       <div
@@ -265,6 +267,30 @@ export function Launcher({
   const [fps, setFps] = useState<Fps>(defaults?.fps ?? 30);
   const [countdown, setCountdown] = useState<Countdown>(defaults?.countdown ?? 3);
   const [hideCursor, setHideCursor] = useState(defaults?.hideCursor ?? false);
+
+  // Settings defaults load async and can change while the launcher is open.
+  const defaultsKey = defaults ? JSON.stringify(Object.entries(defaults).sort()) : "";
+  const appliedDefaults = useRef(defaultsKey);
+  const latestDefaults = useRef(defaults);
+  latestDefaults.current = defaults;
+  useEffect(() => {
+    if (appliedDefaults.current === defaultsKey) return;
+    appliedDefaults.current = defaultsKey;
+    const d = latestDefaults.current ?? {};
+    if (d.mode) setMode(d.mode);
+    if (d.mic !== undefined) {
+      setMic(d.mic);
+      setMicDeviceId(d.micDeviceId ?? "");
+    }
+    if (d.systemAudio !== undefined) setSystemAudio(d.systemAudio);
+    if (d.webcam !== undefined) {
+      setWebcam(d.webcam);
+      setWebcamDeviceId(d.webcamDeviceId ?? "");
+    }
+    if (d.fps !== undefined) setFps(d.fps);
+    if (d.countdown !== undefined) setCountdown(d.countdown);
+    if (d.hideCursor !== undefined) setHideCursor(d.hideCursor);
+  }, [defaultsKey]);
 
   // Screen and region capture displays; window mode lists windows. The list
   // refreshes while open, so keep the selection only while it still exists.

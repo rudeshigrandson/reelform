@@ -50,6 +50,10 @@ function renderRoute(
       if (renderers["webcam-bubble"])
         return { kind: route.kind, node: renderers["webcam-bubble"](route) };
       break;
+    case "source-outline":
+      if (renderers["source-outline"])
+        return { kind: route.kind, node: renderers["source-outline"](route) };
+      break;
     default:
       break;
   }

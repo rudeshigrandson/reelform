@@ -17,6 +17,7 @@ import {
   type MainRecordingEvent,
   createIpcProjectPort,
   createIpcRecordingPort,
+  createIpcHudWindowsPort,
   createIpcSystemPort,
   createIpcWindowsPort,
   mapMainRecordingEvent,
@@ -315,6 +316,45 @@ describe("windows / project / system ports", () => {
       ["windows:openWebcamBubble", {}],
       ["windows:closeKind", { kind: "hud" }],
       ["windows:openEditor", { projectId: "p1" }],
+    ]);
+  });
+
+  it("HUD windows port prepares, commits and maps 'no HUD' to null", async () => {
+    const previous = { x: 440, y: 836, width: 560, height: 64 };
+    const target = { x: 570, y: 844, width: 300, height: 48 };
+    let hudOpen = true;
+    const ipc = fakeIpc({
+      "windows:setHudExpansion": async () =>
+        hudOpen
+          ? { ok: true, layout: null, commitId: 1, previous: target, target: previous }
+          : { ok: true, layout: null, commitId: null, previous: null, target: null },
+      "windows:setHudSize": async () => ({ ok: true, commitId: 2, previous, target }),
+      "windows:commitHudExpansion": async () => ({ ok: true, applied: true }),
+    });
+    const w = createIpcHudWindowsPort(ipc.client);
+    await expect(w.setHudExpansion(null)).resolves.toEqual({
+      commitId: 1,
+      previous: target,
+      target: previous,
+      layout: null,
+    });
+    await expect(w.setHudSize({ width: 300, height: 48, anchor: "center" })).resolves.toEqual({
+      commitId: 2,
+      previous,
+      target,
+    });
+    await expect(w.commitHudLayout(2)).resolves.toBe(true);
+    await w.openSourceOutline("d1");
+    await w.closeKind("source-outline");
+    hudOpen = false;
+    await expect(w.setHudExpansion({ width: 560, height: 104 })).resolves.toBeNull();
+    expect(ipc.calls.map((c) => [c.channel, c.payload])).toEqual([
+      ["windows:setHudExpansion", { size: null }],
+      ["windows:setHudSize", { width: 300, height: 48, anchor: "center" }],
+      ["windows:commitHudExpansion", { commitId: 2 }],
+      ["windows:openSourceOutline", { displayId: "d1" }],
+      ["windows:closeKind", { kind: "source-outline" }],
+      ["windows:setHudExpansion", { size: { width: 560, height: 104 } }],
     ]);
   });
 

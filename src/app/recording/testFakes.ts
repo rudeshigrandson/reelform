@@ -19,8 +19,12 @@ import type {
   CreateProjectRequest,
   CreateProjectResult,
   FinalizeResult,
+  HudExpansionPlan,
   HudExpansionSize,
   HudLayoutInfo,
+  HudRect,
+  HudSizeRequest,
+  HudWindowPlan,
   HudWindowsPort,
   ProjectPort,
   SaveProjectRequest,
@@ -299,16 +303,67 @@ export function fakeCaptureFactory(log: string[]) {
 // ---- HUD pre-record -----------------------------------------------------------------
 
 export class FakeHudWindows implements HudWindowsPort {
+  /** Prepares and other requests, e.g. `expand:560x104`, `collapse`, `size:300x48:center`. */
   calls: string[] = [];
-  /** Layout returned for a non-null expansion; null simulates "no HUD". */
-  layoutFor: (size: HudExpansionSize) => HudLayoutInfo | null = (size) => ({
-    bounds: { x: 440 - (size.width - 560) / 2, y: 836 - size.height, ...size },
-    placement: "above",
-    pillOffset: { x: (size.width - 560) / 2, y: size.height - 64 },
-  });
-  async setHudExpansion(size: HudExpansionSize | null) {
+  /** Commit ids in the order the renderer committed them. */
+  commits: number[] = [];
+  /** Current window bounds (moves only on commit). */
+  bounds: HudRect = { x: 440, y: 836, width: 560, height: 64 };
+  /** The pill inside the window (screen coordinates). */
+  pill: HudRect = { x: 440, y: 836, width: 560, height: 64 };
+  /** False simulates "no HUD open" (every prepare resolves null). */
+  hudOpen = true;
+  private seq = 0;
+  private pending: { commitId: number; target: HudRect; pill: HudRect } | null = null;
+
+  /** Layout for a non-null expansion: grows upward, centred on the pill. */
+  layoutFor: (size: HudExpansionSize) => HudLayoutInfo = (size) => {
+    const pillOffset = { x: (size.width - this.pill.width) / 2, y: size.height - this.pill.height };
+    return {
+      bounds: { x: this.pill.x - pillOffset.x, y: this.pill.y - pillOffset.y, ...size },
+      placement: "above",
+      pillOffset,
+    };
+  };
+
+  private prepare(target: HudRect, pill: HudRect) {
+    const commitId = ++this.seq;
+    this.pending = { commitId, target, pill };
+    return { commitId, previous: { ...this.bounds }, target: { ...target } };
+  }
+
+  async setHudExpansion(size: HudExpansionSize | null): Promise<HudExpansionPlan | null> {
     this.calls.push(size ? `expand:${size.width}x${size.height}` : "collapse");
-    return size ? this.layoutFor(size) : null;
+    if (!this.hudOpen) return null;
+    const layout = size ? this.layoutFor(size) : null;
+    return { ...this.prepare(layout ? layout.bounds : { ...this.pill }, { ...this.pill }), layout };
+  }
+  async setHudSize(req: HudSizeRequest): Promise<HudWindowPlan | null> {
+    this.calls.push(`size:${req.width}x${req.height}:${req.anchor}`);
+    if (!this.hudOpen) return null;
+    const p = this.pill;
+    const target =
+      req.anchor === "center"
+        ? {
+            x: p.x + (p.width - req.width) / 2,
+            y: p.y + (p.height - req.height) / 2,
+            width: req.width,
+            height: req.height,
+          }
+        : { x: p.x, y: p.y, width: req.width, height: req.height };
+    return this.prepare(target, { ...target });
+  }
+  async commitHudLayout(commitId: number): Promise<boolean> {
+    this.commits.push(commitId);
+    const p = this.pending;
+    if (!p || p.commitId !== commitId) return false;
+    this.pending = null;
+    this.bounds = p.target;
+    this.pill = p.pill;
+    return true;
+  }
+  async openSourceOutline(displayId: string) {
+    this.calls.push(`openSourceOutline:${displayId}`);
   }
   async openWebcamBubble() {
     this.calls.push("openWebcamBubble");
@@ -395,6 +450,8 @@ export function fakePreRecordDeps(overrides: Partial<PreRecordDeps> = {}) {
     windows,
     platform: "darwin",
     timers,
+    frames: async () => {},
+    onResize: () => () => {},
     ...overrides,
   };
   return { deps, log, state, windows, timers };

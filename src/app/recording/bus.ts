@@ -34,6 +34,8 @@ export interface SessionSnapshot {
   sourceLabel: string;
   displayId: string | null;
   webcamDeviceId: string | null;
+  /** What was started, so the HUD can Restart with the same setup (optional). */
+  setup?: RecordOptions | undefined;
 }
 
 export type RecordingBusMessage =
@@ -55,7 +57,19 @@ export type RecordingBusMessage =
     }
   | { type: "regionCancelled"; displayId: string }
   /** The pre-record HUD asks the launcher-hosted flow to start (region → selection first). */
-  | { type: "startRequest"; setup: RecordOptions };
+  | { type: "startRequest"; setup: RecordOptions }
+  /** The recording pill's Mute mic toggle (guide S10); the flow mutes the mic track. */
+  | { type: "hud:setMicMuted"; muted: boolean }
+  /**
+   * Outline of the selected window source for the source-outline overlay of
+   * `displayId` (SPEC §5.7). `bounds` is display-local DIP; null hides it.
+   */
+  | {
+      type: "hud:sourceOutline";
+      displayId: string;
+      bounds: RegionRect | null;
+      label?: string | undefined;
+    };
 
 export interface RecordingBus {
   post(message: RecordingBusMessage): void;
@@ -113,7 +127,8 @@ function isSnapshot(v: unknown): v is SessionSnapshot {
     isNumOrNull(v.countdownTotal) &&
     isStr(v.sourceLabel) &&
     isStrOrNull(v.displayId) &&
-    isStrOrNull(v.webcamDeviceId)
+    isStrOrNull(v.webcamDeviceId) &&
+    (v.setup === undefined || isRecordOptions(v.setup))
   );
 }
 
@@ -140,6 +155,14 @@ export function isRecordingBusMessage(v: unknown): v is RecordingBusMessage {
       return isStr(v.displayId);
     case "startRequest":
       return isRecordOptions(v.setup);
+    case "hud:setMicMuted":
+      return isBool(v.muted);
+    case "hud:sourceOutline":
+      return (
+        isStr(v.displayId) &&
+        (v.bounds === null || (isRect(v.bounds) && v.bounds.width >= 0 && v.bounds.height >= 0)) &&
+        isOptStr(v.label)
+      );
     default:
       return false;
   }

@@ -1,10 +1,30 @@
 import { Button, Tag } from "@design/components";
 import { useState } from "react";
-import type { CSSProperties } from "react";
-import { APP_REGION_DRAG } from "./layout";
+import type { CSSProperties, ReactNode } from "react";
+import { usePrefersReducedMotion } from "../overlays/reducedMotion";
+import {
+  APP_REGION_DRAG,
+  CHIP_ROW_HEIGHT,
+  DISCARD_CONFIRM_SIZE,
+  HUD_GAP,
+  PILL_HEIGHT,
+  PILL_WIDTH,
+  RECORDING_MENU_SIZE,
+  RECORDING_PILL,
+  type RecordingPanel,
+} from "./layout";
 import type { RecordingHudProps } from "./types";
 
-const METER_BARS = 12;
+/**
+ * S10 — recording control pill (300×48 glass): pulsing red dot, mono timer
+ * `00:42.1`, mini mic meter, Pause/Resume, Stop (red square) and an overflow
+ * (Restart, Discard, Hide pill, Mute mic). The overflow menu and the discard
+ * confirm are separate panels the container places in the grown HUD window;
+ * {@link RecordingHud} composes everything in flow for previews and tests.
+ * The interrupted state keeps the wide warning pill for its message.
+ */
+
+const METER_BARS = 8;
 
 /** Format a millisecond duration as mm:ss (clamps negatives to 0). */
 export function formatElapsed(ms: number): string {
@@ -16,14 +36,16 @@ export function formatElapsed(ms: number): string {
   return `${mm}:${ss}`;
 }
 
-const pillStyle: CSSProperties = {
+/** Recording timer with tenths, `00:42.1` (guide S10). Negative / non-finite → `00:00.0`. */
+export function formatTimerTenths(ms: number): string {
+  const tenths = Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 100)) : 0;
+  return `${formatElapsed(Math.floor(tenths / 10) * 1000)}.${tenths % 10}`;
+}
+
+const glass: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: "var(--space-3)",
-  width: 560,
-  height: 64,
   boxSizing: "border-box",
-  padding: "0 var(--space-4)",
   // Glass pill (guide §2.4): 88% panel + blur, 1px strong hairline.
   background: "color-mix(in srgb, var(--bg-panel) 88%, transparent)",
   backdropFilter: "blur(24px)",
@@ -34,6 +56,24 @@ const pillStyle: CSSProperties = {
   fontFamily: "var(--font-body)",
   userSelect: "none",
 };
+
+const pillStyle: CSSProperties = {
+  ...glass,
+  gap: 6,
+  width: RECORDING_PILL.width,
+  height: RECORDING_PILL.height,
+  padding: "0 var(--space-2) 0 var(--space-3)",
+};
+
+const widePillStyle: CSSProperties = {
+  ...glass,
+  gap: "var(--space-3)",
+  width: PILL_WIDTH,
+  height: PILL_HEIGHT,
+  padding: "0 var(--space-4)",
+};
+
+const smallIcon: CSSProperties = { width: 28, height: 28, minWidth: 28, padding: 0 };
 
 const gripStyle: CSSProperties = {
   display: "flex",
@@ -78,41 +118,41 @@ export function DragGrip() {
   );
 }
 
-const stopDotStyle: CSSProperties = {
-  display: "inline-block",
-  width: 14,
-  height: 14,
-  borderRadius: 3,
-  background: "var(--on-accent)",
+const timerStyle: CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontVariantNumeric: "tabular-nums",
+  fontSize: 13,
 };
 
-const stopButtonStyle: CSSProperties = {
-  background: "var(--record)",
-  borderColor: "var(--record)",
-  color: "var(--on-accent)",
-};
-
-function MicMeter({ micLevel }: { micLevel: number | undefined }) {
-  const muted = micLevel === undefined;
-  const clamped = muted ? 0 : Math.max(0, Math.min(1, micLevel));
-  const litCount = muted ? 0 : Math.round(clamped * METER_BARS);
+function MicMeter({ micLevel, muted }: { micLevel: number | undefined; muted: boolean }) {
+  const silent = muted || micLevel === undefined;
+  const clamped = silent ? 0 : Math.max(0, Math.min(1, micLevel ?? 0));
+  const litCount = silent ? 0 : Math.round(clamped * METER_BARS);
   const bars = Array.from({ length: METER_BARS }, (_, i) => i < litCount);
 
   return (
     <div
       role="meter"
-      aria-label={muted ? "Microphone muted" : "Microphone level"}
+      aria-label={
+        muted
+          ? "Microphone muted"
+          : micLevel === undefined
+            ? "No microphone input"
+            : "Microphone level"
+      }
       aria-valuemin={0}
       aria-valuemax={1}
-      aria-valuenow={muted ? undefined : clamped}
-      aria-disabled={muted || undefined}
+      aria-valuenow={silent ? undefined : clamped}
+      aria-disabled={silent || undefined}
       data-testid="mic-meter"
+      data-muted={muted ? "true" : undefined}
       style={{
+        position: "relative",
         display: "flex",
         alignItems: "flex-end",
         gap: 2,
-        height: 22,
-        opacity: muted ? 0.35 : 1,
+        height: 16,
+        opacity: silent && !muted ? 0.35 : 1,
       }}
     >
       {bars.map((lit, i) => (
@@ -121,86 +161,144 @@ function MicMeter({ micLevel }: { micLevel: number | undefined }) {
           key={i}
           data-lit={lit ? "true" : "false"}
           style={{
-            width: 3,
+            width: 2,
             height: 6 + i,
             borderRadius: 1,
-            background: lit ? "var(--accent)" : "var(--border-strong)",
+            background: lit ? "var(--accent)" : muted ? "var(--warning)" : "var(--border-strong)",
+            opacity: muted ? 0.5 : 1,
           }}
         />
       ))}
+      {muted ? (
+        // Struck-through mic (guide S10 muted state), warning tint.
+        <span
+          aria-hidden="true"
+          data-testid="mic-muted-icon"
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "var(--warning)",
+            fontSize: 12,
+            textDecoration: "line-through",
+            textDecorationThickness: 2,
+          }}
+        >
+          🎙
+        </span>
+      ) : null}
     </div>
   );
 }
 
-export function RecordingHud(props: RecordingHudProps) {
-  const {
-    phase,
-    elapsedMs,
-    micLevel,
-    sourceLabel,
-    warning,
-    countdownValue,
-    onStop,
-    onPauseToggle,
-    onDiscard,
-  } = props;
+function Spinner() {
+  const reduceMotion = usePrefersReducedMotion();
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="hud-processing"
+      data-motion={reduceMotion ? "reduced" : "full"}
+      style={{
+        flex: "none",
+        width: 14,
+        height: 14,
+        borderRadius: "50%",
+        border: "2px solid var(--border-strong)",
+        borderTopColor: "var(--accent)",
+        animation: reduceMotion
+          ? "reelform-hud-fade 1.6s ease-in-out infinite alternate"
+          : "reelform-hud-spin 900ms linear infinite",
+      }}
+    />
+  );
+}
 
-  const [confirmOpen, setConfirmOpen] = useState(false);
+function RecordingDot({ paused }: { paused: boolean }) {
+  const reduceMotion = usePrefersReducedMotion();
+  const pulse = !paused && !reduceMotion;
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="hud-record-dot"
+      data-pulse={pulse ? "true" : "false"}
+      style={{
+        flex: "none",
+        width: 8,
+        height: 8,
+        borderRadius: "50%",
+        background: "var(--record)",
+        animation: pulse ? "reelform-hud-pulse 1.2s ease-in-out infinite" : "none",
+      }}
+    />
+  );
+}
+
+const KEYFRAMES =
+  "@keyframes reelform-hud-spin { to { transform: rotate(360deg); } }" +
+  " @keyframes reelform-hud-fade { from { opacity: 1; } to { opacity: 0.45; } }" +
+  " @keyframes reelform-hud-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }";
+
+export type RecordingPillProps = RecordingHudProps & {
+  openPanel: RecordingPanel | null;
+  onPanelChange: (panel: RecordingPanel | null) => void;
+};
+
+/** The pill itself (what the HUD window is sized to). */
+export function RecordingPill(props: RecordingPillProps) {
+  const { phase, elapsedMs, micLevel, sourceLabel, countdownValue, onStop, onPauseToggle } = props;
   const isPaused = phase === "paused";
 
-  if (phase === "finalizing" || phase === "interrupted") {
-    const interrupted = phase === "interrupted";
+  if (phase === "interrupted") {
     return (
       <output
-        style={{
-          ...pillStyle,
-          borderColor: interrupted ? "var(--warning)" : "var(--border-strong)",
-        }}
+        style={{ ...widePillStyle, borderColor: "var(--warning)" }}
         data-testid="recording-hud"
         data-phase={phase}
       >
         <DragGrip />
-        {interrupted ? (
-          <Tag variant="outline" style={{ color: "var(--warning)", borderColor: "var(--warning)" }}>
-            Interrupted
-          </Tag>
-        ) : (
-          <span
-            aria-hidden="true"
-            data-testid="hud-processing"
-            style={{
-              width: 14,
-              height: 14,
-              borderRadius: "50%",
-              border: "2px solid var(--border-strong)",
-              borderTopColor: "var(--accent)",
-              animation: "reelform-hud-spin 900ms linear infinite",
-            }}
-          />
-        )}
+        <Tag variant="outline" style={{ color: "var(--warning)", borderColor: "var(--warning)" }}>
+          Interrupted
+        </Tag>
         <span
           data-testid="hud-status"
           style={{ flex: 1, minWidth: 0, fontSize: 13, color: "var(--text-1)" }}
         >
-          {interrupted
-            ? `Recording saved up to ${formatElapsed(elapsedMs)}`
-            : "Processing recording…"}
-          {interrupted && props.interruptedMessage ? (
+          {`Recording saved up to ${formatElapsed(elapsedMs)}`}
+          {props.interruptedMessage ? (
             <span style={{ color: "var(--text-2)" }}> — {props.interruptedMessage}</span>
           ) : null}
         </span>
-        <span
-          data-testid="hud-timer"
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontVariantNumeric: "tabular-nums",
-            fontSize: 13,
-            color: "var(--text-2)",
-          }}
-        >
+        <span data-testid="hud-timer" style={{ ...timerStyle, color: "var(--text-2)" }}>
           {formatElapsed(elapsedMs)}
         </span>
-        <style>{"@keyframes reelform-hud-spin { to { transform: rotate(360deg); } }"}</style>
+      </output>
+    );
+  }
+
+  if (phase === "finalizing") {
+    return (
+      <output style={pillStyle} data-testid="recording-hud" data-phase={phase}>
+        <DragGrip />
+        <Spinner />
+        <span
+          data-testid="hud-status"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontSize: 13,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          Processing recording…
+        </span>
+        <span data-testid="hud-timer" style={{ ...timerStyle, color: "var(--text-2)" }}>
+          {formatTimerTenths(elapsedMs)}
+        </span>
+        <style>{KEYFRAMES}</style>
       </output>
     );
   }
@@ -209,168 +307,320 @@ export function RecordingHud(props: RecordingHudProps) {
     return (
       <div style={pillStyle} data-testid="recording-hud" data-phase={phase}>
         <DragGrip />
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "var(--space-4)",
-          }}
-        >
-          <span
-            data-testid="countdown-value"
-            style={{
-              fontFamily: "var(--font-heading)",
-              fontSize: 40,
-              fontWeight: 700,
-              lineHeight: 1,
-              color: "var(--accent)",
-              minWidth: 40,
-              textAlign: "center",
-            }}
-          >
-            {countdownValue ?? ""}
-          </span>
-          <span style={{ fontSize: 13, color: "var(--text-2)" }}>
-            Get ready — recording starts soon
-          </span>
-        </div>
-      </div>
-    );
-  }
-
-  if (confirmOpen) {
-    // Inline confirm (S10 compact style): a dialog would be clipped by the 560×64 window.
-    return (
-      <div
-        style={{ ...pillStyle, borderColor: "var(--danger)" }}
-        data-testid="recording-hud"
-        data-phase={phase}
-        role="alertdialog"
-        aria-label="Discard recording?"
-        aria-describedby="hud-discard-detail"
-        onKeyDown={(e) => {
-          if (e.key === "Escape") setConfirmOpen(false);
-        }}
-      >
-        <DragGrip />
-        <span style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
-          <strong style={{ fontSize: 13 }}>Discard recording?</strong>
-          <span id="hud-discard-detail" style={{ fontSize: 12, color: "var(--text-2)" }}>
-            The current recording will be deleted. This can't be undone.
-          </span>
-        </span>
         <span
-          data-testid="hud-timer"
+          data-testid="countdown-value"
           style={{
-            fontFamily: "var(--font-mono)",
-            fontVariantNumeric: "tabular-nums",
-            fontSize: 13,
-            color: "var(--text-2)",
+            fontFamily: "var(--font-heading)",
+            fontSize: 24,
+            fontWeight: 700,
+            lineHeight: 1,
+            color: "var(--accent)",
+            minWidth: 24,
+            textAlign: "center",
           }}
         >
-          {formatElapsed(elapsedMs)}
+          {countdownValue ?? ""}
         </span>
-        <Button variant="ghost" autoFocus onClick={() => setConfirmOpen(false)}>
-          Keep recording
-        </Button>
-        <Button
-          variant="danger"
-          onClick={() => {
-            setConfirmOpen(false);
-            onDiscard();
-          }}
-        >
-          Discard
-        </Button>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: "var(--text-2)" }}>
+          Recording starts soon
+        </span>
       </div>
     );
   }
 
+  const menuOpen = props.openPanel === "menu";
   return (
-    <div style={pillStyle} data-testid="recording-hud" data-phase={phase}>
+    <div
+      style={pillStyle}
+      data-testid="recording-hud"
+      data-phase={phase}
+      title={sourceLabel ? `Recording ${sourceLabel}` : undefined}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && props.openPanel) props.onPanelChange(null);
+      }}
+    >
       <DragGrip />
-
-      <Button
-        variant="primary"
-        icon
-        onClick={onStop}
-        aria-label="Stop recording"
-        title="Stop"
-        style={stopButtonStyle}
+      <RecordingDot paused={isPaused} />
+      <span
+        data-testid="hud-timer"
+        aria-label={isPaused ? "Paused" : "Elapsed"}
+        style={{ ...timerStyle, minWidth: 54, opacity: isPaused ? 0.55 : 1 }}
       >
-        <span style={stopDotStyle} />
-      </Button>
-
+        {formatTimerTenths(elapsedMs)}
+      </span>
+      <MicMeter micLevel={micLevel} muted={props.micMuted === true} />
+      <span style={{ flex: 1 }} />
       <Button
         variant="ghost"
         icon
         onClick={onPauseToggle}
         aria-label={isPaused ? "Resume recording" : "Pause recording"}
         title={isPaused ? "Resume" : "Pause"}
+        style={smallIcon}
       >
         {isPaused ? "▶" : "❚❚"}
       </Button>
-
+      <Button
+        variant="primary"
+        icon
+        onClick={onStop}
+        aria-label="Stop recording"
+        title="Stop"
+        style={{
+          ...smallIcon,
+          background: "var(--record)",
+          borderColor: "var(--record)",
+          color: "var(--on-accent)",
+        }}
+      >
+        <span
+          style={{
+            display: "inline-block",
+            width: 10,
+            height: 10,
+            borderRadius: 2,
+            background: "var(--on-accent)",
+          }}
+        />
+      </Button>
       <Button
         variant="ghost"
         icon
-        onClick={() => setConfirmOpen(true)}
-        aria-label="Discard recording"
-        title="Discard"
+        onClick={() => props.onPanelChange(menuOpen ? null : "menu")}
+        aria-label="More recording options"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        title="More"
+        style={smallIcon}
       >
-        🗑
+        ⋯
       </Button>
+      <style>{KEYFRAMES}</style>
+    </div>
+  );
+}
 
-      <span
-        data-testid="hud-timer"
-        style={{
-          fontFamily: "var(--font-heading)",
-          fontVariantNumeric: "tabular-nums",
-          fontSize: 20,
-          fontWeight: 600,
-          minWidth: 62,
-          textAlign: "center",
-          opacity: isPaused ? 0.45 : 1,
-        }}
-      >
-        {formatElapsed(elapsedMs)}
-      </span>
+const panelStyle: CSSProperties = {
+  boxSizing: "border-box",
+  padding: "var(--space-2)",
+  background: "var(--bg-panel-raised)",
+  border: "1px solid var(--border-strong)",
+  borderRadius: "var(--radius-md)",
+  boxShadow: "var(--shadow-lg)",
+  color: "var(--text-1)",
+  fontFamily: "var(--font-body)",
+  fontSize: 13,
+};
 
-      {isPaused ? <Tag variant="accent-2">Paused</Tag> : null}
+function MenuItem({
+  onClick,
+  checked,
+  disabled,
+  danger,
+  children,
+}: {
+  onClick: () => void;
+  checked?: boolean | undefined;
+  disabled?: boolean | undefined;
+  danger?: boolean | undefined;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role={checked === undefined ? "menuitem" : "menuitemcheckbox"}
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        width: "100%",
+        height: 32,
+        padding: "0 var(--space-2)",
+        border: "none",
+        borderRadius: "var(--radius-sm)",
+        background: checked ? "var(--accent-soft)" : "transparent",
+        color: danger ? "var(--danger)" : "var(--text-1)",
+        opacity: disabled ? 0.45 : 1,
+        font: "inherit",
+        textAlign: "left",
+        cursor: disabled ? "default" : "pointer",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
 
-      <MicMeter micLevel={micLevel} />
-
+/** Overflow menu: Restart, Discard…, Hide pill, Mute mic. */
+export function RecordingHudMenu(props: RecordingPillProps) {
+  const close = () => props.onPanelChange(null);
+  return (
+    <div
+      role="menu"
+      aria-label="Recording options"
+      data-testid="hud-recording-menu"
+      style={{
+        ...panelStyle,
+        width: RECORDING_MENU_SIZE.width,
+        maxHeight: RECORDING_MENU_SIZE.height,
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") close();
+      }}
+    >
       <div
+        data-testid="hud-source"
+        title={props.sourceLabel}
         style={{
-          flex: 1,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "flex-end",
-          gap: "var(--space-2)",
-          minWidth: 0,
+          padding: "var(--space-1) var(--space-2)",
+          color: "var(--text-3)",
+          fontSize: 12,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
         }}
       >
-        {warning ? (
-          <Tag variant="outline" data-testid="hud-warning">
-            {warning}
-          </Tag>
-        ) : null}
-        <span
-          data-testid="hud-source"
-          style={{
-            fontSize: 12,
-            color: "var(--text-2)",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-          title={sourceLabel}
-        >
-          {sourceLabel}
-        </span>
+        {props.sourceLabel}
       </div>
+      <MenuItem
+        disabled={!props.onRestart}
+        onClick={() => {
+          close();
+          props.onRestart?.();
+        }}
+      >
+        Restart
+      </MenuItem>
+      <MenuItem danger onClick={() => props.onPanelChange("confirm")}>
+        Discard…
+      </MenuItem>
+      <MenuItem
+        disabled={!props.onHidePill}
+        onClick={() => {
+          close();
+          props.onHidePill?.();
+        }}
+      >
+        Hide pill
+      </MenuItem>
+      <MenuItem
+        checked={props.micMuted === true}
+        disabled={!props.onMuteToggle}
+        onClick={() => {
+          close();
+          props.onMuteToggle?.();
+        }}
+      >
+        Mute mic
+      </MenuItem>
+    </div>
+  );
+}
+
+/** Inline discard confirm next to the pill (a system dialog would be clipped by the HUD window). */
+export function DiscardConfirm(props: RecordingPillProps) {
+  const close = () => props.onPanelChange(null);
+  return (
+    <div
+      role="alertdialog"
+      aria-label="Discard recording?"
+      aria-describedby="hud-discard-detail"
+      data-testid="hud-discard-confirm"
+      style={{
+        ...panelStyle,
+        width: DISCARD_CONFIRM_SIZE.width,
+        height: DISCARD_CONFIRM_SIZE.height,
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-2)",
+        borderColor: "var(--danger)",
+        padding: "var(--space-3)",
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") close();
+      }}
+    >
+      <strong style={{ fontSize: 13 }}>Discard recording?</strong>
+      <span id="hud-discard-detail" style={{ fontSize: 12, color: "var(--text-2)" }}>
+        The current recording ({formatTimerTenths(props.elapsedMs)}) will be deleted. This can't be
+        undone.
+      </span>
+      <span style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-2)" }}>
+        <Button variant="ghost" autoFocus onClick={close}>
+          Keep recording
+        </Button>
+        <Button
+          variant="danger"
+          onClick={() => {
+            close();
+            props.onDiscard();
+          }}
+        >
+          Discard
+        </Button>
+      </span>
+    </div>
+  );
+}
+
+/** The open panel, if any (only recording / paused have one). */
+export function RecordingHudPanel(props: RecordingPillProps) {
+  if (props.phase !== "recording" && props.phase !== "paused") return null;
+  if (props.openPanel === "menu") return <RecordingHudMenu {...props} />;
+  if (props.openPanel === "confirm") return <DiscardConfirm {...props} />;
+  return null;
+}
+
+/** Low disk space / capture warning strip above the recording pill (guide S10). */
+export function RecordingWarningStrip({ warning }: { warning: string | undefined }) {
+  if (!warning) return null;
+  return (
+    // <output> is the live status region; the tag is only the chip look.
+    <output style={{ display: "contents" }}>
+      <Tag
+        variant="outline"
+        data-testid="hud-warning"
+        title={warning}
+        style={{
+          boxSizing: "border-box",
+          height: CHIP_ROW_HEIGHT,
+          display: "inline-flex",
+          alignItems: "center",
+          maxWidth: RECORDING_PILL.width,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          color: "var(--warning)",
+          borderColor: "var(--warning)",
+          background: "var(--bg-panel-raised)",
+        }}
+      >
+        {warning}
+      </Tag>
+    </output>
+  );
+}
+
+/** Standalone composition (previews, tests): warning strip, pill, then the open panel. */
+export function RecordingHud(props: RecordingHudProps) {
+  const [localPanel, setLocalPanel] = useState<RecordingPanel | null>(null);
+  const openPanel = props.openPanel !== undefined ? props.openPanel : localPanel;
+  const onPanelChange = (panel: RecordingPanel | null) => {
+    if (props.openPanel === undefined) setLocalPanel(panel);
+    props.onPanelChange?.(panel);
+  };
+  const full: RecordingPillProps = { ...props, openPanel, onPanelChange };
+  const live = props.phase === "recording" || props.phase === "paused";
+  return (
+    <div
+      data-testid="recording-hud-stack"
+      style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: HUD_GAP }}
+    >
+      {live ? <RecordingWarningStrip warning={props.warning} /> : null}
+      <RecordingPill {...full} />
+      <RecordingHudPanel {...full} />
     </div>
   );
 }

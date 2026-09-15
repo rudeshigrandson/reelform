@@ -20,6 +20,15 @@ export interface RegionSelectorProps {
   minSize?: number;
   /** Guidance above the selection (guide S07). */
   hint?: string | undefined;
+  /** Window rects (display-local) the selection edges snap to while dragging / resizing. */
+  snapTargets?: ReadonlyArray<Bounds> | undefined;
+}
+
+export interface SourceOutlineProps {
+  /** Display-local rect of the selected window source. */
+  bounds: Bounds;
+  /** e.g. "Figma — Onboarding.fig". */
+  label?: string | undefined;
 }
 
 export interface CountdownProps {

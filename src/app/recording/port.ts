@@ -29,6 +29,25 @@ export type SaveProjectRequest = RequestOf<"project:save">;
 export type ClosableWindowKind = RequestOf<"windows:closeKind">["kind"];
 export type HudExpansionSize = NonNullable<RequestOf<"windows:setHudExpansion">["size"]>;
 export type HudLayoutInfo = NonNullable<ResponseOf<"windows:setHudExpansion">["layout"]>;
+export type HudSizeRequest = RequestOf<"windows:setHudSize">;
+export type HudRect = HudLayoutInfo["bounds"];
+
+/**
+ * A prepared HUD window change (SPEC §5.7): main computed the target bounds
+ * without moving; the renderer lays out, waits for paint, then commits.
+ */
+export interface HudWindowPlan {
+  commitId: number;
+  /** Window bounds now. */
+  previous: HudRect;
+  /** Window bounds once committed. */
+  target: HudRect;
+}
+
+export interface HudExpansionPlan extends HudWindowPlan {
+  /** Null when collapsing back to the bare pill. */
+  layout: HudLayoutInfo | null;
+}
 
 export interface AppRecordingPort extends RecordingPort {
   listSources(): Promise<SourcesResult>;
@@ -49,8 +68,17 @@ export interface WindowsPort {
 
 /** What the HUD window itself needs from `windows:*` (pre-record popovers, preview, settings). */
 export interface HudWindowsPort extends Pick<WindowsPort, "openWebcamBubble" | "closeKind"> {
-  /** Grow the HUD window for popovers keeping the pill anchored; `null` collapses. */
-  setHudExpansion(size: HudExpansionSize | null): Promise<HudLayoutInfo | null>;
+  /**
+   * Prepare growing the HUD window for popovers keeping the pill anchored
+   * (`null` collapses). Null when no HUD is open. Apply with {@link commitHudLayout}.
+   */
+  setHudExpansion(size: HudExpansionSize | null): Promise<HudExpansionPlan | null>;
+  /** Prepare resizing the pill itself (recording pill, hidden dot). Null when no HUD is open. */
+  setHudSize(req: HudSizeRequest): Promise<HudWindowPlan | null>;
+  /** Apply a prepared change; false when stale or the HUD is gone. */
+  commitHudLayout(commitId: number): Promise<boolean>;
+  /** Click-through outline of the selected window source on its display. */
+  openSourceOutline(displayId: string): Promise<void>;
   openSettings(): Promise<void>;
 }
 
@@ -218,7 +246,28 @@ export function createIpcHudWindowsPort(ipc: IpcClient = defaultIpcClient): HudW
     closeKind: async (kind) => {
       await call(ipc, "windows:closeKind", { kind });
     },
-    setHudExpansion: async (size) => (await call(ipc, "windows:setHudExpansion", { size })).layout,
+    setHudExpansion: async (size) => {
+      const res = await call(ipc, "windows:setHudExpansion", { size });
+      return res.commitId === null || !res.previous || !res.target
+        ? null
+        : {
+            commitId: res.commitId,
+            previous: res.previous,
+            target: res.target,
+            layout: res.layout,
+          };
+    },
+    setHudSize: async (req) => {
+      const res = await call(ipc, "windows:setHudSize", req);
+      return res.commitId === null || !res.previous || !res.target
+        ? null
+        : { commitId: res.commitId, previous: res.previous, target: res.target };
+    },
+    commitHudLayout: async (commitId) =>
+      (await call(ipc, "windows:commitHudExpansion", { commitId })).applied,
+    openSourceOutline: async (displayId) => {
+      await call(ipc, "windows:openSourceOutline", { displayId });
+    },
     openSettings: async () => {
       await call(ipc, "windows:openSettings", undefined);
     },

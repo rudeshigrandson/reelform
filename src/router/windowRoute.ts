@@ -15,6 +15,7 @@ export const ROUTER_WINDOW_KINDS = [
   "region-overlay",
   "countdown",
   "webcam-bubble",
+  "source-outline",
 ] as const;
 
 export type RouteKind = (typeof ROUTER_WINDOW_KINDS)[number];
@@ -29,6 +30,7 @@ const RouteSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("region-overlay"), displayId: id }),
   z.object({ kind: z.literal("countdown"), displayId: id.optional() }),
   z.object({ kind: z.literal("webcam-bubble") }),
+  z.object({ kind: z.literal("source-outline"), displayId: id }),
 ]);
 
 export type WindowRoute = z.infer<typeof RouteSchema>;
@@ -55,6 +57,10 @@ export function parseWindowRoute(search: string): WindowRoute {
 /** Transparent overlay windows need a transparent document background. */
 export function isTransparentKind(kind: RouteKind): boolean {
   return (
-    kind === "hud" || kind === "region-overlay" || kind === "countdown" || kind === "webcam-bubble"
+    kind === "hud" ||
+    kind === "region-overlay" ||
+    kind === "countdown" ||
+    kind === "webcam-bubble" ||
+    kind === "source-outline"
   );
 }

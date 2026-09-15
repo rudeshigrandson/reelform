@@ -1,15 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RegionSelector } from "../../overlays/RegionSelector";
 import type { Bounds } from "../../overlays/types";
 import type { RecordingBus } from "./bus";
-import type { WindowsPort } from "./port";
-import { type Viewport, defaultRegionBounds, toRegionSelection } from "./regionMath";
+import type { SourcesResult, WindowsPort } from "./port";
+import {
+  type Viewport,
+  defaultRegionBounds,
+  toRegionSelection,
+  windowSnapTargets,
+} from "./regionMath";
 
 /**
  * Region overlay window container (guide S07, SPEC §5.7): one per display.
  * Makes the overlay accept the mouse while selecting, then posts the region in
  * display DIP + device pixels + scaleFactor to the launcher over the bus (or a
- * cancel). A choice on any display ends selection on all of them.
+ * cancel). A choice on any display ends selection on all of them. Edges snap
+ * to the windows on this display (`listSources` bounds, fetched once).
  */
 
 export interface RegionOverlayContainerProps {
@@ -21,6 +27,8 @@ export interface RegionOverlayContainerProps {
   /** Defaults to the window's inner size (= the display in DIP). */
   viewport?: Viewport | undefined;
   initialBounds?: Bounds | undefined;
+  /** Window bounds for edge snapping; desktopCapturer windows have none (no snapping). */
+  listSources?: (() => Promise<SourcesResult>) | undefined;
 }
 
 export function RegionOverlayContainer({
@@ -30,6 +38,7 @@ export function RegionOverlayContainer({
   scaleFactor,
   viewport,
   initialBounds,
+  listSources,
 }: RegionOverlayContainerProps) {
   const vp = useMemo<Viewport>(
     () =>
@@ -42,6 +51,25 @@ export function RegionOverlayContainer({
   const scale = scaleFactor ?? (typeof window === "undefined" ? 1 : window.devicePixelRatio || 1);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [snapTargets, setSnapTargets] = useState<Bounds[]>([]);
+  const listSourcesRef = useRef(listSources);
+
+  useEffect(() => {
+    const load = listSourcesRef.current;
+    if (!load) return;
+    let alive = true;
+    load().then(
+      (sources) => {
+        if (alive) setSnapTargets(windowSnapTargets(sources, displayId));
+      },
+      () => {
+        // No snapping without sources; selection still works.
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [displayId]);
   const start = useMemo(() => initialBounds ?? defaultRegionBounds(vp), [initialBounds, vp]);
 
   useEffect(() => {
@@ -73,7 +101,12 @@ export function RegionOverlayContainer({
   if (done) return null;
   return (
     <>
-      <RegionSelector initialBounds={start} onConfirm={onConfirm} onCancel={onCancel} />
+      <RegionSelector
+        initialBounds={start}
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+        snapTargets={snapTargets}
+      />
       {error ? (
         <p
           role="alert"

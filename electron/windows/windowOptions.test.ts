@@ -12,6 +12,7 @@ import {
   clampIntoArea,
   defaultHudPosition,
   hudExpansionLayout,
+  hudResizeRect,
 } from "./windowOptions";
 
 const rectArb = fc.record({
@@ -70,7 +71,13 @@ describe("buildWindowOptions", () => {
   });
 
   it("makes overlay kinds transparent, frameless, always-on-top and off the taskbar", () => {
-    for (const kind of ["hud", "region-overlay", "countdown", "webcam-bubble"] as const) {
+    for (const kind of [
+      "hud",
+      "region-overlay",
+      "countdown",
+      "webcam-bubble",
+      "source-outline",
+    ] as const) {
       const o = buildWindowOptions(kind, { preloadPath: "/p" });
       expect(o).toMatchObject({
         transparent: true,
@@ -208,6 +215,40 @@ describe("hudExpansionLayout", () => {
   });
 });
 
+describe("source outline and HUD resize", () => {
+  it("source outline covers its display, never takes focus", () => {
+    const b = { x: 1440, y: 0, width: 1920, height: 1080 };
+    expect(
+      buildWindowOptions("source-outline", { preloadPath: "/p", displayBounds: b }),
+    ).toMatchObject({ ...b, focusable: false, movable: false, enableLargerThanScreen: true });
+  });
+
+  it("hudResizeRect keeps the centre or top-left and clamps into the work area", () => {
+    const area = { x: 0, y: 25, width: 1440, height: 875 };
+    const pill = { x: 440, y: 836, width: 560, height: 64 };
+    expect(hudResizeRect(pill, { width: 300, height: 48 }, "center", area)).toEqual({
+      x: 570,
+      y: 844,
+      width: 300,
+      height: 48,
+    });
+    expect(hudResizeRect(pill, { width: 36, height: 36 }, "top-left", area)).toEqual({
+      x: 440,
+      y: 836,
+      width: 36,
+      height: 36,
+    });
+    const corner = { x: 1404, y: 864, width: 36, height: 36 };
+    expect(hudResizeRect(corner, { width: 560, height: 64 }, "center", area)).toEqual({
+      x: 880,
+      y: 836,
+      width: 560,
+      height: 64,
+    });
+    expect(hudResizeRect(pill, { width: Number.NaN, height: -3 }, "center", area)).toEqual(pill);
+  });
+});
+
 describe("windowKinds", () => {
   it("keys singletons by kind, editors by project, overlays by display", () => {
     expect(windowKey({ kind: "launcher", projectId: "x" })).toBe("launcher");
@@ -219,6 +260,9 @@ describe("windowKinds", () => {
 
   it("content-protects HUD and webcam bubble but never the main windows", () => {
     expect(CONTENT_PROTECTED.hud).toBe(true);
+    expect(CONTENT_PROTECTED["source-outline"]).toBe(true);
+    expect(INSTANCE_POLICY["source-outline"]).toBe("per-display");
+    expect(windowKey({ kind: "source-outline", displayId: "2" })).toBe("source-outline:2");
     expect(CONTENT_PROTECTED["webcam-bubble"]).toBe(true);
     expect(
       CONTENT_PROTECTED.launcher || CONTENT_PROTECTED.editor || CONTENT_PROTECTED.settings,

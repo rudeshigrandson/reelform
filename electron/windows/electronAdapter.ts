@@ -9,6 +9,8 @@ export function createElectronWindowManager(opts: {
   preloadPath: string;
   loadSource: LoadSource;
   hudPositions: HudPositionStore;
+  /** `true` when the HUD is created, `false` once it closed (e.g. tray badge, shortcuts). */
+  onHudVisibilityChange?: ((open: boolean) => void) | undefined;
 }): WindowManager {
   const Ctor = function (this: unknown, options: WindowOptions) {
     // exactOptionalPropertyTypes: Electron's options reject explicit `undefined`.
@@ -26,5 +28,6 @@ export function createElectronWindowManager(opts: {
     preloadPath: opts.preloadPath,
     loadSource: opts.loadSource,
     hudPositions: opts.hudPositions,
+    onHudVisibilityChange: opts.onHudVisibilityChange,
   });
 }

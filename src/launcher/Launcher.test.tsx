@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Launcher, sampleLauncherProps } from "./Launcher";
 import type { RecordOptions } from "./types";
 
@@ -201,5 +201,38 @@ describe("Launcher", () => {
     unmount();
     render(<Launcher {...sampleLauncherProps} />);
     expect(screen.queryByRole("button", { name: "Browse…" })).toBeNull();
+  });
+});
+
+describe("Launcher — reduce motion", () => {
+  afterEach(() => {
+    delete document.documentElement.dataset.reduceMotion;
+  });
+
+  it("source cards animate the selection outline unless motion is reduced", () => {
+    const { unmount } = render(<Launcher {...sampleLauncherProps} />);
+    const listbox = () => screen.getByRole("listbox", { name: /capturable sources/i });
+    const card = () => within(listbox()).getAllByRole("button")[0] as HTMLElement;
+    expect(card().style.transition).toContain("outline-color");
+    unmount();
+    document.documentElement.dataset.reduceMotion = "true";
+    render(<Launcher {...sampleLauncherProps} />);
+    expect(card().style.transition).toBe("none");
+  });
+});
+
+describe("Launcher — defaults", () => {
+  it("applies defaults that arrive after mount (settings load async)", () => {
+    const onStart = vi.fn();
+    const { rerender } = render(<Launcher {...sampleLauncherProps} onStart={onStart} />);
+    rerender(
+      <Launcher
+        {...sampleLauncherProps}
+        onStart={onStart}
+        defaults={{ fps: 60, countdown: 10, hideCursor: true }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    expect(onStart.mock.calls[0]?.[0]).toMatchObject({ fps: 60, countdown: 10, hideCursor: true });
   });
 });

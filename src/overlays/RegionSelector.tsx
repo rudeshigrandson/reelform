@@ -1,6 +1,7 @@
 import { Button } from "@design/components";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
+import { SNAP_THRESHOLD_PX, snapRect } from "./snap";
 import type { Bounds, RegionSelectorProps } from "./types";
 
 type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
@@ -30,7 +31,8 @@ const HANDLE_SIZE = 14;
 /**
  * Fullscreen transparent overlay for choosing a screen-capture region.
  * A dark scrim with a transparent "hole" = the current selection, resize
- * handles on the edges, a move affordance, and a px readout.
+ * handles on the edges, a move affordance, and a px readout. Edges snap to
+ * `snapTargets` (window rects on this display) within 8px while dragging.
  */
 export function RegionSelector({
   initialBounds,
@@ -38,9 +40,12 @@ export function RegionSelector({
   onCancel,
   minSize = 32,
   hint = "Drag to select a region · Esc to cancel",
+  snapTargets,
 }: RegionSelectorProps) {
   const [bounds, setBounds] = useState<Bounds>(initialBounds);
   const dragRef = useRef<Drag | null>(null);
+  const snapRef = useRef(snapTargets);
+  snapRef.current = snapTargets;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -59,12 +64,11 @@ export function RegionSelector({
       const o = drag.origin;
 
       setBounds(() => {
+        const targets = snapRef.current;
         if (drag.kind === "move") {
-          return {
-            ...o,
-            x: Math.max(0, o.x + dx),
-            y: Math.max(0, o.y + dy),
-          };
+          const moved = { ...o, x: o.x + dx, y: o.y + dy };
+          const snapped = targets?.length ? snapRect(moved, targets, SNAP_THRESHOLD_PX) : moved;
+          return { ...snapped, x: Math.max(0, snapped.x), y: Math.max(0, snapped.y) };
         }
         let { x, y, width, height } = o;
         const h = drag.kind;
@@ -77,6 +81,14 @@ export function RegionSelector({
         if (h.includes("n")) {
           height = o.height - dy;
           y = o.y + dy;
+        }
+        if (targets?.length) {
+          ({ x, y, width, height } = snapRect({ x, y, width, height }, targets, SNAP_THRESHOLD_PX, {
+            left: h.includes("w"),
+            right: h.includes("e"),
+            top: h.includes("n"),
+            bottom: h.includes("s"),
+          }));
         }
         // Clamp to minSize, keeping the anchored edge fixed.
         if (width < minSize) {

@@ -12,6 +12,7 @@ export const WINDOW_KINDS = [
   "region-overlay",
   "countdown",
   "webcam-bubble",
+  "source-outline",
 ] as const;
 
 export type WindowKind = (typeof WINDOW_KINDS)[number];
@@ -27,12 +28,13 @@ export const INSTANCE_POLICY: Record<WindowKind, InstancePolicy> = {
   "region-overlay": "per-display",
   countdown: "single",
   "webcam-bubble": "single",
+  "source-outline": "per-display",
 };
 
 /**
  * Kinds excluded from screen capture via `setContentProtection(true)`.
- * Spec names HUD and webcam bubble; the overlays (region outline, countdown)
- * are protected too so they never bleed into a recording.
+ * Spec names HUD and webcam bubble; the overlays (region selector, source
+ * outline, countdown) are protected too so they never bleed into a recording.
  */
 export const CONTENT_PROTECTED: Record<WindowKind, boolean> = {
   launcher: false,
@@ -42,6 +44,7 @@ export const CONTENT_PROTECTED: Record<WindowKind, boolean> = {
   "region-overlay": true,
   countdown: true,
   "webcam-bubble": true,
+  "source-outline": true,
 };
 
 /** Query parameters that identify one window instance. */
@@ -57,7 +60,7 @@ export function isWindowKind(v: unknown): v is WindowKind {
 
 /**
  * Registry key for a window instance: one per kind for singletons, one per
- * project for editors, one per display for region overlays.
+ * project for editors, one per display for region / source-outline overlays.
  */
 export function windowKey(params: WindowParams): string {
   switch (INSTANCE_POLICY[params.kind]) {

@@ -170,3 +170,55 @@ describe("createMemoryBusHub", () => {
     expect(seenB).toHaveLength(1);
   });
 });
+
+describe("isRecordingBusMessage — HUD messages", () => {
+  it("accepts mic mute toggles and source outlines", () => {
+    expect(isRecordingBusMessage({ type: "hud:setMicMuted", muted: true })).toBe(true);
+    expect(
+      isRecordingBusMessage({
+        type: "hud:sourceOutline",
+        displayId: "d1",
+        bounds: { x: 1, y: 2, width: 3, height: 4 },
+        label: "Figma — Onboarding.fig",
+      }),
+    ).toBe(true);
+    expect(
+      isRecordingBusMessage({ type: "hud:sourceOutline", displayId: "d1", bounds: null }),
+    ).toBe(true);
+  });
+
+  it("rejects malformed HUD messages", () => {
+    for (const bad of [
+      { type: "hud:setMicMuted" },
+      { type: "hud:setMicMuted", muted: "yes" },
+      { type: "hud:sourceOutline", bounds: null },
+      { type: "hud:sourceOutline", displayId: "d1" },
+      { type: "hud:sourceOutline", displayId: "d1", bounds: { x: 0, y: 0, width: -1, height: 2 } },
+      { type: "hud:sourceOutline", displayId: "d1", bounds: null, label: 3 },
+    ]) {
+      expect(isRecordingBusMessage(bad)).toBe(false);
+    }
+  });
+
+  it("snapshots may carry the started setup, which must be valid", () => {
+    const setup = {
+      sourceId: "d1",
+      mode: "screen",
+      mic: false,
+      systemAudio: false,
+      webcam: false,
+      fps: 60,
+      countdown: 3,
+      hideCursor: false,
+    };
+    expect(isRecordingBusMessage({ type: "snapshot", snapshot: { ...snapshot, setup } })).toBe(
+      true,
+    );
+    expect(
+      isRecordingBusMessage({
+        type: "snapshot",
+        snapshot: { ...snapshot, setup: { ...setup, fps: 24 } },
+      }),
+    ).toBe(false);
+  });
+});

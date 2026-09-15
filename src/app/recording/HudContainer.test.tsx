@@ -71,8 +71,9 @@ describe("HudContainer", () => {
         webcamDeviceId: null,
       },
     });
-    expect(screen.getByTestId("hud-source")).toHaveTextContent("Studio Display");
     expect(screen.getByRole("button", { name: "Resume recording" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More recording options" }));
+    expect(screen.getByTestId("hud-source")).toHaveTextContent("Studio Display");
   });
 
   it("pause, stop and confirmed discard go to main", async () => {
@@ -85,7 +86,8 @@ describe("HudContainer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Resume recording" }));
     await act(async () => drain());
 
-    fireEvent.click(screen.getByRole("button", { name: "Discard recording" }));
+    fireEvent.click(screen.getByRole("button", { name: "More recording options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Discard…" }));
     fireEvent.click(screen.getByRole("button", { name: "Keep recording" }));
     expect(t.port.calls).toEqual(["pause:s1", "resume:s1"]);
 
@@ -98,7 +100,8 @@ describe("HudContainer", () => {
   it("discard after confirm", async () => {
     const t = setup({ sessionId: "s1" });
     await t.emit({ sessionId: "s1", type: "started", backend: "electron" });
-    fireEvent.click(screen.getByRole("button", { name: "Discard recording" }));
+    fireEvent.click(screen.getByRole("button", { name: "More recording options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Discard…" }));
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     await act(async () => drain());
     expect(t.port.calls).toEqual(["discard:s1"]);
@@ -110,9 +113,9 @@ describe("HudContainer", () => {
     await t.emit({ sessionId: "s1", type: "started", backend: "electron" });
     await t.post({ type: "micLevel", sessionId: "s1", level: 0.5 });
     const meter = screen.getByTestId("mic-meter");
-    expect(meter.querySelectorAll('[data-lit="true"]')).toHaveLength(6);
+    expect(meter.querySelectorAll('[data-lit="true"]')).toHaveLength(4);
     await t.post({ type: "micLevel", sessionId: "other", level: 1 });
-    expect(meter.querySelectorAll('[data-lit="true"]')).toHaveLength(6);
+    expect(meter.querySelectorAll('[data-lit="true"]')).toHaveLength(4);
   });
 
   it("disk low and capture warnings show in the pill", async () => {
@@ -149,6 +152,9 @@ describe("HudContainer", () => {
 });
 
 // ---- global shortcuts, pre-record pill, hidden mode ------------------------------------
+
+/** The HUD's last pill-size request (a no-op collapse from the new stage may follow it). */
+const lastSize = (calls: string[]) => calls.filter((c) => c.startsWith("size:")).at(-1);
 
 function fakeShortcuts() {
   const listeners = new Set<(id: string) => void>();
@@ -264,7 +270,7 @@ describe("HudContainer — pre-record pill driven by the launcher flow", () => {
         await drain(60);
       });
     };
-    return { port, flow, pre, shortcuts, flush, ...utils };
+    return { port, flow, pre, shortcuts, flush, hub, ...utils };
   }
 
   it("Record in the pill starts the flow; the HUD adopts the session into the live pill", async () => {
@@ -282,8 +288,11 @@ describe("HudContainer — pre-record pill driven by the launcher flow", () => {
     });
     expect(screen.queryByTestId("pre-record-hud")).toBeNull();
     expect(screen.getByRole("button", { name: "Stop recording" })).toBeInTheDocument();
-    // Leaving pre-record collapses the grown window.
-    expect(t.pre.windows.calls.at(-1)).toBe("collapse");
+    // Leaving pre-record collapses the grown window, then shrinks it to the 300x48 pill.
+    expect(t.pre.windows.calls).toContain("collapse");
+    expect(lastSize(t.pre.windows.calls)).toBe("size:300x48:center");
+    expect(t.pre.windows.pill).toMatchObject({ width: 300, height: 48 });
+    expect(screen.getByTestId("hud-window")).toHaveAttribute("data-view", "recording");
     t.flow.dispose();
   });
 
@@ -309,11 +318,92 @@ describe("HudContainer — pre-record pill driven by the launcher flow", () => {
     });
     const dot = screen.getByRole("button", { name: "Show recording controls" });
     expect(screen.queryByRole("button", { name: "Stop recording" })).toBeNull();
+    // The window shrinks to the dot, not a 560x64 always-on-top strip.
+    expect(lastSize(t.pre.windows.calls)).toBe("size:36x36:center");
+    expect(t.pre.windows.bounds).toMatchObject({ width: 36, height: 36 });
     // Shortcuts still work while hidden.
     await t.shortcuts.fire("record.pause");
     expect(t.port.calls).toContain("pause:s1");
     fireEvent.click(dot);
     expect(screen.getByRole("button", { name: "Resume recording" })).toBeInTheDocument();
+    await t.flush();
+    expect(lastSize(t.pre.windows.calls)).toBe("size:300x48:center");
+    t.flow.dispose();
+  });
+
+  async function startRecording(t: ReturnType<typeof flowSetup>) {
+    await t.flush();
+    fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
+    await t.flush();
+    await act(async () => {
+      t.port.emit({ sessionId: "s1", type: "started", backend: "electron" });
+      await drain(60);
+    });
+  }
+
+  it("overflow Hide pill collapses to the dot; the dot restores the pill", async () => {
+    const t = flowSetup();
+    await startRecording(t);
+    fireEvent.click(screen.getByRole("button", { name: "More recording options" }));
+    await t.flush();
+    // The menu grows the 300x48 window upward around the pill.
+    expect(t.pre.windows.calls.at(-1)).toBe("expand:300x240");
+    expect(screen.getByTestId("hud-stage")).toHaveAttribute("data-expanded", "true");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hide pill" }));
+    // Before main answers, the dot is drawn centred on the pill where it sits in
+    // the still-grown window (pill offset 0,192), not at the window's top-left.
+    expect(screen.getByTestId("hud-window").style.transform).toBe("translate(132px, 198px)");
+    await t.flush();
+    expect(screen.getByTestId("hud-hidden-dot")).toBeInTheDocument();
+    expect(screen.getByTestId("hud-window").style.transform).toBe("");
+    expect(lastSize(t.pre.windows.calls)).toBe("size:36x36:center");
+    fireEvent.click(screen.getByTestId("hud-hidden-dot"));
+    await t.flush();
+    expect(screen.getByRole("button", { name: "Stop recording" })).toBeInTheDocument();
+    t.flow.dispose();
+  });
+
+  it("Mute mic toggles the pill state and publishes hud:setMicMuted", async () => {
+    const t = flowSetup();
+    const seen: RecordingBusMessage[] = [];
+    t.hub.endpoint().subscribe((m) => seen.push(m));
+    await startRecording(t);
+    fireEvent.click(screen.getByRole("button", { name: "More recording options" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Mute mic" }));
+    await t.flush();
+    expect(screen.getByTestId("mic-meter")).toHaveAttribute("data-muted", "true");
+    fireEvent.click(screen.getByRole("button", { name: "More recording options" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Mute mic" }));
+    await t.flush();
+    expect(seen.filter((m) => m.type === "hud:setMicMuted")).toEqual([
+      { type: "hud:setMicMuted", muted: true },
+      { type: "hud:setMicMuted", muted: false },
+    ]);
+    expect(screen.getByTestId("mic-meter")).not.toHaveAttribute("data-muted");
+    t.flow.dispose();
+  });
+
+  it("Restart discards, then starts again with the same setup once the flow is idle", async () => {
+    const t = flowSetup();
+    await startRecording(t);
+    fireEvent.click(screen.getByRole("button", { name: "More recording options" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Restart" }));
+    await t.flush();
+    expect(t.port.calls).toContain("discard:s1");
+    const firstStart = t.port.lastStart;
+    // Main confirms the discard; the flow goes idle and the HUD asks for the same start.
+    await act(async () => {
+      t.port.emit({ sessionId: "s1", type: "discarded" });
+      await drain(80);
+    });
+    expect(t.port.calls.filter((c) => c === "start")).toHaveLength(2);
+    expect(t.port.lastStart).toEqual(firstStart);
+    // The next session is adopted by the same HUD.
+    await act(async () => {
+      t.port.emit({ sessionId: "s1", type: "started", backend: "electron" });
+      await drain(60);
+    });
+    expect(screen.getByRole("button", { name: "Stop recording" })).toBeInTheDocument();
     t.flow.dispose();
   });
 

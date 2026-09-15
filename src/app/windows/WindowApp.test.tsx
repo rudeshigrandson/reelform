@@ -4,6 +4,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Heavy screens are stubbed: this test covers routing and wiring, not the screens.
 const projectEditorProps = vi.fn();
+const launcherProps = vi.fn();
+const hudProps = vi.fn();
+const i18nLanguages = vi.fn();
+const recordingSettings = {
+  undoHistorySize: 150,
+  defaultSource: "window",
+  defaultFps: 60,
+  defaultCountdown: 5,
+  defaultMicId: "mic-2",
+  defaultCameraId: null,
+  defaultSystemAudio: false,
+  hideCursorByDefault: true,
+};
 const exportControllerProps = vi.fn();
 
 vi.mock("../ipc", () => ({
@@ -13,11 +26,18 @@ vi.mock("../ipc", () => ({
   isBridged: () => true,
 }));
 
+vi.mock("../../i18n", () => ({
+  I18nProvider: ({ language, children }: { language: string; children: ReactNode }) => {
+    i18nLanguages(language);
+    return <div data-testid="i18n">{children}</div>;
+  },
+}));
+
 vi.mock("../settings", () => ({
-  useSyncedSettings: () => ({ settings: { theme: "system" } }),
+  useSyncedSettings: () => ({ settings: { theme: "system", language: "de" } }),
   useAppSettings: Object.assign(
-    (sel: (s: { settings: { undoHistorySize: number } }) => unknown) =>
-      sel({ settings: { undoHistorySize: 150 } }),
+    (sel: (s: { settings: typeof recordingSettings }) => unknown) =>
+      sel({ settings: recordingSettings }),
     { getState: () => ({ settings: { openEditorAfterRecording: true } }) },
   ),
   useUpdater: () => ({ state: null }),
@@ -57,6 +77,7 @@ vi.mock("../../projects/ProjectsContainer", () => ({
 }));
 
 const flowDispose = vi.fn();
+const actualDefaults = await vi.hoisted(async () => import("../recording/settingsDefaults"));
 vi.mock("../recording", () => {
   const bus = () => ({ post: () => {}, subscribe: () => () => {}, close: () => {} });
   return {
@@ -66,8 +87,20 @@ vi.mock("../recording", () => {
     createIpcSystemPort: () => ({}),
     createBroadcastRecordingBus: bus,
     createRecordingFlow: () => ({ dispose: flowDispose }),
-    LauncherContainer: () => <div data-testid="launcher" />,
-    HudContainer: () => <div data-testid="hud" />,
+    LauncherContainer: (props: Record<string, unknown>) => {
+      launcherProps(props);
+      return <div data-testid="launcher" />;
+    },
+    HudContainer: (props: Record<string, unknown>) => {
+      hudProps(props);
+      return <div data-testid="hud" />;
+    },
+    SourceOutlineContainer: ({ displayId }: { displayId: string }) => (
+      <div data-testid="source-outline">outline {displayId}</div>
+    ),
+    createBrowserPreRecordDeps: () => ({ platform: "darwin", windows: {} }),
+    launcherDefaultsFromSettings: actualDefaults.launcherDefaultsFromSettings,
+    launcherDefaultsKey: actualDefaults.launcherDefaultsKey,
     CountdownContainer: () => <div data-testid="countdown" />,
     RegionOverlayContainer: ({ displayId }: { displayId: string }) => (
       <div data-testid="region-overlay">region {displayId}</div>
@@ -145,6 +178,7 @@ describe("WindowApp routing", () => {
       ["?window=countdown", "countdown"],
       ["?window=region-overlay&displayId=d-2", "region-overlay"],
       ["?window=webcam-bubble", "webcam-bubble"],
+      ["?window=source-outline&displayId=d-3", "source-outline"],
     ];
     for (const [search, testId] of cases) {
       const { unmount } = render(<WindowApp search={search} />);
@@ -153,6 +187,46 @@ describe("WindowApp routing", () => {
     }
     render(<WindowApp search="?window=region-overlay&displayId=d-2" />);
     expect(await screen.findByText("region d-2")).toBeInTheDocument();
+  });
+});
+
+describe("WindowApp settings wiring", () => {
+  const expected = {
+    mode: "window",
+    fps: 60,
+    countdown: 5,
+    mic: true,
+    micDeviceId: "mic-2",
+    webcam: false,
+    systemAudio: false,
+    hideCursor: true,
+  };
+
+  it("mounts the i18n provider with the settings language", async () => {
+    render(<WindowApp search="?window=settings" />);
+    const provider = await screen.findByTestId("i18n");
+    expect(provider).toContainElement(screen.getByTestId("settings-window"));
+    expect(i18nLanguages).toHaveBeenLastCalledWith("de");
+  });
+
+  it("passes recording defaults from Settings to the launcher and the HUD pre-record deps", async () => {
+    render(<WindowApp search="?window=launcher" />);
+    await screen.findByTestId("launcher");
+    expect(launcherProps.mock.lastCall?.[0]).toMatchObject({ defaults: expected });
+
+    render(<WindowApp search="?window=hud" />);
+    await screen.findByTestId("hud");
+    const pre = (hudProps.mock.lastCall?.[0] as { preRecord: Record<string, unknown> }).preRecord;
+    expect(pre).toMatchObject({ platform: "darwin", defaults: expected });
+  });
+
+  it("keeps the same defaults object while settings are unchanged", async () => {
+    const { rerender } = render(<WindowApp search="?window=hud" />);
+    await screen.findByTestId("hud");
+    const first = (hudProps.mock.lastCall?.[0] as { preRecord: unknown }).preRecord;
+    rerender(<WindowApp search="?window=hud" />);
+    const second = (hudProps.mock.lastCall?.[0] as { preRecord: unknown }).preRecord;
+    expect(second).toBe(first);
   });
 });
 

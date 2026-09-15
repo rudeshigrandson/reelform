@@ -180,6 +180,23 @@ export function buildWindowOptions(kind: WindowKind, ctx: WindowOptionsContext):
         webPreferences,
       };
     }
+    case "source-outline": {
+      // Click-through outline of the chosen window source (SPEC §5.7): never
+      // takes focus or the mouse; the manager also sets ignore-mouse-events.
+      const b = ctx.displayBounds ?? { x: 0, y: 0, width: 0, height: 0 };
+      return {
+        ...floating,
+        x: b.x,
+        y: b.y,
+        width: b.width,
+        height: b.height,
+        show: false,
+        movable: false,
+        focusable: false,
+        enableLargerThanScreen: true,
+        webPreferences,
+      };
+    }
     case "countdown": {
       const pos = ctx.workArea ? centerIn(ctx.workArea, COUNTDOWN_SIZE) : undefined;
       return {
@@ -262,6 +279,34 @@ export function hudExpansionLayout(pill: Rect, requested: Size, workArea: Rect):
     placement,
     pillOffset: { x: Math.round(pill.x - x), y: Math.round(pill.y - y) },
   };
+}
+
+export type HudAnchor = "center" | "top-left";
+
+/**
+ * New HUD pill rect for a size change (recording pill, hidden dot): kept
+ * around the old pill's centre (or top-left) and clamped into the work area.
+ */
+export function hudResizeRect(
+  pill: Rect,
+  requested: Size,
+  anchor: HudAnchor,
+  workArea: Rect,
+): Rect {
+  const dim = (v: number, fallback: number) =>
+    Math.max(1, Math.round(Number.isFinite(v) && v > 0 ? v : fallback));
+  const size = {
+    width: dim(requested.width, pill.width),
+    height: dim(requested.height, pill.height),
+  };
+  const want =
+    anchor === "center"
+      ? {
+          x: pill.x + (pill.width - size.width) / 2,
+          y: pill.y + (pill.height - size.height) / 2,
+        }
+      : { x: pill.x, y: pill.y };
+  return { ...clampIntoArea(want, workArea, size), ...size };
 }
 
 /** Clamp a top-left so a window of `size` stays fully inside `area` (when it fits). */

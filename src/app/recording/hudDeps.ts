@@ -4,6 +4,7 @@ import {
   createMicMeter,
   rafScheduler,
 } from "../../recording";
+import type { LauncherDefaults } from "../../launcher/types";
 import type { Platform } from "../../recording/constraints";
 import { isBridged } from "../ipc";
 import type { MicLevelHandlers, PreRecordDeps } from "./PreRecordContainer";
@@ -52,8 +53,13 @@ export async function openBrowserMicLevel(
   };
 }
 
-/** Deps for the HUD window, or null outside Electron (no pre-record pill). */
-export function createBrowserPreRecordDeps(): PreRecordDeps | null {
+/**
+ * Deps for the HUD window, or null outside Electron (no pre-record pill).
+ * `defaults`: initial choices from Settings (see `launcherDefaultsFromSettings`).
+ */
+export function createBrowserPreRecordDeps(
+  defaults?: LauncherDefaults | undefined,
+): PreRecordDeps | null {
   if (!isBridged() || typeof navigator === "undefined") return null;
   const port = createIpcRecordingPort();
   return {
@@ -62,5 +68,6 @@ export function createBrowserPreRecordDeps(): PreRecordDeps | null {
     openMicLevel: openBrowserMicLevel,
     windows: createIpcHudWindowsPort(),
     platform: platformFromUserAgent(navigator.userAgent),
+    ...(defaults ? { defaults } : {}),
   };
 }

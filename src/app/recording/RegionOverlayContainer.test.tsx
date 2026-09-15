@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { RegionOverlayContainer } from "./RegionOverlayContainer";
 import { type RecordingBusMessage, createMemoryBusHub } from "./bus";
-import { FakeWindows, drain } from "./testFakes";
+import { SOURCES, FakeWindows, drain } from "./testFakes";
 
 function setup(initialBounds = { x: 100, y: 50, width: 640, height: 360 }) {
   const hub = createMemoryBusHub();
@@ -65,5 +65,55 @@ describe("RegionOverlayContainer", () => {
       await drain();
     });
     expect(screen.queryByTestId("region-overlay")).toBeNull();
+  });
+
+  it("fetches window bounds once and snaps the selection to them on this display", async () => {
+    const hub = createMemoryBusHub();
+    const launcher = hub.endpoint();
+    const seen: RecordingBusMessage[] = [];
+    launcher.subscribe((m) => seen.push(m));
+    let calls = 0;
+    render(
+      <RegionOverlayContainer
+        displayId="d1"
+        bus={hub.endpoint()}
+        scaleFactor={1}
+        viewport={{ width: 1512, height: 982 }}
+        initialBounds={{ x: 300, y: 300, width: 200, height: 150 }}
+        listSources={async () => {
+          calls++;
+          return SOURCES;
+        }}
+      />,
+    );
+    await act(async () => drain());
+    expect(calls).toBe(1);
+    // Figma window at 100,100 on d1: drag the rect so its left edge is 5px off.
+    const rect = screen.getByTestId("region-rect");
+    const at = (type: string, target: EventTarget, x: number, y: number) =>
+      act(() => {
+        target.dispatchEvent(new MouseEvent(type, { clientX: x, clientY: y, bubbles: true }));
+      });
+    at("pointerdown", rect, 350, 350);
+    at("pointermove", window, 155, 250);
+    at("pointerup", window, 155, 250);
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    await act(async () => drain());
+    expect(seen[0]).toMatchObject({ type: "regionSelected", region: { x: 100, y: 200 } });
+  });
+
+  it("a failing source list just disables snapping", async () => {
+    const t = setup();
+    render(
+      <RegionOverlayContainer
+        displayId="d2"
+        bus={createMemoryBusHub().endpoint()}
+        listSources={async () => {
+          throw new Error("no sources");
+        }}
+      />,
+    );
+    await act(async () => drain());
+    expect(t.windows.calls).toEqual(["setRegionSelecting:d1:true"]);
   });
 });

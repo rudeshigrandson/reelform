@@ -1,3 +1,5 @@
+import type { RecordingPanel } from "./layout";
+
 /**
  * `finalizing`: "Processing recording…" after stop. `interrupted`: warning pill
  * "Recording saved up to 00:42" (guide S10/S11).
@@ -25,6 +27,17 @@ export interface RecordingHudProps {
   onPauseToggle: () => void;
   /** Discard the in-progress recording (after confirm). */
   onDiscard: () => void;
+  /** Overflow "Restart": discard, then start again with the same setup. Absent = not offered. */
+  onRestart?: (() => void) | undefined;
+  /** Overflow "Hide pill": collapse to the hidden-mode dot. */
+  onHidePill?: (() => void) | undefined;
+  /** The mic is muted from the pill (struck-through mic, warning tint). */
+  micMuted?: boolean | undefined;
+  /** Overflow "Mute mic" toggle. Absent = not offered. */
+  onMuteToggle?: (() => void) | undefined;
+  /** Open overflow menu / discard confirm; controlled so the container can grow the window first. */
+  openPanel?: RecordingPanel | null | undefined;
+  onPanelChange?: ((panel: RecordingPanel | null) => void) | undefined;
 }
 
 /** Sample props for previews and tests. */

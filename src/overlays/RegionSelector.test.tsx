@@ -78,4 +78,48 @@ describe("RegionSelector", () => {
     fireEvent.click(screen.getByRole("button", { name: "Record" }));
     expect(onConfirm).toHaveBeenCalledWith({ x: 130, y: 120, width: 200, height: 150 });
   });
+
+  it("snaps the moved rect and resized edges to window edges within 8px", () => {
+    const onConfirm = vi.fn();
+    render(
+      <RegionSelector
+        initialBounds={{ x: 100, y: 100, width: 200, height: 150 }}
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+        snapTargets={[{ x: 50, y: 60, width: 600, height: 400 }]}
+      />,
+    );
+    const rect = screen.getByTestId("region-rect");
+    // Move to x 55 / y 104: left edge snaps to 50; top is 44px away from 60 → stays.
+    pointer("pointerdown", rect, 150, 150);
+    pointer("pointermove", window, 105, 154);
+    pointer("pointerup", window, 105, 154);
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    expect(onConfirm).toHaveBeenLastCalledWith({ x: 50, y: 104, width: 200, height: 150 });
+
+    // Drag the east handle to 645: the right edge lands on the window's 650.
+    const east = screen.getByTestId("handle-e");
+    pointer("pointerdown", east, 250, 179);
+    pointer("pointermove", window, 645, 179);
+    pointer("pointerup", window, 645, 179);
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    expect(onConfirm).toHaveBeenLastCalledWith({ x: 50, y: 104, width: 600, height: 150 });
+  });
+
+  it("without snap targets edges follow the pointer exactly", () => {
+    const onConfirm = vi.fn();
+    render(
+      <RegionSelector
+        initialBounds={{ x: 100, y: 100, width: 200, height: 150 }}
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+        snapTargets={[]}
+      />,
+    );
+    pointer("pointerdown", screen.getByTestId("region-rect"), 150, 150);
+    pointer("pointermove", window, 105, 154);
+    pointer("pointerup", window, 105, 154);
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    expect(onConfirm).toHaveBeenCalledWith({ x: 55, y: 104, width: 200, height: 150 });
+  });
 });

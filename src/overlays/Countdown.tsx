@@ -1,11 +1,14 @@
 import { useEffect } from "react";
+import { usePrefersReducedMotion } from "./reducedMotion";
 import type { CountdownProps } from "./types";
 
 /**
  * Centered pre-record countdown. Shows a large number with a pulsing ring
- * and an Esc-to-cancel hint. Escape calls onCancel.
+ * and an Esc-to-cancel hint. Escape calls onCancel. With reduce motion the
+ * ring is static and each numeral fades in instead.
  */
 export function Countdown({ count, total, onCancel }: CountdownProps) {
+  const reduceMotion = usePrefersReducedMotion();
   const go = count <= 0;
   const progress =
     total !== undefined && total > 0 ? Math.min(1, Math.max(0, (total - count) / total)) : 1;
@@ -37,6 +40,7 @@ export function Countdown({ count, total, onCancel }: CountdownProps) {
     >
       <div
         data-testid="countdown-ring"
+        data-motion={reduceMotion ? "reduced" : "full"}
         style={{
           position: "relative",
           width: 160,
@@ -53,7 +57,7 @@ export function Countdown({ count, total, onCancel }: CountdownProps) {
           background: "color-mix(in srgb, var(--bg-panel) 70%, transparent)",
           backdropFilter: "blur(24px)",
           boxShadow: "0 0 0 8px var(--accent-soft), var(--shadow-lg)",
-          animation: "reelform-countdown-pulse 1s ease-out infinite",
+          animation: reduceMotion ? "none" : "reelform-countdown-pulse 1s ease-out infinite",
         }}
       >
         <span
@@ -70,9 +74,11 @@ export function Countdown({ count, total, onCancel }: CountdownProps) {
           }}
         />
         <span
+          key={go ? "go" : count}
           data-testid="countdown-number"
           aria-live="assertive"
           style={{
+            animation: reduceMotion ? "reelform-countdown-fade 240ms ease-out" : undefined,
             fontFamily: "var(--font-heading)",
             fontSize: 56,
             fontWeight: 700,
@@ -106,7 +112,8 @@ export function Countdown({ count, total, onCancel }: CountdownProps) {
             0% { transform: scale(1); opacity: 1; }
             70% { transform: scale(1.08); opacity: 0.85; }
             100% { transform: scale(1); opacity: 1; }
-          }`}
+          }
+          @keyframes reelform-countdown-fade { from { opacity: 0; } to { opacity: 1; } }`}
       </style>
     </div>
   );

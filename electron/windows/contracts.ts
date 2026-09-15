@@ -13,10 +13,22 @@ export const CLOSABLE_WINDOW_KINDS = [
   "region-overlay",
   "countdown",
   "webcam-bubble",
+  "source-outline",
 ] as const;
 
 const Ok = z.object({ ok: z.literal(true) });
 const DisplayId = z.string().min(1).max(256);
+const HudSize = z.object({
+  width: z.number().int().positive().max(8192),
+  height: z.number().int().positive().max(8192),
+});
+const Bounds = z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() });
+/** A prepared HUD window change: window bounds before / after its commit. */
+const HudPlan = {
+  commitId: z.number().int().positive().nullable(),
+  previous: Bounds.nullable(),
+  target: Bounds.nullable(),
+};
 export const windowsContracts = {
   "windows:openEditor": {
     name: "windows:openEditor",
@@ -69,35 +81,48 @@ export const windowsContracts = {
     response: Ok,
   },
   /**
-   * Grow the HUD window for its popovers (menus, source picker, chips) keeping
-   * the pill anchored on screen; `size: null` collapses back to the pill.
-   * `layout` is null when collapsed or no HUD is open.
+   * Prepare growing the HUD window for its popovers (menus, source picker,
+   * chips) keeping the pill anchored on screen; `size: null` collapses back to
+   * the pill. Nothing moves until `windows:commitHudExpansion` (SPEC §5.7: the
+   * renderer lays out first, so the pill never jumps). `layout` is null when
+   * collapsing; `commitId` is null when no HUD is open.
    */
   "windows:setHudExpansion": {
     name: "windows:setHudExpansion",
-    request: z.object({
-      size: z
-        .object({
-          width: z.number().int().positive().max(8192),
-          height: z.number().int().positive().max(8192),
-        })
-        .nullable(),
-    }),
+    request: z.object({ size: HudSize.nullable() }),
     response: z.object({
       ok: z.literal(true),
       layout: z
         .object({
-          bounds: z.object({
-            x: z.number(),
-            y: z.number(),
-            width: z.number(),
-            height: z.number(),
-          }),
+          bounds: Bounds,
           placement: z.enum(["above", "below"]),
           pillOffset: z.object({ x: z.number(), y: z.number() }),
         })
         .nullable(),
+      ...HudPlan,
     }),
+  },
+  /**
+   * Prepare resizing the HUD pill itself (recording pill 300×48, hidden dot)
+   * around its centre or top-left, clamped to the work area; committed like an
+   * expansion.
+   */
+  "windows:setHudSize": {
+    name: "windows:setHudSize",
+    request: HudSize.extend({ anchor: z.enum(["center", "top-left"]) }),
+    response: z.object({ ok: z.literal(true), ...HudPlan }),
+  },
+  /** Apply the prepared HUD change; `applied` is false for a stale id or a closed HUD. */
+  "windows:commitHudExpansion": {
+    name: "windows:commitHudExpansion",
+    request: z.object({ commitId: z.number().int().positive() }),
+    response: z.object({ ok: z.literal(true), applied: z.boolean() }),
+  },
+  /** Click-through outline of the selected window source on its display (SPEC §5.7). */
+  "windows:openSourceOutline": {
+    name: "windows:openSourceOutline",
+    request: z.object({ displayId: DisplayId }),
+    response: Ok,
   },
 } as const;
 
@@ -123,8 +148,13 @@ export interface WindowsDeps {
     | "closeKind"
     | "keys"
     | "setHudExpansion"
+    | "setHudSize"
+    | "commitHudExpansion"
+    | "openSourceOutline"
   >;
 }
+
+const NO_PLAN = { commitId: null, previous: null, target: null } as const;
 
 export function createWindowsHandlers(deps: WindowsDeps): WindowsHandlers {
   return {
@@ -169,9 +199,31 @@ export function createWindowsHandlers(deps: WindowsDeps): WindowsHandlers {
       deps.manager.closeKind(kind);
       return { ok: true };
     },
-    "windows:setHudExpansion": async ({ size }) => ({
+    "windows:setHudExpansion": async ({ size }) => {
+      const plan = deps.manager.setHudExpansion(size);
+      return plan
+        ? {
+            ok: true,
+            layout: plan.layout,
+            commitId: plan.commitId,
+            previous: plan.previous,
+            target: plan.target,
+          }
+        : { ok: true, layout: null, ...NO_PLAN };
+    },
+    "windows:setHudSize": async ({ width, height, anchor }) => {
+      const plan = deps.manager.setHudSize({ width, height }, anchor);
+      return plan
+        ? { ok: true, commitId: plan.commitId, previous: plan.previous, target: plan.target }
+        : { ok: true, ...NO_PLAN };
+    },
+    "windows:commitHudExpansion": async ({ commitId }) => ({
       ok: true,
-      layout: deps.manager.setHudExpansion(size),
+      applied: deps.manager.commitHudExpansion(commitId),
     }),
+    "windows:openSourceOutline": async ({ displayId }) => {
+      deps.manager.openSourceOutline(displayId);
+      return { ok: true };
+    },
   };
 }

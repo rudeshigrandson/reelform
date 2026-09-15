@@ -1,12 +1,8 @@
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { HudStage } from "../../hud/HudStage";
 import { HudChips, PreRecordHud, PreRecordMenuPanel } from "../../hud/PreRecordHud";
-import {
-  HUD_GAP,
-  type HudPopover,
-  PILL_HEIGHT,
-  PILL_WIDTH,
-  hudExpansionSize,
-} from "../../hud/layout";
+import { type HudPopover, PRE_RECORD_PILL, hudExpansionSize } from "../../hud/layout";
 import type {
   HudChip,
   PreRecordHudProps,
@@ -32,7 +28,15 @@ import {
   toPickerSources,
   usesFallbackCapture,
 } from "./document";
+import {
+  type FrameWait,
+  type ResizeSubscribe,
+  type Shift,
+  planShift,
+  runHudTransition,
+} from "./hudTransition";
 import type { HudLayoutInfo, HudWindowsPort, SourcesResult } from "./port";
+import { launcherDefaultsKey } from "./settingsDefaults";
 
 /**
  * Pre-record mode of the HUD window (guide S05/S06, SPEC §5.7). Owns the
@@ -41,7 +45,11 @@ import type { HudLayoutInfo, HudWindowsPort, SourcesResult } from "./port";
  * Record runs (region → overlays first). Progress comes back as bus snapshots.
  *
  * Menus, the source picker and warning chips need more than the 560×64 window,
- * so the window grows around the pill via `setHudExpansion` (pill anchored).
+ * so the window grows around the pill via the prepare → paint → commit
+ * handshake of {@link runHudTransition} (pill anchored, no jump).
+ *
+ * With a window source selected it publishes the window's display-local
+ * bounds for the source-outline overlay, polling `listSources` at 4 Hz.
  */
 
 export interface MicLevelHandlers {
@@ -69,6 +77,12 @@ export interface PreRecordDeps {
   refreshIntervalMs?: number | undefined;
   /** How long to wait for the launcher to acknowledge a start. */
   startTimeoutMs?: number | undefined;
+  /** Waits until a HUD layout is painted (default: two animation frames). */
+  frames?: FrameWait | undefined;
+  /** Window `resize` subscription (default: `window`). */
+  onResize?: ResizeSubscribe | undefined;
+  /** Source-outline refresh while a window source is selected (default 250 ms = 4 Hz). */
+  outlinePollMs?: number | undefined;
 }
 
 export interface PreRecordContainerProps {
@@ -80,9 +94,23 @@ export interface PreRecordContainerProps {
   startRef?: MutableRefObject<(() => void) | null> | undefined;
   hideHudWhileRecording: boolean;
   onHideHudWhileRecordingChange: (hide: boolean) => void;
+  /** The setup a Record posted (so the recording pill can Restart with it). */
+  onStartRequested?: ((setup: RecordOptions) => void) | undefined;
+  /**
+   * The HUD window already has the pre-record pill size. While false (the HUD
+   * is still resizing from the recording pill) no expansion is requested.
+   */
+  windowReady?: boolean | undefined;
+  /**
+   * Where the pill sits inside the HUD window once a change is on screen
+   * (null: the window is the bare pill), so the HUD can keep it in place when
+   * it swaps views.
+   */
+  onPillOffsetChange?: ((offset: { x: number; y: number } | null) => void) | undefined;
 }
 
 export const START_TIMEOUT_MS = 3000;
+export const SOURCE_OUTLINE_POLL_MS = 250;
 
 export const defaultHudTimers: HudTimers = {
   setInterval: (cb, ms) => setInterval(cb, ms),
@@ -109,6 +137,9 @@ export function PreRecordContainer({
   startRef,
   hideHudWhileRecording,
   onHideHudWhileRecordingChange,
+  onStartRequested,
+  windowReady = true,
+  onPillOffsetChange,
 }: PreRecordContainerProps) {
   const timers = deps.timers ?? defaultHudTimers;
   const intervalMs = deps.refreshIntervalMs ?? SOURCES_REFRESH_MS;
@@ -134,6 +165,7 @@ export function PreRecordContainer({
   });
   const [popover, setPopover] = useState<HudPopover | null>(null);
   const [layout, setLayout] = useState<HudLayoutInfo | null>(null);
+  const [shift, setShift] = useState<Shift | null>(null);
   const [startState, setStartState] = useState<StartState>("idle");
   const [startError, setStartError] = useState<HudChip | null>(null);
   const mounted = useRef(true);
@@ -145,6 +177,28 @@ export function PreRecordContainer({
       mounted.current = false;
     };
   }, []);
+
+  // Settings defaults arrive async and can change while the HUD is open.
+  const defaultsKey = launcherDefaultsKey(defaults);
+  const appliedDefaults = useRef(defaultsKey);
+  const latestDefaults = useRef(defaults);
+  latestDefaults.current = defaults;
+  useEffect(() => {
+    if (appliedDefaults.current === defaultsKey) return;
+    appliedDefaults.current = defaultsKey;
+    const d = latestDefaults.current ?? {};
+    if (d.mode) setMode(d.mode);
+    if (d.mic !== undefined) setMicOn(d.mic);
+    if (d.mic !== undefined) setMicPick(d.micDeviceId ?? "");
+    if (d.systemAudio !== undefined) setSystemAudio(d.systemAudio);
+    if (d.webcam !== undefined) setCameraOn(d.webcam);
+    if (d.webcam !== undefined) setCameraPick(d.webcamDeviceId ?? "");
+    setOptions((o) => ({
+      countdown: d.countdown ?? o.countdown,
+      hideCursor: d.hideCursor ?? o.hideCursor,
+      fps: d.fps ?? o.fps,
+    }));
+  }, [defaultsKey]);
 
   // ---- data -------------------------------------------------------------------
 
@@ -294,29 +348,103 @@ export function PreRecordContainer({
   const windows = deps.windows;
   const expansion = hudExpansionSize(popover, chips.length);
   const expansionKey = expansion ? `${expansion.width}x${expansion.height}` : "";
-  const requestSeq = useRef(0);
+  const wantedKey = useRef(expansionKey);
+  wantedKey.current = expansionKey;
+  const frames = deps.frames;
+  const onResize = deps.onResize;
+  const pillOffsetListener = useRef(onPillOffsetChange);
+  pillOffsetListener.current = onPillOffsetChange;
   useEffect(() => {
     if (!windows) return;
-    const seq = ++requestSeq.current;
-    const size = expansionKey
-      ? { width: Number(expansionKey.split("x")[0]), height: Number(expansionKey.split("x")[1]) }
-      : null;
-    windows.setHudExpansion(size).then(
-      (next) => {
-        if (mounted.current && seq === requestSeq.current) setLayout(next);
-      },
-      () => {
-        if (mounted.current && seq === requestSeq.current) setLayout(null);
+    if (!windowReady) {
+      // The HUD is resizing its pill, which collapses any growth in main.
+      setLayout(null);
+      setShift(null);
+      return;
+    }
+    const key = expansionKey;
+    const [w, h] = key.split("x").map(Number);
+    const size = key && w && h ? { width: w, height: h } : null;
+    void runHudTransition(
+      { windows, frames, onResize },
+      {
+        isCurrent: () => mounted.current && wantedKey.current === key,
+        prepare: () => windows.setHudExpansion(size),
+        apply: (plan) => {
+          if (!mounted.current) return;
+          setLayout(plan?.layout ?? null);
+          setShift(plan ? planShift(plan) : null);
+          if (!plan) pillOffsetListener.current?.(null);
+        },
+        settle: (plan) => {
+          pillOffsetListener.current?.(plan.layout?.pillOffset ?? null);
+          if (mounted.current) flushSync(() => setShift(null));
+        },
       },
     );
-  }, [windows, expansionKey]);
+  }, [windows, expansionKey, windowReady, frames, onResize]);
 
   useEffect(
     () => () => {
-      // Leaving pre-record (recording started): back to the bare pill window.
-      if (windows) void windows.setHudExpansion(null).catch(() => {});
+      // Leaving pre-record: back to the bare pill window.
+      if (!windows) return;
+      void runHudTransition(
+        { windows, frames, onResize },
+        { prepare: () => windows.setHudExpansion(null), apply: () => {}, settle: () => {} },
+      );
     },
-    [windows],
+    [windows, frames, onResize],
+  );
+
+  // ---- source outline (SPEC §5.7) ----------------------------------------------------
+
+  const outlineWindowId = mode === "window" ? sourceId : null;
+  const outlinePollMs = deps.outlinePollMs ?? SOURCE_OUTLINE_POLL_MS;
+  // Only backends that report window bounds can be outlined; desktopCapturer
+  // lists (thumbnails, no bounds) are far too costly to poll at 4 Hz for nothing.
+  const outlineTrackable =
+    outlineWindowId !== null &&
+    sources?.windows.some((w) => w.id === outlineWindowId && w.bounds !== undefined) === true;
+  useEffect(() => {
+    if (!outlineWindowId || !outlineTrackable || !bus) return;
+    // Bounds follow the window at 4 Hz while it is the selected source.
+    const handle = timers.setInterval(() => void refreshSources(), outlinePollMs);
+    return () => timers.clearInterval(handle);
+  }, [outlineWindowId, outlineTrackable, bus, timers, outlinePollMs, refreshSources]);
+
+  const outline = useMemo(
+    () => sourceOutlineFor(sources, outlineWindowId, pickerSources),
+    [sources, outlineWindowId, pickerSources],
+  );
+  const outlineDisplay = useRef<string | null>(null);
+  useEffect(() => {
+    if (!bus) return;
+    const prev = outlineDisplay.current;
+    if (!outline) {
+      if (prev !== null) {
+        bus.post({ type: "hud:sourceOutline", displayId: prev, bounds: null });
+        void windows?.closeKind("source-outline").catch(() => {});
+        outlineDisplay.current = null;
+      }
+      return;
+    }
+    if (prev !== outline.displayId) {
+      if (prev !== null) bus.post({ type: "hud:sourceOutline", displayId: prev, bounds: null });
+      void windows?.openSourceOutline(outline.displayId).catch(() => {});
+      outlineDisplay.current = outline.displayId;
+    }
+    bus.post({ type: "hud:sourceOutline", ...outline });
+  }, [bus, windows, outline]);
+
+  useEffect(
+    () => () => {
+      const prev = outlineDisplay.current;
+      if (prev === null) return;
+      bus?.post({ type: "hud:sourceOutline", displayId: prev, bounds: null });
+      void windows?.closeKind("source-outline").catch(() => {});
+      outlineDisplay.current = null;
+    },
+    [bus, windows],
   );
 
   // ---- actions ----------------------------------------------------------------------
@@ -348,6 +476,7 @@ export function PreRecordContainer({
     setPopover(null);
     setStartError(null);
     setStartState("requested");
+    onStartRequested?.(setup);
     bus.post({ type: "startRequest", setup });
   };
   if (startRef) startRef.current = record;
@@ -438,90 +567,72 @@ export function PreRecordContainer({
     ) : null;
 
   const pill = <PreRecordHud {...hudProps} />;
-  const chipsNode = <HudChips chips={chips} />;
   const overlay =
     popoverNode || chips.length > 0 ? (
-      <div
-        data-testid="hud-overlay"
-        style={{
-          display: "flex",
-          flexDirection: layout?.placement === "below" ? "column" : "column-reverse",
-          alignItems: "center",
-          gap: HUD_GAP,
-        }}
-      >
-        {chipsNode}
+      <>
+        <HudChips chips={chips} />
         {popoverNode}
-      </div>
+      </>
     ) : null;
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape" && popover) setPopover(null);
-  };
-
-  if (!layout) {
-    return (
-      <div data-testid="hud-stage" data-expanded="false" onKeyDown={onKeyDown}>
-        {pill}
-        {overlay}
-      </div>
-    );
-  }
-
-  const { pillOffset, bounds, placement } = layout;
-  const overlayStyle: React.CSSProperties =
-    placement === "above"
-      ? {
-          position: "absolute",
-          left: 0,
-          right: 0,
-          top: 0,
-          height: Math.max(0, pillOffset.y - HUD_GAP),
-        }
-      : {
-          position: "absolute",
-          left: 0,
-          right: 0,
-          top: pillOffset.y + PILL_HEIGHT + HUD_GAP,
-          bottom: 0,
-        };
   return (
-    <div
-      data-testid="hud-stage"
-      data-expanded="true"
-      data-placement={placement}
-      onKeyDown={onKeyDown}
-      onMouseDown={(e) => {
-        // Clicking the transparent grown area dismisses the popover.
-        if (e.target === e.currentTarget) setPopover(null);
+    <HudStage
+      pill={pill}
+      pillSize={PRE_RECORD_PILL}
+      overlay={overlay}
+      layout={layout}
+      shift={shift}
+      onDismiss={() => setPopover(null)}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && popover) setPopover(null);
       }}
-      style={{ position: "relative", width: bounds.width, height: bounds.height }}
-    >
-      <div
-        data-testid="hud-pill-slot"
-        style={{
-          position: "absolute",
-          left: pillOffset.x,
-          top: pillOffset.y,
-          width: PILL_WIDTH,
-          height: PILL_HEIGHT,
-        }}
-      >
-        {pill}
-      </div>
-      {overlay ? (
-        <div
-          style={{
-            ...overlayStyle,
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: placement === "above" ? "flex-end" : "flex-start",
-            pointerEvents: "none",
-          }}
-        >
-          <div style={{ pointerEvents: "auto" }}>{overlay}</div>
-        </div>
-      ) : null}
-    </div>
+    />
   );
+}
+
+export interface SourceOutlineInfo {
+  displayId: string;
+  /** Display-local DIP. */
+  bounds: { x: number; y: number; width: number; height: number };
+  label: string;
+}
+
+/**
+ * Where to outline the selected window source: its display (reported, or the
+ * one holding the window's centre) and its bounds relative to that display.
+ * Null without a window selection or when the backend reports no bounds.
+ */
+export function sourceOutlineFor(
+  sources: SourcesResult | null,
+  windowId: string | null,
+  pickerSources: ReadonlyArray<{ id: string; name: string }> = [],
+): SourceOutlineInfo | null {
+  if (!sources || !windowId) return null;
+  const win = sources.windows.find((w) => w.id === windowId);
+  const b = win?.bounds;
+  if (!win || !b || !(b.width > 0) || !(b.height > 0)) return null;
+  const cx = b.x + b.width / 2;
+  const cy = b.y + b.height / 2;
+  const display =
+    (win.displayId !== undefined
+      ? sources.displays.find((d) => d.id === win.displayId)
+      : undefined) ??
+    sources.displays.find(
+      (d) =>
+        cx >= d.bounds.x &&
+        cx < d.bounds.x + d.bounds.width &&
+        cy >= d.bounds.y &&
+        cy < d.bounds.y + d.bounds.height,
+    );
+  if (!display) return null;
+  return {
+    displayId: display.id,
+    bounds: {
+      x: b.x - display.bounds.x,
+      y: b.y - display.bounds.y,
+      width: b.width,
+      height: b.height,
+    },
+    label: pickerSources.find((p) => p.id === windowId)?.name ?? win.title,
+  };
 }

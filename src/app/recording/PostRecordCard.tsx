@@ -1,6 +1,7 @@
 import { Button, Card, CardMeta, CardTitle, Dialog } from "@design/components";
 import { useState } from "react";
 import { formatElapsed } from "../../hud/RecordingHud";
+import { usePrefersReducedMotion } from "../../overlays/reducedMotion";
 import type { RecordingFlowState } from "./flow";
 
 /**
@@ -30,10 +31,14 @@ const wrap = {
   color: "var(--text-1)",
 } as const;
 
+/** Spins; with reduce motion it is a static ring that gently fades instead. */
 function Spinner() {
+  const reduceMotion = usePrefersReducedMotion();
   return (
     <span
       aria-hidden="true"
+      data-testid="post-record-spinner"
+      data-motion={reduceMotion ? "reduced" : "full"}
       style={{
         display: "inline-block",
         width: 16,
@@ -41,10 +46,16 @@ function Spinner() {
         borderRadius: "var(--radius-full)",
         border: "2px solid var(--border-strong)",
         borderTopColor: "var(--accent)",
-        animation: "reelform-post-spin 900ms linear infinite",
+        animation: reduceMotion
+          ? "reelform-post-fade 1.6s ease-in-out infinite alternate"
+          : "reelform-post-spin 900ms linear infinite",
       }}
     >
-      <style>{"@keyframes reelform-post-spin { to { transform: rotate(360deg); } }"}</style>
+      <style>
+        {
+          "@keyframes reelform-post-spin { to { transform: rotate(360deg); } } @keyframes reelform-post-fade { from { opacity: 1; } to { opacity: 0.45; } }"
+        }
+      </style>
     </span>
   );
 }

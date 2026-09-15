@@ -4,6 +4,7 @@ import {
   PreRecordContainer,
   type PreRecordContainerProps,
   recordShortcutLabel,
+  sourceOutlineFor,
 } from "./PreRecordContainer";
 import { type RecordingBusMessage, type SnapshotPhase, createMemoryBusHub } from "./bus";
 import { SOURCES, drain, fakePreRecordDeps } from "./testFakes";
@@ -156,7 +157,11 @@ describe("PreRecordContainer — source picker", () => {
     expect(screen.getByTestId("hud-source-chip")).toHaveTextContent("Figma — Onboarding.fig");
     expect(t.windows.calls.at(-1)).toBe("expand:560x104");
     await t.tick();
-    expect(listCalls()).toBe(4); // closed again: no more thumbnail refreshes
+    // Picker closed: no thumbnail refresh, but the selected window's outline polls at 4 Hz.
+    expect(listCalls()).toBe(5);
+    fireEvent.click(screen.getByLabelText("Display"));
+    await t.tick();
+    expect(listCalls()).toBe(5);
   });
 
   it("Escape and a click on the transparent grown area dismiss popovers", async () => {
@@ -380,5 +385,204 @@ describe("PreRecordContainer — start", () => {
     expect(screen.getByRole("button", { name: "Start recording" })).toBeDisabled();
     t.startRef.current?.();
     expect(startRequests(t.seen)).toHaveLength(0);
+  });
+});
+
+describe("PreRecordContainer — flicker-free window growth (SPEC §5.7)", () => {
+  it("lays out for the prepared bounds shifted in place, commits after paint, then drops the shift", async () => {
+    let releasePaint: (() => void) | null = null;
+    const fake = fakePreRecordDeps({
+      platform: "linux",
+      frames: () =>
+        new Promise<void>((resolve) => {
+          releasePaint = resolve;
+        }),
+    });
+    setup({ fake });
+    await flushUi();
+    // Mount collapse: prepared, waiting for paint.
+    await act(async () => {
+      releasePaint?.();
+      await drain(40);
+    });
+    expect(fake.windows.commits).toEqual([1]);
+
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+    await flushUi();
+    expect(fake.windows.calls.at(-1)).toBe("expand:560x352");
+    // Before the commit the window has not moved: the grown stage is drawn shifted
+    // so the pill stays where it was.
+    const stage = screen.getByTestId("hud-stage");
+    expect(stage).toHaveAttribute("data-expanded", "true");
+    expect(stage).toHaveAttribute("data-shifted", "true");
+    expect(stage.style.transform).toBe("translate(0px, -288px)");
+    expect(fake.windows.commits).toEqual([1]);
+    expect(fake.windows.bounds).toMatchObject({ width: 560, height: 64 });
+
+    await act(async () => {
+      releasePaint?.();
+      await drain(40);
+    });
+    expect(fake.windows.commits).toEqual([1, 2]);
+    expect(fake.windows.bounds).toMatchObject({ width: 560, height: 352 });
+    expect(screen.getByTestId("hud-stage")).not.toHaveAttribute("data-shifted");
+
+    // Collapse: the bare pill is drawn at its old spot in the still-large window first.
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    await flushUi();
+    const collapsing = screen.getByTestId("hud-stage");
+    expect(collapsing).toHaveAttribute("data-expanded", "false");
+    expect(collapsing.style.transform).toBe("translate(0px, 288px)");
+    expect(fake.windows.bounds).toMatchObject({ height: 352 });
+    await act(async () => {
+      releasePaint?.();
+      await drain(40);
+    });
+    expect(fake.windows.bounds).toMatchObject({ width: 560, height: 64 });
+    expect(screen.getByTestId("hud-stage").style.transform).toBe("");
+  });
+
+  it("requests no growth while the HUD is still resizing its pill", async () => {
+    const fake = fakePreRecordDeps();
+    setup({ fake, props: { windowReady: false } });
+    await flushUi();
+    expect(fake.windows.calls).toEqual([]);
+    expect(screen.getByTestId("hud-stage")).toHaveAttribute("data-expanded", "false");
+  });
+});
+
+describe("PreRecordContainer — source outline", () => {
+  const outlines = (seen: RecordingBusMessage[]) =>
+    seen.filter((m) => m.type === "hud:sourceOutline");
+
+  it("outlines the selected window on its display at 4 Hz and hides it when deselected", async () => {
+    const t = setup();
+    await flushUi();
+    fireEvent.click(screen.getByLabelText("Window"));
+    await flushUi();
+    expect(t.windows.calls).toContain("openSourceOutline:d1");
+    expect(outlines(t.seen).at(-1)).toEqual({
+      type: "hud:sourceOutline",
+      displayId: "d1",
+      bounds: { x: 100, y: 100, width: 1280, height: 720 },
+      label: "Figma — Onboarding.fig",
+    });
+
+    // The window moves: the next 250 ms poll publishes the new bounds.
+    t.state.sources = {
+      ...SOURCES,
+      windows: [
+        {
+          ...(SOURCES.windows[0] as (typeof SOURCES.windows)[number]),
+          bounds: { x: 140, y: 90, width: 1280, height: 720 },
+        },
+      ],
+    };
+    await t.tick();
+    expect(outlines(t.seen).at(-1)).toMatchObject({ bounds: { x: 140, y: 90 } });
+
+    fireEvent.click(screen.getByLabelText("Display"));
+    await flushUi();
+    expect(outlines(t.seen).at(-1)).toEqual({
+      type: "hud:sourceOutline",
+      displayId: "d1",
+      bounds: null,
+    });
+    expect(t.windows.calls.at(-1)).toBe("closeKind:source-outline");
+  });
+
+  it("does not poll a window source without bounds (desktopCapturer lists are costly)", async () => {
+    const fake = fakePreRecordDeps();
+    fake.state.sources = {
+      ...SOURCES,
+      windows: SOURCES.windows.map(({ bounds: _bounds, ...w }) => w),
+    };
+    const t = setup({ fake });
+    await flushUi();
+    fireEvent.click(screen.getByLabelText("Window"));
+    await flushUi();
+    const listCalls = () => t.log.filter((c) => c === "listSources").length;
+    const before = listCalls();
+    await t.tick();
+    await t.tick();
+    expect(listCalls()).toBe(before);
+    expect(outlines(t.seen)).toEqual([]);
+    expect(t.windows.calls).not.toContain("openSourceOutline:d1");
+  });
+
+  it("starting a recording (unmount) hides the outline", async () => {
+    const t = setup();
+    await flushUi();
+    fireEvent.click(screen.getByLabelText("Window"));
+    await flushUi();
+    t.unmount();
+    await flushUi();
+    expect(outlines(t.seen).at(-1)).toMatchObject({ bounds: null });
+    expect(t.windows.calls).toContain("closeKind:source-outline");
+  });
+});
+
+describe("sourceOutlineFor", () => {
+  it("resolves the display from the reported id or the window centre, display-local", () => {
+    expect(sourceOutlineFor(SOURCES, "window:42:0")).toEqual({
+      displayId: "d1",
+      bounds: { x: 100, y: 100, width: 1280, height: 720 },
+      label: "Onboarding.fig",
+    });
+    const moved = {
+      ...SOURCES,
+      windows: [
+        { id: "w", title: "Terminal", bounds: { x: 1600, y: 50, width: 400, height: 300 } },
+      ],
+    };
+    expect(sourceOutlineFor(moved, "w", [{ id: "w", name: "iTerm — Terminal" }])).toEqual({
+      displayId: "d2",
+      bounds: { x: 88, y: 50, width: 400, height: 300 },
+      label: "iTerm — Terminal",
+    });
+  });
+
+  it("is null without a selection, bounds or a matching display", () => {
+    expect(sourceOutlineFor(null, "w")).toBeNull();
+    expect(sourceOutlineFor(SOURCES, null)).toBeNull();
+    const noBounds = { ...SOURCES, windows: [{ id: "w", title: "x" }] };
+    expect(sourceOutlineFor(noBounds, "w")).toBeNull();
+    const offscreen = {
+      ...SOURCES,
+      windows: [{ id: "w", title: "x", bounds: { x: -9000, y: 0, width: 10, height: 10 } }],
+    };
+    expect(sourceOutlineFor(offscreen, "w")).toBeNull();
+  });
+});
+
+describe("PreRecordContainer — settings defaults", () => {
+  it("applies defaults that arrive after mount", async () => {
+    const fake = fakePreRecordDeps({ platform: "linux" });
+    const t = setup({ fake });
+    await flushUi();
+    const hub = createMemoryBusHub();
+    t.rerender(
+      <PreRecordContainer
+        deps={{
+          ...fake.deps,
+          defaults: { mode: "window", fps: 60, countdown: 5, hideCursor: true },
+        }}
+        bus={hub.endpoint()}
+        flowPhase={null}
+        hideHudWhileRecording={false}
+        onHideHudWhileRecordingChange={() => {}}
+      />,
+    );
+    await flushUi();
+    expect(screen.getByLabelText("Window")).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "More options" }));
+    expect(screen.getByRole("menuitemradio", { name: "60 fps" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(screen.getByRole("menuitemradio", { name: "5s" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
   });
 });
