@@ -14,7 +14,7 @@ export {
   samplePeak,
 } from "./dsp";
 export type { DbEnvelope, DuckParams, FadeCurve } from "./dsp";
-export { buildAudioGraph } from "./graph";
+export { buildAudioGraph, prepareProcessor } from "./graph";
 export type {
   AudioBufferLike,
   AudioContextLike,
@@ -67,3 +67,43 @@ export type { SilenceAnalysis } from "./silence";
 export { SpeedMap, sourceSegments } from "./speedMap";
 export type { AudioSpeedRegion, RatePiece, SourceSegment } from "./speedMap";
 export { WAV_HEADER_BYTES, encodeWavPcm16 } from "./wav";
+export {
+  DUCK_ENVELOPE_WINDOW_MS,
+  micDuckEnvelope,
+  outputEnvelope,
+  sourceRmsEnvelope,
+} from "./envelope";
+export {
+  collectExportAudio,
+  hasExportAudio,
+  outputWindowFor,
+  renderExportAudio,
+  toExportAudioBuffer,
+} from "./exportRender";
+export type { ExportAudioBuffer, ExportAudioSource, RenderExportAudioInput } from "./exportRender";
+export {
+  PREVIEW_DEBOUNCE_MS,
+  PREVIEW_DRIFT_TOLERANCE_MS,
+  PREVIEW_LEAD_S,
+  browserPreviewAudioDeps,
+  createPreviewAudioPlayer,
+  shuttleSpeeds,
+} from "./previewPlayer";
+export type {
+  LiveAudioContextLike,
+  LoudnessLufs,
+  PreviewAudioArgs,
+  PreviewAudioPlayer,
+  PreviewAudioPlayerDeps,
+  PreviewTransport,
+} from "./previewPlayer";
+export {
+  CLICK_SOUND_BASE_URL,
+  clickEventsFromTelemetry,
+  clickSoundUrl,
+  projectMediaUrl,
+  regionSourceUrls,
+} from "./sourceUrls";
+export type { ClickSoundSettings, RegionSourceUrl } from "./sourceUrls";
+export { defaultNoiseReduction, usePreviewAudio } from "./usePreviewAudio";
+export type { UsePreviewAudioOptions } from "./usePreviewAudio";

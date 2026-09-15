@@ -2,7 +2,13 @@ import { Input, Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
 import type { ReactElement, ReactNode } from "react";
 import type { GifDither, GifFps, GifSizePreset } from "../../export/gif/types";
-import type { AudioChoice, CaptionsChoice, ExportFlowConfig, RangeChoice } from "./config";
+import type {
+  AudioChoice,
+  CaptionsChoice,
+  ExportFlowConfig,
+  GifPalette,
+  RangeChoice,
+} from "./config";
 
 /**
  * The S22 option rows the base ExportDialog doesn't draw: range, captions,
@@ -53,6 +59,11 @@ const DITHER: ReadonlyArray<SegmentedOption<GifDither>> = [
   { value: "none", label: "No dither" },
   { value: "bayer4", label: "Bayer" },
   { value: "floyd-steinberg", label: "Floyd" },
+];
+
+const PALETTE: ReadonlyArray<SegmentedOption<GifPalette>> = [
+  { value: "global", label: "Global" },
+  { value: "adaptive", label: "Adaptive" },
 ];
 
 const labelStyle = {
@@ -160,6 +171,17 @@ export function ExportOptions(props: ExportOptionsProps): ReactElement {
               options={DITHER}
               onChange={(dither) => onChange({ gif: { ...config.gif, dither } })}
             />
+          </Row>
+          <Row label="Palette">
+            <Segmented
+              name="export-gif-palette"
+              value={config.gif.palette ?? "global"}
+              options={PALETTE}
+              onChange={(palette) => onChange({ gif: { ...config.gif, palette } })}
+            />
+            {config.gif.palette === "adaptive"
+              ? hint("A palette per frame — truer colors, larger file")
+              : null}
           </Row>
           <Row label={`Colors · ${config.gif.colors}`}>
             <input

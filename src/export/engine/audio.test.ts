@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   AAC_LC_CODEC,
   AUDIO_BITRATE,
+  type AudioBlockSource,
   MAX_AUDIO_QUEUE,
+  WAV_HEADER_BYTES,
+  bufferBlockSource,
   chooseAudioPlan,
   encodeAudioBuffer,
   encodeWav,
   planarBlock,
+  streamWav,
 } from "./audio";
 import { ExportCancelledError } from "./cancel";
 import { FakeAudioData, FakeAudioEncoder, fakeAudioBuffer } from "./testFakes";
@@ -41,11 +45,12 @@ describe("chooseAudioPlan", () => {
   });
 });
 
-function harness(bufferLength: number, blockFrames?: number) {
+function harness(bufferLength: number, blockFrames?: number, renderBlockFrames = 48_000 * 30) {
   const counter = { live: 0 };
   const chunks: number[] = [];
   let encoder: FakeAudioEncoder | null = null;
   const buffer = fakeAudioBuffer(bufferLength);
+  const source = bufferBlockSource(buffer, renderBlockFrames);
   const deps = {
     createEncoder: (init: AudioEncoderInit) => {
       encoder = new FakeAudioEncoder(init);
@@ -58,7 +63,14 @@ function harness(bufferLength: number, blockFrames?: number) {
     },
     blockFrames,
   };
-  return { counter, chunks, buffer, deps, encoder: () => encoder as unknown as FakeAudioEncoder };
+  return {
+    counter,
+    chunks,
+    buffer,
+    source,
+    deps,
+    encoder: () => encoder as unknown as FakeAudioEncoder,
+  };
 }
 
 const config: AudioEncoderConfig = { codec: AAC_LC_CODEC, sampleRate: 48_000, numberOfChannels: 2 };
@@ -66,7 +78,7 @@ const config: AudioEncoderConfig = { codec: AAC_LC_CODEC, sampleRate: 48_000, nu
 describe("encodeAudioBuffer", () => {
   it("encodes in blocks with µs timestamps and closes every AudioData", async () => {
     const h = harness(48_000 * 3 + 100);
-    const { blocks } = await encodeAudioBuffer(h.buffer, config, h.deps);
+    const { blocks } = await encodeAudioBuffer(h.source, config, h.deps);
     expect(blocks).toBe(4);
     expect(h.encoder().encoded).toEqual([
       { timestamp: 0, frames: 48_000 },
@@ -79,9 +91,21 @@ describe("encodeAudioBuffer", () => {
     expect(h.encoder().state).toBe("closed");
   });
 
+  it("stamps timestamps from each render block's frame offset", async () => {
+    // Render blocks of 1.5 s split into 1 s AudioData chunks.
+    const h = harness(48_000 * 3, undefined, 72_000);
+    await encodeAudioBuffer(h.source, config, h.deps);
+    expect(h.encoder().encoded).toEqual([
+      { timestamp: 0, frames: 48_000 },
+      { timestamp: 1_000_000, frames: 24_000 },
+      { timestamp: 1_500_000, frames: 48_000 },
+      { timestamp: 2_500_000, frames: 24_000 },
+    ]);
+  });
+
   it("applies encode-queue backpressure", async () => {
     const h = harness(48_000, 480);
-    await encodeAudioBuffer(h.buffer, config, h.deps);
+    await encodeAudioBuffer(h.source, config, h.deps);
     expect(h.encoder().encoded).toHaveLength(100);
     expect(h.encoder().maxQueueAtEncode).toBeLessThanOrEqual(MAX_AUDIO_QUEUE);
   });
@@ -97,7 +121,7 @@ describe("encodeAudioBuffer", () => {
         if (h.chunks.length === 3) ac.abort();
       },
     };
-    await expect(encodeAudioBuffer(h.buffer, config, deps)).rejects.toBeInstanceOf(
+    await expect(encodeAudioBuffer(h.source, config, deps)).rejects.toBeInstanceOf(
       ExportCancelledError,
     );
     expect(h.encoder().state).toBe("closed");
@@ -114,15 +138,29 @@ describe("encodeAudioBuffer", () => {
         return e;
       },
     };
-    await expect(encodeAudioBuffer(h.buffer, config, deps)).rejects.toMatchObject({
+    await expect(encodeAudioBuffer(h.source, config, deps)).rejects.toMatchObject({
       name: "EncodingError",
     });
     expect(h.counter.live).toBe(0);
   });
 
+  it("render failures propagate and close the encoder", async () => {
+    const h = harness(48_000);
+    const failing: AudioBlockSource = {
+      ...h.source,
+      // biome-ignore lint/correctness/useYield: throws before yielding on purpose
+      async *blocks() {
+        throw new Error("render failed");
+      },
+    };
+    await expect(encodeAudioBuffer(failing, config, h.deps)).rejects.toThrow("render failed");
+    expect(h.encoder().state).toBe("closed");
+  });
+
   it("planarBlock lays channels end to end", () => {
     const buf = fakeAudioBuffer(300, 48_000, 2);
-    const block = planarBlock(buf, 110, 3);
+    const channels = [buf.getChannelData(0), buf.getChannelData(1)];
+    const block = planarBlock(channels, 110, 3);
     expect(Array.from(block)).toEqual([
       ...Array.from(buf.getChannelData(0).subarray(110, 113)),
       ...Array.from(buf.getChannelData(1).subarray(110, 113)),
@@ -130,16 +168,18 @@ describe("encodeAudioBuffer", () => {
   });
 });
 
-describe("encodeWav", () => {
-  it("writes a 16-bit PCM header and interleaved clamped samples", () => {
-    const left = Float32Array.from([0, 1, -1, 2]);
-    const right = Float32Array.from([0.5, -0.5, 0, -2]);
-    const wav = encodeWav({
-      sampleRate: 44_100,
-      numberOfChannels: 2,
-      length: 4,
-      getChannelData: (c) => (c === 0 ? left : right),
-    });
+describe("WAV", () => {
+  const left = Float32Array.from([0, 1, -1, 2]);
+  const right = Float32Array.from([0.5, -0.5, 0, -2]);
+  const stereo = {
+    sampleRate: 44_100,
+    numberOfChannels: 2,
+    length: 4,
+    getChannelData: (c: number) => (c === 0 ? left : right),
+  };
+
+  it("encodeWav writes a 16-bit PCM header and interleaved clamped samples", () => {
+    const wav = encodeWav(stereo);
     const v = new DataView(wav.buffer);
     const str = (at: number, n: number) => String.fromCharCode(...wav.subarray(at, at + n));
     expect(str(0, 4)).toBe("RIFF");
@@ -152,5 +192,35 @@ describe("encodeWav", () => {
     expect(v.getUint32(40, true)).toBe(16);
     const samples = Array.from({ length: 8 }, (_, i) => v.getInt16(44 + i * 2, true));
     expect(samples).toEqual([0, 16384, 32767, -16384, -32768, 0, 32767, -32768]);
+  });
+
+  it("streamWav writes the header first, then each block, byte-identical to encodeWav", async () => {
+    const writes: Uint8Array[] = [];
+    const res = await streamWav(bufferBlockSource(stereo, 3), async (b) => {
+      writes.push(b.slice());
+    });
+    expect(writes.map((w) => w.byteLength)).toEqual([WAV_HEADER_BYTES, 12, 4]);
+    const joined = new Uint8Array(writes.reduce((n, w) => n + w.byteLength, 0));
+    let at = 0;
+    for (const w of writes) {
+      joined.set(w, at);
+      at += w.byteLength;
+    }
+    expect(joined).toEqual(encodeWav(stereo));
+    expect(res.bytes).toBe(joined.byteLength);
+  });
+
+  it("streamWav pads a short render to the declared length and honours abort", async () => {
+    const short: AudioBlockSource = { ...bufferBlockSource(stereo), length: 6 };
+    let total = 0;
+    await streamWav(short, async (b) => {
+      total += b.byteLength;
+    });
+    expect(total).toBe(WAV_HEADER_BYTES + 6 * 4);
+    const ac = new AbortController();
+    ac.abort();
+    await expect(streamWav(short, async () => undefined, ac.signal)).rejects.toBeInstanceOf(
+      ExportCancelledError,
+    );
   });
 });

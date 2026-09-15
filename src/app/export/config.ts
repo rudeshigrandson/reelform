@@ -14,6 +14,8 @@ export type ExportFormat = "mp4" | "webm" | "gif";
 export type RangeChoice = "entire" | "selection" | "in-out";
 export type CaptionsChoice = "none" | "burn-in" | "srt" | "vtt";
 export type AudioChoice = "aac" | "mute";
+/** §10.6: one median-cut palette from sampled frames, or a local palette per frame. */
+export type GifPalette = "global" | "adaptive";
 
 export interface GifOptions {
   sizePreset: GifSizePreset;
@@ -21,6 +23,7 @@ export interface GifOptions {
   loop: boolean;
   dither: GifDither;
   colors: number;
+  palette: GifPalette;
 }
 
 export interface ExportFlowConfig {
@@ -61,6 +64,7 @@ export const DEFAULT_GIF_OPTIONS: GifOptions = {
   loop: true,
   dither: "bayer4",
   colors: 256,
+  palette: "global",
 };
 
 export function defaultFlowConfig(fileName = "Export"): ExportFlowConfig {
@@ -229,7 +233,8 @@ export function estimateVideoBytes(c: ExportFlowConfig, durationMs: number): num
 /**
  * Pre-export GIF guess (the live estimate from the first 2s replaces it once
  * encoding starts): ~0.12 bytes per pixel for the first frame, ~12% of that for
- * each differenced frame, scaled by palette size.
+ * each differenced frame, scaled by palette size. An adaptive palette adds a
+ * local color table (3 bytes per color) to every frame.
  */
 export function roughGifBytes(
   width: number,
@@ -237,12 +242,15 @@ export function roughGifBytes(
   fps: number,
   colors: number,
   durationMs: number,
+  palette: GifPalette = "global",
 ): number {
   if (!(durationMs > 0) || !(width > 0) || !(height > 0) || !(fps > 0)) return 0;
   const frames = Math.max(1, Math.ceil((durationMs * fps) / 1000));
-  const colorFactor = Math.log2(Math.max(2, Math.min(256, colors))) / 8;
+  const clamped = Math.max(2, Math.min(256, colors));
+  const colorFactor = Math.log2(clamped) / 8;
   const first = width * height * 0.12 * colorFactor;
-  return Math.round(800 + first + first * 0.12 * (frames - 1));
+  const localTables = palette === "adaptive" ? frames * clamped * 3 : 0;
+  return Math.round(800 + first + first * 0.12 * (frames - 1) + localTables);
 }
 
 export function formatBytes(bytes: number): string {

@@ -1,12 +1,11 @@
 import type { SceneState } from "../../editor/preview/scene";
 import type { ExportConfig } from "../route";
 import {
-  type AudioBufferLike,
+  type AudioBlockSource,
   type AudioEncoderLike,
   type AudioPlan,
   chooseAudioPlan,
   encodeAudioBuffer,
-  encodeWav,
 } from "./audio";
 import { ExportCancelledError, Pulse, throwIfAborted } from "./cancel";
 import {
@@ -19,6 +18,7 @@ import type { FrameRenderer } from "./frameRenderer";
 import type { CreateExportMuxer, ExportMuxer, ExportSink } from "./muxer";
 import { type EncoderKind, type ExportProgress, ProgressTracker } from "./progress";
 import type { FrameSource } from "./streamingDecoder";
+import { TransitionFeed } from "./transitionFeed";
 import { WEBCAM_UNAVAILABLE_NOTICE, WebcamFeed, withoutWebcam } from "./webcamFeed";
 
 /**
@@ -63,8 +63,11 @@ export interface ExportJob {
   timeline: Omit<FramePlanInput, "fps">;
   /** Scene at a timeline time (see `createSceneEvaluator`). */
   sceneAt(timelineMs: number): SceneState;
-  /** Already-rendered timeline audio, or null for a silent export. */
-  audio?: AudioBufferLike | null | undefined;
+  /**
+   * Lazily rendered timeline audio (one 30 s block in memory at a time), or
+   * null for a silent export.
+   */
+  audio?: AudioBlockSource | null | undefined;
   /** False when `selectRoute` chose `software-fallback`. */
   preferHardware: boolean;
   /**
@@ -84,6 +87,11 @@ export interface ExportEngineDeps {
    * (`WEBCAM_DECODER_WINDOW` + `SCREEN_DECODER_WINDOW_WITH_WEBCAM`).
    */
   openWebcamSource?: (() => Promise<FrameSource>) | undefined;
+  /**
+   * Opens a second screen decoder for cross-dissolve incoming frames (lazily,
+   * at most once per attempt; `TRANSITION_DECODER_WINDOW`). Omitted → cuts.
+   */
+  openNextFrameSource?: (() => Promise<FrameSource>) | undefined;
   renderer: FrameRenderer;
   createMuxer: CreateExportMuxer;
   sink: ExportSink;
@@ -104,8 +112,11 @@ export interface ExportResult {
   attempts: number;
   framesEncoded: number;
   audio: AudioPlan["kind"] | "none";
-  /** PCM WAV to be muxed as AAC by the ffmpeg finalize step; null otherwise. */
-  pcmWav: Uint8Array | null;
+  /**
+   * No audio encoder: the timeline audio to stream to a PCM WAV and mux as AAC
+   * in the ffmpeg finalize step (`streamWav`); null otherwise.
+   */
+  pcmAudio: AudioBlockSource | null;
 }
 
 /** A video encoder failure; hardware failures trigger the software restart. */
@@ -178,6 +189,9 @@ async function attemptExport(
 
   let encoderKind: EncoderKind = allowHardware ? "hardware" : "software";
   let frames: FrameSource | null = null;
+  const transition = deps.openNextFrameSource
+    ? new TransitionFeed({ open: deps.openNextFrameSource, renderer })
+    : null;
   let encoder: VideoEncoderLike | null = null;
   let muxer: ExportMuxer | null = null;
   let sinkOpen = false;
@@ -199,6 +213,7 @@ async function attemptExport(
     frames?.close();
     frames = null;
     webcam?.release();
+    transition?.release();
   };
   const onAbort = (): void => {
     closeFrames();
@@ -281,19 +296,17 @@ async function attemptExport(
     // queues every packet in memory until each track has produced one, so
     // encoding audio last would buffer the whole encoded video in RAM
     // (§10.8 memory bound). Encoded audio is small (192 kbps).
-    let pcmWav: Uint8Array | null = null;
-    if (audioIn && audioPlan) {
+    // The PCM fallback is streamed to disk after the video (it never reaches
+    // the muxer, so it can't make mediabunny buffer video packets).
+    const pcmAudio = audioIn && audioPlan?.kind === "pcm-wav" ? audioIn : null;
+    if (audioIn && audioPlan && audioPlan.kind !== "pcm-wav") {
       progress.setPhase("encoding-audio");
-      if (audioPlan.kind === "pcm-wav") {
-        pcmWav = encodeWav(audioIn);
-      } else {
-        await encodeAudioBuffer(audioIn, audioPlan.config, {
-          createEncoder: (init) => wc.createAudioEncoder(init),
-          createAudioData: (init) => wc.createAudioData(init),
-          onChunk: (chunk, meta) => enqueueMux((m) => m.addAudioChunk(chunk, meta)),
-          signal,
-        });
-      }
+      await encodeAudioBuffer(audioIn, audioPlan.config, {
+        createEncoder: (init) => wc.createAudioEncoder(init),
+        createAudioData: (init) => wc.createAudioData(init),
+        onChunk: (chunk, meta) => enqueueMux((m) => m.addAudioChunk(chunk, meta)),
+        signal,
+      });
       check();
     }
 
@@ -341,6 +354,10 @@ async function attemptExport(
           const prepared = await webcam.prepare(scene, pf.sourceMs, () => signal?.aborted === true);
           state = prepared.state;
           cam = prepared.frame;
+          check();
+        }
+        if (transition) {
+          await transition.prepare(scene, () => signal?.aborted === true);
           check();
         }
         rendered = await renderer.render(state, source);
@@ -395,7 +412,7 @@ async function attemptExport(
       attempts: attempt,
       framesEncoded,
       audio: audioPlan?.kind ?? "none",
-      pcmWav,
+      pcmAudio,
     };
   } catch (e) {
     closeFrames();

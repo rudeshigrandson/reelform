@@ -131,6 +131,19 @@ describe("selectRoute — properties", () => {
     );
   });
 
+  it("GPU export off in Settings always picks the software route", () => {
+    fc.assert(
+      fc.property(codec, boolRec, caps, (c, flags, hw) => {
+        expect(selectRoute(config({ codec: c }), flags, hw, { gpuExport: "off" })).toBe(
+          "software-fallback",
+        );
+        expect(selectRoute(config({ codec: c }), flags, hw, { gpuExport: "auto" })).toBe(
+          selectRoute(config({ codec: c }), flags, hw),
+        );
+      }),
+    );
+  });
+
   it("no HW for the chosen codec is never webcodecs (always software-fallback)", () => {
     fc.assert(
       fc.property(codec, boolRec, caps, (c, flags, hw) => {

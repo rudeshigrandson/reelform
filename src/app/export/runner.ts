@@ -1,6 +1,7 @@
 import { SpeedMap } from "../../editor/audio/speedMap";
 import { serializeSidecar } from "../../editor/captions/sidecar";
 import type { EditorData } from "../../editor/store";
+import { type AudioBlockSource, streamWav } from "../../export/engine/audio";
 import { isCancelled } from "../../export/engine/cancel";
 import { EncoderUnsupportedError } from "../../export/engine/encoderConfig";
 import { EncoderFailure } from "../../export/engine/engine";
@@ -93,8 +94,27 @@ export interface VideoRouteResult {
   path: string;
   encoder: EncoderKind;
   attempts: number;
-  pcmWav: Uint8Array | null;
+  /** No AAC/Opus encoder: timeline audio to stream to a WAV and mux with ffmpeg. */
+  pcmAudio: AudioBlockSource | null;
 }
+
+export interface MuxAudioRequest {
+  videoPath: string;
+  wavPath: string;
+  container: "mp4" | "webm";
+}
+
+export interface MuxAudioResult {
+  /** Final video path (with the AAC track). */
+  path: string;
+  bytes?: number | undefined;
+}
+
+/** ffmpeg isn't bundled / runnable: the WAV stays next to the video. */
+export const FFMPEG_UNAVAILABLE = "FFMPEG_UNAVAILABLE";
+
+export const WAV_SIDECAR_NOTICE =
+  "AAC audio isn't available on this device — audio was saved next to the video as WAV";
 
 /**
  * The file sink the flow hands to routes: an engine `ExportSink` whose `begin`
@@ -137,6 +157,14 @@ export interface ExportRunnerDeps {
     container: FileSinkBeginInfo["container"],
     bytes: Uint8Array,
   ): Promise<string>;
+  /** Stream a file next to the export chunk by chunk (e.g. the PCM WAV fallback). */
+  streamFile(
+    target: SinkTarget,
+    container: FileSinkBeginInfo["container"],
+    write: (append: (bytes: Uint8Array) => Promise<void>) => Promise<void>,
+  ): Promise<string>;
+  /** ffmpeg finalize (`export:muxAudio`): WAV → AAC track in the exported video. */
+  muxAudio?: ((req: MuxAudioRequest) => Promise<MuxAudioResult>) | undefined;
   system: SystemPort;
   onChange(phase: ExportFlowPhase): void;
   now(): number;
@@ -298,7 +326,7 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
     try {
       let path: string;
       let bytes: number;
-      let pcmWav: Uint8Array | null = null;
+      let pcmAudio: AudioBlockSource | null = null;
       const burnInCaptions = config.captions === "burn-in";
       if (config.format === "gif") {
         const size = gifDimensions(config.gif.sizePreset, req.sourceSize);
@@ -309,6 +337,7 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
             colors: config.gif.colors,
             dither: config.gif.dither,
             loop: config.gif.loop,
+            adaptivePalette: config.gif.palette === "adaptive",
           },
           range: req.range,
           burnInCaptions,
@@ -337,7 +366,7 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
         attemptEncoder = res.encoder;
         path = res.path;
         bytes = sink.size;
-        pcmWav = res.pcmWav;
+        pcmAudio = res.pcmAudio;
       }
       if (controller.signal.aborted) throw new DOMException("Export cancelled", "AbortError");
 
@@ -347,6 +376,49 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
         ...target,
         finalName: sidecarName(path, ext),
       });
+      const throwIfCancelled = (e: unknown): void => {
+        if (controller.signal.aborted || isCancelled(e)) throw e;
+      };
+      if (pcmAudio && config.format !== "gif") {
+        // §10.1: no WebCodecs audio encoder → stream a PCM WAV next to the video
+        // (header first, one render block at a time), then mux it as AAC.
+        // `phase` is mutated by callbacks, so read it without the narrowed type.
+        const live = phase as ExportFlowPhase;
+        if (live.kind === "running") {
+          running({ ...live.progress, phase: "finalizing", label: "Adding audio", etaMs: null });
+        }
+        const audio = pcmAudio;
+        let wavPath: string | null = null;
+        try {
+          wavPath = await deps.streamFile(sideTarget("wav"), "wav", async (append) => {
+            await streamWav(audio, append, controller.signal);
+          });
+        } catch (e) {
+          throwIfCancelled(e);
+          notices.push(`Audio could not be written: ${messageOf(e)}`);
+        }
+        if (wavPath !== null && deps.muxAudio) {
+          try {
+            const muxed = await deps.muxAudio({
+              videoPath: path,
+              wavPath,
+              container: config.format === "webm" ? "webm" : "mp4",
+            });
+            path = muxed.path;
+            if (muxed.bytes !== undefined) bytes = muxed.bytes;
+            wavPath = null;
+          } catch (e) {
+            throwIfCancelled(e);
+            if (errorCode(e) !== FFMPEG_UNAVAILABLE) {
+              notices.push(`Audio couldn't be added to the video: ${messageOf(e)}`);
+            }
+          }
+        }
+        if (wavPath !== null) {
+          sidecars.push(wavPath);
+          notices.push(WAV_SIDECAR_NOTICE);
+        }
+      }
       if (config.captions === "srt" || config.captions === "vtt") {
         const text = serializeSidecar(
           captionsForOutput(req.captions, req.range, req.speeds),
@@ -362,16 +434,6 @@ export function createExportRunner(deps: ExportRunnerDeps): ExportRunner {
           );
         } catch (e) {
           notices.push(`Captions file could not be written: ${messageOf(e)}`);
-        }
-      }
-      if (pcmWav) {
-        try {
-          sidecars.push(await deps.writeFile(sideTarget("wav"), "wav", pcmWav));
-          notices.push(
-            "AAC audio isn't available on this device — audio was saved next to the video as WAV",
-          );
-        } catch (e) {
-          notices.push(`Audio could not be written: ${messageOf(e)}`);
         }
       }
       if (config.revealAfter) {

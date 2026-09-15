@@ -49,7 +49,10 @@ export function fakeBuffer(durationS: number, sampleRate = 48_000, channels = 2)
 }
 
 export type FakeSource = FakeNode &
-  BufferSourceLike & { starts: Array<{ when: number; offset: number; duration: number }> };
+  BufferSourceLike & {
+    starts: Array<{ when: number; offset: number; duration: number }>;
+    stopped: boolean;
+  };
 
 export interface FakeContext extends OfflineAudioContextLike {
   nodes: FakeNode[];
@@ -57,6 +60,26 @@ export interface FakeContext extends OfflineAudioContextLike {
   gains(): Array<FakeNode & GainNodeLike & { gain: FakeParam }>;
   bufferSources(): FakeSource[];
 }
+
+/** Constructor form of {@link createFakeContext} (`new FakeAudioContext(48_000)`). */
+export type FakeAudioContext = FakeContext & {
+  createBuffer(channels: number, length: number, rate: number): AudioBufferLike;
+};
+
+type FakeContextOptions = Parameters<typeof createFakeContext>[1];
+
+export const FakeAudioContext = function FakeAudioContext(
+  sampleRate = 48_000,
+  opts: FakeContextOptions = {},
+): FakeAudioContext {
+  return Object.assign(createFakeContext(sampleRate, opts), {
+    createBuffer: (channels: number, length: number, rate: number) =>
+      fakeBuffer(length / rate, rate, channels),
+  });
+} as unknown as new (
+  sampleRate?: number,
+  opts?: FakeContextOptions,
+) => FakeAudioContext;
 
 export function createFakeContext(
   sampleRate = 48_000,
@@ -96,8 +119,12 @@ export function createFakeContext(
         loopEnd: 0,
         playbackRate: fakeParam(1),
         starts,
+        stopped: false,
         start(when = 0, offset = 0, duration = Number.POSITIVE_INFINITY) {
           starts.push({ when, offset, duration });
+        },
+        stop(this: { stopped: boolean }) {
+          this.stopped = true;
         },
       };
       return node("source", extra);

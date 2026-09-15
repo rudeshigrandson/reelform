@@ -5,6 +5,7 @@ import { selectRoute } from "../../export/route";
 import { ExportDialog } from "../../export/ui/ExportDialog";
 import type { ExportUiConfig } from "../../export/ui/types";
 import { useProjectSession } from "../project/session";
+import { useAppSettings } from "../settings/store";
 import { ExportOptions } from "./ExportOptions";
 import { ExportDoneView, ExportProblemView, ExportProgressView, ExportToast } from "./ExportStatus";
 import {
@@ -32,10 +33,12 @@ import {
   type ExportStoreSnapshot,
   createDefaultExportDeps,
 } from "./defaultDeps";
+import { ExportFlowError } from "./exportSink";
 import {
   type ExportFlowPhase,
   type ExportRunner,
   type ExportRunnerDeps,
+  FFMPEG_UNAVAILABLE,
   createExportRunner,
   progressPatchFor,
 } from "./runner";
@@ -122,6 +125,16 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
       runGif: (a) => requireDeps().runGif(a),
       createSink: (t) => requireDeps().createSink(t),
       writeFile: (t, c, b) => requireDeps().writeFile(t, c, b),
+      streamFile: (t, c, w) => requireDeps().streamFile(t, c, w),
+      muxAudio: (r) => {
+        const mux = requireDeps().muxAudio;
+        if (!mux) {
+          return Promise.reject(
+            new ExportFlowError(FFMPEG_UNAVAILABLE, "ffmpeg is not available to mux audio"),
+          );
+        }
+        return mux(r);
+      },
       get system() {
         return propsRef.current.systemPort;
       },
@@ -180,9 +193,17 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
     if (!range) return;
     const editor = useEditorStore.getState();
     const session = useProjectSession.getState();
+    // TODO(autoDeleteRawAfterExport): no IPC channel deletes only a project's raw
+    // recording source (project:moveToTrash trashes the whole project), so the
+    // setting isn't applied after export; hide its toggle until main adds one.
+    const { gpuExport } = useAppSettings.getState().settings;
     let preferHardware = merged.hardwareAcceleration;
     let notice: string | null = null;
-    if (merged.format !== "gif" && caps) {
+    if (merged.format !== "gif" && gpuExport === "off") {
+      // Settings → Advanced → GPU export: off forces the software encoder.
+      if (preferHardware) notice = "GPU export is off in Settings — using the software encoder";
+      preferHardware = false;
+    } else if (merged.format !== "gif" && caps) {
       const route = selectRoute(
         toEngineConfig(merged),
         {
@@ -194,6 +215,7 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
           hasSpeeds: editor.speedRegions.length > 0,
         },
         hardwareCaps(caps),
+        { gpuExport },
       );
       // `native-static` (ffmpeg fast path) isn't bundled in this build; it runs on WebCodecs.
       if (route === "software-fallback" && preferHardware) {
@@ -382,7 +404,14 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
   const gifSize = gifDimensions(config.gif.sizePreset, sourceSize ?? PLACEHOLDER_SOURCE);
   const sizeEstimate = formatBytes(
     config.format === "gif"
-      ? roughGifBytes(gifSize.width, gifSize.height, config.gif.fps, config.gif.colors, rangeMs)
+      ? roughGifBytes(
+          gifSize.width,
+          gifSize.height,
+          config.gif.fps,
+          config.gif.colors,
+          rangeMs,
+          config.gif.palette,
+        )
       : estimateVideoBytes(config, rangeMs),
   );
   const shownIssues = issues

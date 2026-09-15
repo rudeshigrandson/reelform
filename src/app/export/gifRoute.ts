@@ -10,6 +10,7 @@ import {
   WEBCAM_DECODER_WINDOW,
   screenDecoderWindow,
 } from "../../export/engine/streamingDecoder";
+import { TRANSITION_DECODER_WINDOW, TransitionFeed } from "../../export/engine/transitionFeed";
 import {
   WEBCAM_UNAVAILABLE_NOTICE,
   WebcamFeed,
@@ -110,6 +111,7 @@ export function createGifRoute(deps: GifRouteDeps) {
     const track = timeline.webcam ?? null;
     const openWebcam = deps.openWebcamSource;
     let webcam: WebcamFeed | null = null;
+    let transition: TransitionFeed | null = null;
     const renderAt = async (index: number): Promise<RgbaFrame> => {
       const pf = plan.frameAt(index);
       const scene = sceneAt(pf.timelineMs);
@@ -137,6 +139,12 @@ export function createGifRoute(deps: GifRouteDeps) {
           cam = prepared.frame;
           check();
         }
+        transition ??= new TransitionFeed({
+          open: () => deps.openFrameSource({ maxWindow: TRANSITION_DECODER_WINDOW }),
+          renderer: r,
+        });
+        await transition.prepare(scene, () => signal.aborted);
+        check();
         image = await r.render(state, source);
       } finally {
         source?.close();
@@ -187,6 +195,7 @@ export function createGifRoute(deps: GifRouteDeps) {
       signal.removeEventListener("abort", onAbort);
       (frames as FrameSource | null)?.close();
       (webcam as WebcamFeed | null)?.release();
+      (transition as TransitionFeed | null)?.release();
       renderer?.destroy();
     }
   };

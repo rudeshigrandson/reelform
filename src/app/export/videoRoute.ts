@@ -2,7 +2,7 @@ import { UrlSource } from "mediabunny";
 import type { Clip } from "../../editor/model/schema";
 import type { RateRegion } from "../../editor/playback/clock";
 import { type ComposeInput, createComposedSceneEvaluator } from "../../editor/preview/compose";
-import type { AudioBufferLike } from "../../export/engine/audio";
+import type { AudioBlockSource } from "../../export/engine/audio";
 import {
   type ExportEngineDeps,
   type ExportJob,
@@ -21,6 +21,7 @@ import {
   WEBCAM_DECODER_WINDOW,
   screenDecoderWindow,
 } from "../../export/engine/streamingDecoder";
+import { TRANSITION_DECODER_WINDOW } from "../../export/engine/transitionFeed";
 import { browserVideoDecoder, browserWebCodecs } from "../../export/engine/webcodecsGlobals";
 import type { TimeRange } from "./config";
 import type { VideoRouteArgs, VideoRouteResult } from "./runner";
@@ -79,7 +80,8 @@ export interface RenderAudioArgs {
 export interface VideoRouteDeps {
   timeline: TimelineSnapshot;
   videoUrl: string;
-  renderAudio(args: RenderAudioArgs): Promise<AudioBufferLike | null>;
+  /** Lazy timeline mixdown (rendered block by block while it is encoded). */
+  renderAudio(args: RenderAudioArgs): Promise<AudioBlockSource | null>;
   now(): number;
   /** `reelform-media://` base for the renderer's default assets (images, cursor packs). */
   mediaBaseUrl?: string | null | undefined;
@@ -165,6 +167,12 @@ export function createVideoRoute(deps: VideoRouteDeps) {
         openWebcamSource: webcam
           ? () => openWebcam(webcam, { maxWindow: WEBCAM_DECODER_WINDOW })
           : undefined,
+        // Cross-dissolve incoming frames come from their own small decoder so the
+        // main screen decoder keeps streaming forward.
+        openNextFrameSource: () =>
+          (deps.openFrameSource ?? ((o) => openUrlFrameSource(deps.videoUrl, o)))({
+            maxWindow: TRANSITION_DECODER_WINDOW,
+          }),
         renderer,
         createMuxer: deps.createMuxer ?? createMediabunnyMuxer,
         sink: args.sink,
@@ -179,7 +187,7 @@ export function createVideoRoute(deps: VideoRouteDeps) {
         path: result.path,
         encoder: result.encoder,
         attempts: result.attempts,
-        pcmWav: result.pcmWav,
+        pcmAudio: result.pcmAudio,
       };
     } finally {
       renderer.destroy();

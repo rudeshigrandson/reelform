@@ -34,6 +34,8 @@ export interface PixiFrameRendererOptions {
 export interface PixiFrameRenderer extends FrameRenderer {
   /** Webcam frame for the next `render` (owned and closed by the caller). */
   setWebcamFrame(frame: VideoFrame | null): void;
+  /** Cross-dissolve incoming frame for the next `render` (owned and closed by the caller). */
+  setNextVideoFrame(frame: VideoFrame | null): void;
 }
 
 /** The export's scene graph — the parity test builds this with a fake pixi. */
@@ -79,6 +81,7 @@ export async function createPixiFrameRenderer(
 
   let video: FrameTex | null = null;
   let webcam: FrameTex | null = null;
+  let next: FrameTex | null = null;
   let destroyed = false;
 
   const release = (t: FrameTex | null): void => {
@@ -103,6 +106,19 @@ export async function createPixiFrameRenderer(
   }
 
   return {
+    setNextVideoFrame(frame) {
+      if (destroyed) return;
+      if (!frame) {
+        graph.setNextVideoTexture(null);
+        release(next);
+        next = null;
+        return;
+      }
+      const uploaded = upload(next, frame);
+      if (uploaded !== next) graph.setNextVideoTexture(uploaded.texture);
+      next = uploaded;
+    },
+
     setWebcamFrame(frame) {
       if (destroyed) return;
       if (!frame) {
@@ -143,8 +159,10 @@ export async function createPixiFrameRenderer(
       destroyed = true;
       graph.setVideoTexture(null);
       graph.setWebcamTexture(null);
+      graph.setNextVideoTexture(null);
       release(video);
       release(webcam);
+      release(next);
       graph.destroy();
       app.destroy({ removeView: true }, { children: true });
     },

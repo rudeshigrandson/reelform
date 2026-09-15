@@ -452,15 +452,26 @@ export class FakeRenderer implements FrameRenderer {
   /** `setWebcamFrame` history: frame timestamps, null for detach. */
   webcamSets: (number | null)[] = [];
   onRender: ((callIndex: number) => void) | null = null;
+  /** `setNextVideoFrame` history: frame timestamps, null for detach. */
+  nextSets: (number | null)[] = [];
+  /** Per render: timestamp of the attached cross-dissolve frame, else null. */
+  nextAtRender: (number | null)[] = [];
   private webcam: FakeVideoFrame | null = null;
+  private next: FakeVideoFrame | null = null;
   constructor(private readonly ledger: FrameLedger) {}
   setWebcamFrame(frame: VideoFrame | null): void {
     this.webcam = frame ? asFake(frame) : null;
     this.webcamSets.push(this.webcam ? this.webcam.timestamp : null);
   }
+  setNextVideoFrame(frame: VideoFrame | null): void {
+    this.next = frame ? asFake(frame) : null;
+    this.nextSets.push(this.next ? this.next.timestamp : null);
+  }
   async render(state: SceneState, frame: VideoFrame | null): Promise<VideoFrame> {
     const src = frame ? asFake(frame) : null;
     if (src?.closed) throw new Error("render of closed source frame");
+    if (this.next?.closed) throw new Error("render with a closed cross-dissolve frame");
+    this.nextAtRender.push(this.next ? this.next.timestamp : null);
     const webcamVisible = state.composition?.webcam.visible === true;
     if (webcamVisible && (this.webcam === null || this.webcam.closed)) {
       throw new Error("visible webcam bubble without a live webcam frame");

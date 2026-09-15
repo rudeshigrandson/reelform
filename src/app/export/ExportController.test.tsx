@@ -53,7 +53,7 @@ function harness() {
         if (control.fail) throw control.fail;
         await args.sink.writeChunk(new Uint8Array(2_400_000));
         const { path } = await args.sink.finish();
-        return { path, encoder: "hardware" as const, attempts: 1, pcmWav: null };
+        return { path, encoder: "hardware" as const, attempts: 1, pcmAudio: null };
       },
       runGif: async (args: GifRouteArgs) => {
         control.gif.push(args);
@@ -68,6 +68,7 @@ function harness() {
         return sink;
       },
       writeFile: async (t: SinkTarget) => `/exports/${t.finalName}`,
+      streamFile: async (t: SinkTarget) => `/exports/${t.finalName}`,
       system: base.system,
       onChange: () => undefined,
       now: base.now,

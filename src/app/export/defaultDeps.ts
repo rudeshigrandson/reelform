@@ -1,19 +1,29 @@
+import { useLoudnessStore } from "../../editor/audio/loudnessStore";
+import { defaultNoiseReduction } from "../../editor/audio/usePreviewAudio";
 import type { Clip } from "../../editor/model/schema";
 import { buildCursorMotion } from "../../editor/preview/cursorEffects";
 import { type FetchJson, fetchJsonViaFetch } from "../../editor/preview/cursorPack";
 import { type WallpaperRegistry, loadWallpaperRegistry } from "../../editor/preview/wallpapers";
 import type { EditorData } from "../../editor/store";
 import { createPixiFrameRenderer } from "../../export/engine/pixiFrameRenderer";
+import { invoke } from "../ipc";
 import type { ProjectSessionData } from "../project/session";
 import {
   browserAudioDecoder,
   browserOfflineContext,
   createExportAudioRenderer,
 } from "./audioSources";
-import { type ExportIpc, IpcExportSink, ipcExportTransport, writeFileViaSink } from "./exportSink";
+import {
+  ExportFlowError,
+  type ExportIpc,
+  IpcExportSink,
+  ipcExportTransport,
+  streamFileViaSink,
+  writeFileViaSink,
+} from "./exportSink";
 import { createGifRoute, readPixelsOffscreen } from "./gifRoute";
 import { createGifWorker } from "./gifWorker";
-import type { ExportFlowPhase, ExportRunnerDeps } from "./runner";
+import type { ExportFlowPhase, ExportRunnerDeps, MuxAudioRequest, MuxAudioResult } from "./runner";
 import type { SystemPort } from "./systemPort";
 import {
   type TimelineSnapshot,
@@ -129,6 +139,17 @@ export function timelineFromSnapshot(
   };
 }
 
+/**
+ * `export:muxAudio`: ffmpeg muxes the PCM WAV into the finished video in place
+ * and deletes the WAV. Rejects with code FFMPEG_UNAVAILABLE when there is no
+ * ffmpeg (the runner then keeps the WAV as a sidecar).
+ */
+export async function muxAudioViaIpc(req: MuxAudioRequest): Promise<MuxAudioResult> {
+  const res = await invoke("export:muxAudio", req);
+  if (res === null) throw new ExportFlowError("NOT_BRIDGED", "Export needs the desktop app");
+  return { path: res.outputPath };
+}
+
 export function createDefaultExportDeps(
   snapshot: ExportStoreSnapshot,
   base: ExportBaseDeps,
@@ -146,9 +167,15 @@ export function createDefaultExportDeps(
       now: base.now,
       renderAudio: createExportAudioRenderer({
         urls: { micUrl: session.micUrl, systemAudioUrl: session.systemAudioUrl },
+        mediaBaseUrl,
         settings: editor.audio,
         clips: timeline.clips,
         speeds: editor.speedRegions,
+        clickSound: editor.cursor.clickSound,
+        telemetry: session.telemetry?.telemetry ?? null,
+        // Measured by the Audio tab's loudness worker; missing tracks are measured inline.
+        loudnessLufs: () => useLoudnessStore.getState().lufs,
+        noiseReduction: defaultNoiseReduction(),
         decoder: browserAudioDecoder(),
         createContext: browserOfflineContext,
       }),
@@ -164,6 +191,9 @@ export function createDefaultExportDeps(
     }),
     createSink: (target) => new IpcExportSink({ ipc, ...target }),
     writeFile: (target, container, bytes) => writeFileViaSink({ ipc, ...target }, container, bytes),
+    streamFile: (target, container, write) =>
+      streamFileViaSink({ ipc, ...target }, container, write),
+    muxAudio: muxAudioViaIpc,
     system: base.system,
     onChange: base.onChange,
     now: base.now,

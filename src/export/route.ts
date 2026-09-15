@@ -55,6 +55,13 @@ export interface EncoderCaps {
 
 export type ExportRoute = "webcodecs" | "native-static" | "software-fallback";
 
+/** Settings → Advanced "GPU export" (§11): `off` never uses a hardware encoder. */
+export type GpuExportPreference = "auto" | "on" | "off";
+
+export interface RoutePreferences {
+  gpuExport?: GpuExportPreference | undefined;
+}
+
 /**
  * True when the project only needs frame styling + trims — no zooms, cursor
  * rendering, annotations, webcam, captions or speed regions. This is the
@@ -80,6 +87,8 @@ function hwAvailable(caps: EncoderCaps, codec: Codec): boolean {
  * Choose the export engine.
  *
  * Precedence:
+ *   0. `software-fallback` whenever GPU export is turned off in Settings (the
+ *      native fast path is a hardware filter graph, so it is skipped too).
  *   1. `native-static` when the project is styling-only AND the chosen codec has
  *      a hardware encoder (the fast path is an ffmpeg HW filter graph — without a
  *      HW encoder it offers no benefit, so we drop back to software WebCodecs).
@@ -90,7 +99,9 @@ export function selectRoute(
   config: ExportConfig,
   project: ProjectFlags,
   caps: EncoderCaps,
+  prefs: RoutePreferences = {},
 ): ExportRoute {
+  if (prefs.gpuExport === "off") return "software-fallback";
   const hw = hwAvailable(caps, config.codec);
 
   if (isStylingOnly(project)) {
