@@ -14,7 +14,8 @@ import {
   usePlaybackShortcuts,
   usePlaybackStore,
 } from "./playback";
-import { type CreatePreviewStage, PreviewCanvas } from "./preview";
+import type { CreatePreviewStage } from "./preview";
+import { EditorPreview } from "./preview/EditorPreview";
 import { EditorShell } from "./shell/EditorShell";
 import { useEditorStore } from "./store";
 import { HEADER_WIDTH_PX, type TimeSpan, Timeline, type TrackKind } from "./timeline";
@@ -27,8 +28,6 @@ import {
   selectionPatch,
   zoomToScale,
 } from "./timelineBinding";
-
-const PLACEHOLDER_SOURCE_SIZE = { width: 1920, height: 1080 } as const;
 const EMPTY_SELECTION: ReadonlySet<string> = new Set();
 
 let idCounter = 0;
@@ -72,9 +71,7 @@ export function EditorWindow({
 }: EditorWindowProps): ReactElement {
   const durationMs = useEditorStore((e) => e.durationMs);
   const speedRegions = useEditorStore((e) => e.speedRegions);
-  const frame = useEditorStore((e) => e.frame);
   const zoomRegions = useEditorStore((e) => e.zoomRegions);
-  const cursor = useEditorStore((e) => e.cursor);
   const annotations = useEditorStore((e) => e.annotations);
   const captions = useEditorStore((e) => e.captions);
   const update = useEditorStore((e) => e.update);
@@ -153,19 +150,7 @@ export function EditorWindow({
       onExport={onExport}
       onTogglePlay={playback.toggle}
       renderInspector={(tab) => <InspectorPanel tab={tab} />}
-      renderPreview={() => (
-        <PreviewCanvas
-          frame={frame}
-          zoomRegions={zoomRegions}
-          cursor={cursor}
-          currentMs={currentMs}
-          isPlaying={isPlaying}
-          // No media source until the project open path lands (SPEC §6.1).
-          videoUrl={null}
-          sourceSize={PLACEHOLDER_SOURCE_SIZE}
-          createStage={createStage}
-        />
-      )}
+      renderPreview={() => <EditorPreview createStage={createStage} />}
       renderPlaybackBar={() => (
         <PlaybackBar
           currentMs={currentMs}
