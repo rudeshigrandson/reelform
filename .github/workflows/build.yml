@@ -117,7 +117,7 @@ jobs:
           done
           chmod +x resources/whisper/*/whisper-cli* || true
 
-      # Fails with a clear message until PINS in scripts/fetch-ffmpeg.mjs are filled.
+      # Downloads the pinned FFmpeg 9.0.1 builds (sha256-verified before extraction).
       - name: Fetch pinned ffmpeg
         shell: bash
         run: |
