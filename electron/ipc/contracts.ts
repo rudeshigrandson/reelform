@@ -107,6 +107,9 @@ export type EventPayloadOf<K extends EventName> = z.infer<EventSchema<K>>;
 export interface ReelformApi {
   invoke<K extends ChannelName>(channel: K, payload: RequestOf<K>): Promise<ResponseOf<K>>;
   on(channel: string, cb: (payload: unknown) => void): () => void;
+  /** On-disk path of a dropped / picked `File` (`webUtils.getPathForFile`); "" when it has none. */
+  getPathForFile(file: File): string;
 }
 
 export { IPC_ERROR_PREFIX, ReelformIpcError, decodeIpcError, toIpcError } from "./errors";
+export { FRAME_USER_PRESETS_MAX } from "../settings/schema";

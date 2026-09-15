@@ -79,6 +79,7 @@ export const sampleSettings: SettingsState = {
   snapByDefault: true,
   undoHistorySize: 200,
   inspectorAutoSwitch: true,
+  frameUserPresets: [],
 
   shortcuts: {},
 

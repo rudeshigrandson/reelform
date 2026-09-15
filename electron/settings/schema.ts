@@ -16,6 +16,23 @@ export const ACCENT_COLORS = ["indigo", "blue", "violet", "pink", "orange", "gre
 /** Keys whose values are filesystem paths (dropped from diagnostics bundles). */
 export const SETTINGS_PATH_KEYS = ["recordingsFolder"] as const;
 
+/** Cap on saved frame presets (Inspector › Frame "Save current as preset…"). */
+export const FRAME_USER_PRESETS_MAX = 100;
+
+/**
+ * A user frame preset. `settings` is the renderer's `FrameSettings`; main only
+ * checks it is a plain object so a future frame-schema change can't wipe every
+ * saved preset through per-key repair. The Frame tab validates it strictly.
+ */
+const frameUserPreset = z
+  .object({
+    id: z.string().min(1).max(128),
+    name: z.string().min(1).max(80),
+    builtIn: z.boolean(),
+    settings: z.record(z.string().min(1).max(64), z.unknown()),
+  })
+  .strict();
+
 const shortcutOverride = z
   .string()
   .max(64)
@@ -67,6 +84,8 @@ export const SettingsShape = {
   snapByDefault: z.boolean(),
   undoHistorySize: z.number().int().min(10).max(1000),
   inspectorAutoSwitch: z.boolean(),
+  /** Saved frame presets, oldest first. */
+  frameUserPresets: z.array(frameUserPreset).max(FRAME_USER_PRESETS_MAX),
 
   // ---- Shortcuts (id → canonical accelerator; "" = unbound) ----
   shortcuts: z.record(z.string().min(1).max(64), shortcutOverride),
@@ -141,6 +160,7 @@ export function createDefaultSettings(env: DefaultSettingsEnv): Settings {
     snapByDefault: true,
     undoHistorySize: 200,
     inspectorAutoSwitch: true,
+    frameUserPresets: [],
 
     shortcuts: {},
 

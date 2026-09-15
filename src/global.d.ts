@@ -5,5 +5,3 @@ declare global {
     reelform: ReelformApi;
   }
 }
-
-export {};

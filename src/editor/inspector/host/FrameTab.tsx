@@ -1,3 +1,4 @@
+import { FRAME_USER_PRESETS_MAX } from "@contracts";
 import { Button, Dialog, Input } from "@design/components";
 import {
   type FetchLike,
@@ -9,11 +10,12 @@ import { type ReactElement, useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { useProjectSession } from "../../../app/project/session";
 import { useAppSettings } from "../../../app/settings/store";
-import type { SettingsPatch } from "../../../settings/types";
+import type { SettingsKey, SettingsPatch, SettingsState } from "../../../settings/types";
 import { useEditorStore } from "../../store";
 import { FrameInspector } from "../frame";
 import { type FramePreset, type Wallpaper, frameSettingsSchema } from "../frame/types";
 import { pathForFile } from "./filePaths";
+import { type InspectorMessageKey, useInspectorT, withDetail } from "../i18n";
 import { errorMessage, hostId } from "./hooks";
 import type { InspectorHost } from "./types";
 
@@ -27,8 +29,9 @@ export const IMAGE_FILTERS = [
 ];
 
 /** App-settings key holding the user's saved frame presets. */
-export const USER_PRESETS_SETTINGS_KEY = "frameUserPresets";
+export const USER_PRESETS_SETTINGS_KEY = "frameUserPresets" satisfies SettingsKey;
 
+/** Strict renderer-side check; main stores `settings` loosely (see electron/settings/schema.ts). */
 const userPresetsSchema = z.array(
   z.object({
     id: z.string().min(1),
@@ -38,10 +41,12 @@ const userPresetsSchema = z.array(
   }),
 );
 
-/** Saved presets from app settings; anything malformed is ignored. */
-export function readUserPresets(settings: unknown): FramePreset[] {
+/** Saved presets from app settings (or a settings patch); anything malformed is ignored. */
+export function readUserPresets(
+  settings: Partial<SettingsState> | null | undefined,
+): FramePreset[] {
   if (typeof settings !== "object" || settings === null) return [];
-  const raw = (settings as Record<string, unknown>)[USER_PRESETS_SETTINGS_KEY];
+  const raw = settings[USER_PRESETS_SETTINGS_KEY];
   const parsed = userPresetsSchema.safeParse(raw);
   return parsed.success ? parsed.data.map((p) => ({ ...p, builtIn: false })) : [];
 }
@@ -85,6 +90,7 @@ export function FrameTab({
   host,
   loadWallpapers = loadWallpaperCatalogue,
 }: FrameTabProps): ReactElement {
+  const t = useInspectorT();
   const frame = useEditorStore((s) => s.frame);
   const sourceSize = useProjectSession((s) => s.sourceSize);
   const settings = useAppSettings((s) => s.settings);
@@ -108,8 +114,9 @@ export function FrameTab({
   // Settings win once they carry the key; until then this window keeps its own list.
   const userPresets = storedPresets.length > 0 ? storedPresets : (localPresets ?? []);
 
-  const applyImage = async (file: File | null, label: string) => {
+  const applyImage = async (file: File | null, labelKey: InspectorMessageKey) => {
     setError(null);
+    const label = t(labelKey);
     try {
       const path = await pathForFile(host, file, { title: label, filters: IMAGE_FILTERS });
       if (!path) return;
@@ -126,7 +133,7 @@ export function FrameTab({
         },
       });
     } catch (err) {
-      setError(`Couldn't use that image. ${errorMessage(err, "")}`.trim());
+      setError(withDetail(t, "inspector.frame.error.image", errorMessage(err, "")));
     }
   };
 
@@ -139,11 +146,11 @@ export function FrameTab({
       builtIn: false,
       settings: structuredClone(useEditorStore.getState().frame),
     };
-    const next = [...userPresets, preset];
+    // Main caps the list; keep the newest so saving never gets rejected.
+    const next = [...userPresets, preset].slice(-FRAME_USER_PRESETS_MAX);
     setLocalPresets(next);
     setNaming(null);
-    // The key isn't in the typed settings schema yet; the store drops unknown keys safely.
-    const patch = { [USER_PRESETS_SETTINGS_KEY]: next } as unknown as SettingsPatch;
+    const patch: SettingsPatch = { [USER_PRESETS_SETTINGS_KEY]: next };
     void useAppSettings.getState().patch(patch);
   };
 
@@ -163,31 +170,37 @@ export function FrameTab({
       )}
       <FrameInspector
         value={frame}
-        onChange={(next) => host.documentUpdate("Frame", { frame: next }, "frame-settings")}
+        onChange={(next) =>
+          host.documentUpdate(
+            t("inspector.frame.history.settings"),
+            { frame: next },
+            "frame-settings",
+          )
+        }
         wallpapers={wallpapers ?? undefined}
         userPresets={userPresets}
         sourceSize={sourceSize}
         onSavePreset={() => setNaming("")}
-        onAddCustomWallpaper={() => void applyImage(null, "Custom wallpaper")}
-        onImageSelect={(file) => void applyImage(file, "Background image")}
+        onAddCustomWallpaper={() => void applyImage(null, "inspector.frame.customWallpaper")}
+        onImageSelect={(file) => void applyImage(file, "inspector.frame.backgroundImage")}
       />
       <Dialog
         open={naming !== null}
         onClose={() => setNaming(null)}
-        title="Save frame preset"
+        title={t("inspector.frame.savePresetDialog.title")}
         actions={
           <>
             <Button variant="ghost" onClick={() => setNaming(null)}>
-              Cancel
+              {t("inspector.common.cancel")}
             </Button>
             <Button variant="primary" disabled={(naming ?? "").trim() === ""} onClick={savePreset}>
-              Save preset
+              {t("inspector.frame.savePresetDialog.save")}
             </Button>
           </>
         }
       >
         <Input
-          label="Preset name"
+          label={t("inspector.frame.savePresetDialog.name")}
           autoFocus
           value={naming ?? ""}
           maxLength={40}

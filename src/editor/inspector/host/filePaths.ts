@@ -1,12 +1,14 @@
+import type { ReelformApi } from "@contracts";
 import type { InspectorHost, PickFileOptions } from "./types";
 
 /**
  * Filesystem path of a dropped / browsed `File`. Electron ≥ 32 removed
- * `File.path`; the preload can expose `webUtils.getPathForFile` on
- * `window.reelform.getPathForFile`. Null when neither is available.
+ * `File.path`; the preload exposes `webUtils.getPathForFile` on
+ * `window.reelform.getPathForFile`. Null when neither is available (tests,
+ * plain browser).
  */
 export function fileSystemPath(file: File): string | null {
-  const bridge = (globalThis as { reelform?: { getPathForFile?: (f: File) => string } }).reelform;
+  const bridge = (globalThis as { reelform?: Partial<ReelformApi> }).reelform;
   try {
     const viaBridge = bridge?.getPathForFile?.(file);
     if (viaBridge) return viaBridge;
