@@ -81,4 +81,24 @@ describe("ffmpeg binary resolution", () => {
       ffprobe: "/usr/local/bin/ffprobe",
     });
   });
+
+  it("packaged: resources/ffmpeg/<platform>-<arch> comes right after the env override", () => {
+    const deps = base({
+      resourcesPath: "/Applications/Reelform.app/Contents/Resources",
+      env: { REELFORM_FFMPEG_PATH: "/opt/ff", PATH: "/usr/bin" },
+    });
+    const c = binaryCandidates(deps, "ffprobe");
+    expect(c[0]).toBe("/Applications/Reelform.app/Contents/Resources/ffmpeg/darwin-arm64/ffprobe");
+    const staged = "/Applications/Reelform.app/Contents/Resources/ffmpeg/darwin-arm64";
+    expect(resolveFfmpegPaths({ ...deps, exists: (p) => p.startsWith(staged) })).toEqual({
+      ffmpeg: `${staged}/ffmpeg`,
+      ffprobe: `${staged}/ffprobe`,
+    });
+    expect(binaryCandidates(deps, "ffmpeg").slice(0, 2)).toEqual(["/opt/ff", `${staged}/ffmpeg`]);
+  });
+
+  it("dev layouts without resourcesPath add no staged candidate", () => {
+    const c = binaryCandidates(base({ appPath: "/repo" }), "ffmpeg");
+    expect(c.some((p) => p.includes("/ffmpeg/darwin-"))).toBe(false);
+  });
 });

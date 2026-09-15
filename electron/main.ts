@@ -30,6 +30,7 @@ import { createPermissionsHandlers } from "./permissions/contracts";
 import { createElectronPermissionsDeps } from "./permissions/electronAdapter";
 import { createProjectHandlers } from "./project";
 import { createElectronProjectDeps } from "./project/electronAdapter";
+import type { RecordingEvent } from "./recording/contracts";
 import { createRecordingMain } from "./recording/electronAdapter";
 import { createSettingsHandlers } from "./settings/contracts";
 import { createElectronSettings } from "./settings/electronAdapter";
@@ -38,6 +39,12 @@ import { createElectronSystemDeps } from "./system/electronAdapter";
 import { createProjectFileHandlers } from "./system/projectFiles";
 import { createNodeProjectFileDeps } from "./system/projectFilesNode";
 import { type TrayController, createElectronTray } from "./tray/electronAdapter";
+import {
+  IDLE_TRAY_RECORDING,
+  type TrayRecording,
+  reduceTrayRecording,
+  trayActionCommand,
+} from "./tray/recordingTray";
 import type { TrayAction } from "./tray/trayMenu";
 import { createUpdaterHandlers } from "./updater/contracts";
 import { createElectronUpdater } from "./updater/electronAdapter";
@@ -149,7 +156,17 @@ async function boot(): Promise<void> {
         })
       : null;
 
+  // Tray mirrors the live recording session (red dot, Pause/Resume/Stop).
+  let trayRecording: TrayRecording = IDLE_TRAY_RECORDING;
+  const onRecordingEvent = (event: RecordingEvent): void => {
+    const next = reduceTrayRecording(trayRecording, event);
+    if (next === trayRecording) return;
+    trayRecording = next;
+    tray?.update({ recording: next.state, recent: [] });
+  };
+
   const recording = createRecordingMain({
+    onEvent: onRecordingEvent,
     binDir,
     settings: () => ({
       keepTypedText: false,
@@ -186,9 +203,15 @@ async function boot(): Promise<void> {
         return;
       case "pause":
       case "resume":
-      case "stop-recording":
-        broadcast("tray:action", action);
+      case "stop-recording": {
+        const command = trayActionCommand(action.type, trayRecording);
+        if (command) {
+          void recording.handlers[command.channel]({ sessionId: command.sessionId }).catch(
+            (err: unknown) => console.warn("[tray] recording action failed", err),
+          );
+        }
         return;
+      }
     }
   };
   let tray: TrayController | null = null;
@@ -199,7 +222,7 @@ async function boot(): Promise<void> {
           template: path.join(trayAssets, "trayTemplate.png"),
           recording: path.join(trayAssets, "trayRecording.png"),
         },
-        { recording: "idle", recent: [] },
+        { recording: trayRecording.state, recent: [] },
         onTrayAction,
       );
     } else if (!show && tray) {

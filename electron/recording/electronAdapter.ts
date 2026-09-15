@@ -26,6 +26,8 @@ export interface RecordingMainOptions {
   settings(): RecordingSettings;
   /** Windows that receive `recording:event` (launcher, HUD, editor). */
   targets(): BrowserWindow[];
+  /** Main-process observer of every `recording:event` (e.g. the tray). */
+  onEvent?: ((event: RecordingEvent) => void) | undefined;
   recordingsDir?: string | undefined;
   /**
    * Global input hook for cursor/click/key telemetry: uiohook-napi (Win/Linux)
@@ -87,6 +89,7 @@ export function createRecordingMain(opts: RecordingMainOptions): RecordingContro
     timers: nodeHelperDeps.timers,
     emit: (event: RecordingEvent) => {
       for (const w of opts.targets()) if (!w.isDestroyed()) w.webContents.send(eventName, event);
+      opts.onEvent?.(event);
     },
     inputHook:
       opts.inputHook !== undefined

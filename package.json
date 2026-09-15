@@ -5,6 +5,15 @@
   "type": "module",
   "description": "Reelform — desktop screen recorder + demo-video editor",
   "license": "MIT",
+  "author": {
+    "name": "Mishal Udeshi",
+    "email": "developer.rudeshi@gmail.com"
+  },
+  "homepage": "https://github.com/rudeshigrandson/reelform",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rudeshigrandson/reelform.git"
+  },
   "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "vite",

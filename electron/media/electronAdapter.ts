@@ -56,6 +56,7 @@ export function createElectronMediaDeps(registry: MediaRootRegistry): MediaDeps 
         platform: process.platform,
         arch: process.arch,
         appPath: app.getAppPath(),
+        resourcesPath: app.isPackaged ? process.resourcesPath : undefined,
         env: process.env,
         exists: existsSync,
       }),

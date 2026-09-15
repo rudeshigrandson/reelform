@@ -17,6 +17,12 @@ export interface FfmpegPathDeps {
   arch: string;
   /** `app.getAppPath()` — `…/resources/app.asar` when packaged, repo root in dev. */
   appPath: string;
+  /**
+   * `process.resourcesPath` when packaged: `scripts/fetch-ffmpeg.mjs` stages
+   * binaries in `resources/ffmpeg/<platform>-<arch>/` and electron-builder ships
+   * them there via extraResources.
+   */
+  resourcesPath?: string | undefined;
   env: Readonly<Record<string, string | undefined>>;
   exists(p: string): boolean;
   path?: (PathOps & { delimiter: string }) | undefined;
@@ -49,6 +55,10 @@ export function binaryCandidates(deps: FfmpegPathDeps, tool: "ffmpeg" | "ffprobe
 
   const override = deps.env[tool === "ffmpeg" ? "REELFORM_FFMPEG_PATH" : "REELFORM_FFPROBE_PATH"];
   if (override) out.push(override);
+
+  if (deps.resourcesPath) {
+    out.push(path.join(deps.resourcesPath, "ffmpeg", `${deps.platform}-${deps.arch}`, name));
+  }
 
   const modules = path.join(deps.appPath, "node_modules");
   const bundled =

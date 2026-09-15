@@ -31,6 +31,8 @@ export interface SecureWebPreferences {
   nodeIntegration: false;
   sandbox: true;
   webSecurity: true;
+  /** Off only for windows that must keep working hidden (the launcher hosts MediaRecorders). */
+  backgroundThrottling?: boolean | undefined;
 }
 
 export interface WindowOptions {
@@ -125,7 +127,9 @@ export function buildWindowOptions(kind: WindowKind, ctx: WindowOptionsContext):
         title: "Reelform",
         backgroundColor: OPAQUE_BACKGROUND,
         resizable: true,
-        webPreferences,
+        // The launcher hosts the Electron backend's MediaRecorders and may be
+        // hidden during capture; throttling would stall chunks and the mic meter.
+        webPreferences: { ...webPreferences, backgroundThrottling: false },
       };
     case "editor":
       return {

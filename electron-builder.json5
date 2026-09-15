@@ -48,8 +48,7 @@
   "publish": [
     {
       "provider": "github",
-      // TODO(release): set the real GitHub owner/repo before the first tag.
-      "owner": "reelform",
+      "owner": "rudeshigrandson",
       "repo": "reelform",
       "releaseType": "draft",
     },
@@ -80,10 +79,13 @@
     // Helpers are signed by scripts/after-pack.cjs BEFORE their sha256 manifest
     // is written; re-signing here would change their bytes after hashing.
     "signIgnore": ["/Contents/Resources/bin/"],
+    // Platform extraResources replace any top-level list, so each platform
+    // repeats the tray icons (electron/main.ts reads resources/tray/).
     "extraResources": [
       { "from": "electron/native/bin", "to": "bin", "filter": ["darwin-*/**/*"] },
       { "from": "resources/whisper", "to": "whisper", "filter": ["darwin-*/**/*"] },
       { "from": "resources/ffmpeg", "to": "ffmpeg", "filter": ["darwin-*/**/*"] },
+      { "from": "build/tray", "to": "tray", "filter": ["*.png"] },
     ],
     "extendInfo": {
       "NSCameraUsageDescription": "Reelform uses your camera to record a webcam bubble alongside your screen.",
@@ -126,6 +128,7 @@
       { "from": "electron/native/bin", "to": "bin", "filter": ["win32-x64/**/*"] },
       { "from": "resources/whisper", "to": "whisper", "filter": ["win32-x64/**/*"] },
       { "from": "resources/ffmpeg", "to": "ffmpeg", "filter": ["win32-x64/**/*"] },
+      { "from": "build/tray", "to": "tray", "filter": ["*.png"] },
     ],
   },
   "nsis": {
@@ -146,6 +149,7 @@
     "extraResources": [
       { "from": "resources/whisper", "to": "whisper", "filter": ["linux-x64/**/*"] },
       { "from": "resources/ffmpeg", "to": "ffmpeg", "filter": ["linux-x64/**/*"] },
+      { "from": "build/tray", "to": "tray", "filter": ["*.png"] },
     ],
   },
 }

@@ -30,7 +30,9 @@ describe("buildWindowOptions", () => {
         fc.option(rectArb, { nil: undefined }),
         (kind, preloadPath, displayBounds, workArea) => {
           const o = buildWindowOptions(kind, { preloadPath, displayBounds, workArea });
-          expect(o.webPreferences).toEqual({
+          // Throttling is the only allowed extra (launcher; see windowOptions.throttling.test.ts).
+          const { backgroundThrottling: _throttling, ...hardened } = o.webPreferences;
+          expect(hardened).toEqual({
             preload: preloadPath,
             contextIsolation: true,
             nodeIntegration: false,
