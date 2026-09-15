@@ -12,7 +12,15 @@ import type {
 import type { Platform } from "../../recording/constraints";
 import { warningCopy } from "../../recording/sessionStore";
 import { PostRecordCard } from "./PostRecordCard";
-import { sourceLabel, toSourceItems } from "./document";
+import {
+  FALLBACK_CAPTURE_COPY,
+  SYSTEM_AUDIO_UNSUPPORTED_COPY,
+  sourceLabel,
+  systemAudioSupported,
+  toPickerSources,
+  toSourceItems,
+  usesFallbackCapture,
+} from "./document";
 import type { FlowError, RecordingFlow } from "./flow";
 import type { AppRecordingPort, PermissionSettingsKind, SourcesResult, SystemPort } from "./port";
 
@@ -226,12 +234,8 @@ export function LauncherContainer({
   const openSettings = system?.openPermissionSettings;
   const notices: LauncherNotice[] = [];
   const backend = sources?.backend ?? null;
-  if (backend === "electron" && platform !== "linux") {
-    notices.push({
-      id: "fallback",
-      tone: "warning",
-      message: "Native capture unavailable — using fallback, cursor may be visible.",
-    });
+  if (usesFallbackCapture(platform, backend)) {
+    notices.push({ id: "fallback", tone: "warning", message: FALLBACK_CAPTURE_COPY });
   }
   if (
     state.phase === "error" &&
@@ -315,7 +319,6 @@ export function LauncherContainer({
     );
   }
 
-  const systemAudioSupported = !(platform === "darwin" && backend === "electron");
   const sourcesStatus = sourcesError ? "error" : sources ? "ready" : "loading";
 
   return (
@@ -323,8 +326,9 @@ export function LauncherContainer({
       sources={toSourceItems(sources, "screen").concat(toSourceItems(sources, "window"))}
       micDevices={deviceLists.mic}
       webcamDevices={deviceLists.webcam}
-      systemAudioSupported={systemAudioSupported}
-      systemAudioNote="Unavailable with fallback capture on macOS"
+      systemAudioSupported={systemAudioSupported(platform, backend)}
+      systemAudioNote={SYSTEM_AUDIO_UNSUPPORTED_COPY}
+      pickerSources={toPickerSources(sources)}
       onStart={onStart}
       onOpenSettings={onOpenSettings}
       sourcesStatus={sourcesStatus}

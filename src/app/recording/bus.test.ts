@@ -17,6 +17,40 @@ const snapshot = {
   webcamDeviceId: null,
 };
 
+describe("isRecordingBusMessage — startRequest", () => {
+  const setup = {
+    sourceId: "d1",
+    mode: "screen",
+    mic: true,
+    micDeviceId: "mic-1",
+    systemAudio: false,
+    webcam: false,
+    fps: 30,
+    countdown: 3,
+    hideCursor: false,
+  };
+
+  it("accepts a well-formed setup, with or without device ids", () => {
+    expect(isRecordingBusMessage({ type: "startRequest", setup })).toBe(true);
+    const { micDeviceId: _mic, ...noDevice } = setup;
+    expect(isRecordingBusMessage({ type: "startRequest", setup: noDevice })).toBe(true);
+  });
+
+  it("rejects bad modes, fps, countdowns and missing fields", () => {
+    for (const bad of [
+      { ...setup, mode: "desktop" },
+      { ...setup, fps: 24 },
+      { ...setup, countdown: 4 },
+      { ...setup, mic: "yes" },
+      { ...setup, micDeviceId: 3 },
+      { ...setup, sourceId: undefined },
+      null,
+    ]) {
+      expect(isRecordingBusMessage({ type: "startRequest", setup: bad })).toBe(false);
+    }
+  });
+});
+
 describe("isRecordingBusMessage", () => {
   it("accepts well-formed messages", () => {
     const ok: RecordingBusMessage[] = [

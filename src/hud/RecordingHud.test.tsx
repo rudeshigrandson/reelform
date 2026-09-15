@@ -46,17 +46,32 @@ describe("RecordingHud", () => {
     expect(onPauseToggle).toHaveBeenCalledOnce();
   });
 
-  it("Discard opens a confirm dialog and confirming calls onDiscard", () => {
+  it("Discard confirms inline inside the pill and confirming calls onDiscard", () => {
     const { onDiscard } = renderHud();
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Discard recording" }));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    const confirm = screen.getByRole("alertdialog", { name: "Discard recording?" });
+    // Rendered in the pill itself (no portal / overlay that the 560x64 window would clip).
+    expect(confirm).toHaveAttribute("data-testid", "recording-hud");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop recording" })).toBeNull();
     expect(onDiscard).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
     expect(onDiscard).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("Keep recording and Escape dismiss the inline confirm without discarding", () => {
+    const { onDiscard } = renderHud({ phase: "paused" });
+    fireEvent.click(screen.getByRole("button", { name: "Discard recording" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep recording" }));
+    expect(screen.getByRole("button", { name: "Resume recording" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Discard recording" }));
+    fireEvent.keyDown(screen.getByRole("alertdialog"), { key: "Escape" });
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(onDiscard).not.toHaveBeenCalled();
   });
 
   it("shows the countdown value during the countdown phase", () => {

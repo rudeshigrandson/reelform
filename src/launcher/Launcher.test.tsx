@@ -157,4 +157,49 @@ describe("Launcher", () => {
       hideCursor: true,
     });
   });
+
+  it("Browse… opens the source picker; selecting a window switches to Window mode", () => {
+    const onStart = vi.fn();
+    const pickerSources = sampleLauncherProps.sources.map((src) => ({
+      ...src,
+      title: src.name,
+      minimized: false,
+    }));
+    render(<Launcher {...sampleLauncherProps} onStart={onStart} pickerSources={pickerSources} />);
+    expect(screen.queryByRole("dialog", { name: "Choose a source" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Browse…" }));
+    const picker = screen.getByRole("dialog", { name: "Choose a source" });
+    fireEvent.click(within(picker).getByRole("tab", { name: "Windows" }));
+    fireEvent.click(within(picker).getByRole("button", { name: "Safari — Reelform" }));
+    fireEvent.click(within(picker).getByRole("button", { name: "Select" }));
+    expect(screen.queryByRole("dialog", { name: "Choose a source" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "window", sourceId: "win-1" }),
+    );
+  });
+
+  it("picker Cancel keeps the current choice; no Browse button without picker sources", () => {
+    const onStart = vi.fn();
+    const pickerSources = sampleLauncherProps.sources.map((src) => ({
+      ...src,
+      title: src.name,
+      minimized: false,
+    }));
+    const { unmount } = render(
+      <Launcher {...sampleLauncherProps} onStart={onStart} pickerSources={pickerSources} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Browse…" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "LG UltraFine" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "screen", sourceId: "disp-1" }),
+    );
+    unmount();
+    render(<Launcher {...sampleLauncherProps} />);
+    expect(screen.queryByRole("button", { name: "Browse…" })).toBeNull();
+  });
 });

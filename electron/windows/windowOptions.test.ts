@@ -11,6 +11,7 @@ import {
   centerIn,
   clampIntoArea,
   defaultHudPosition,
+  hudExpansionLayout,
 } from "./windowOptions";
 
 const rectArb = fc.record({
@@ -149,6 +150,61 @@ describe("clampIntoArea / defaultHudPosition", () => {
   it("pins to the area origin when the window is bigger than the area", () => {
     const area = { x: 10, y: 20, width: 100, height: 30 };
     expect(clampIntoArea({ x: 500, y: 500 }, area, HUD_SIZE)).toEqual({ x: 10, y: 20 });
+  });
+});
+
+describe("hudExpansionLayout", () => {
+  const workArea = { x: 0, y: 25, width: 1440, height: 875 };
+
+  it("keeps the pill at the same screen position and inside the window for any request", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 1440 - 560 }),
+        fc.integer({ min: 25, max: 900 - 64 }),
+        fc.integer({ min: 1, max: 4000 }),
+        fc.integer({ min: 1, max: 4000 }),
+        (x, y, width, height) => {
+          const pill = { x, y, width: 560, height: 64 };
+          const l = hudExpansionLayout(pill, { width, height }, workArea);
+          expect(l.bounds.x + l.pillOffset.x).toBe(x);
+          expect(l.bounds.y + l.pillOffset.y).toBe(y);
+          expect(l.pillOffset.x).toBeGreaterThanOrEqual(0);
+          expect(l.pillOffset.y).toBeGreaterThanOrEqual(0);
+          expect(l.pillOffset.x + 560).toBeLessThanOrEqual(l.bounds.width);
+          expect(l.pillOffset.y + 64).toBeLessThanOrEqual(l.bounds.height);
+          expect(l.bounds.width).toBeGreaterThanOrEqual(560);
+          expect(l.bounds.width).toBeLessThanOrEqual(workArea.width);
+          expect(l.bounds.height).toBeLessThanOrEqual(workArea.height);
+        },
+      ),
+    );
+  });
+
+  it("centres above a bottom-centre pill; opens below near the top; clamps at the edge", () => {
+    const pill = { ...defaultHudPosition(workArea), width: 560, height: 64 };
+    const above = hudExpansionLayout(pill, { width: 720, height: 492 }, workArea);
+    expect(above.placement).toBe("above");
+    expect(above.pillOffset).toEqual({ x: 80, y: 428 });
+    const top = hudExpansionLayout(
+      { x: 440, y: 30, width: 560, height: 64 },
+      { width: 720, height: 492 },
+      workArea,
+    );
+    expect(top.placement).toBe("below");
+    expect(top.pillOffset.y).toBe(0);
+    const left = hudExpansionLayout(
+      { x: 0, y: 800, width: 560, height: 64 },
+      { width: 720, height: 300 },
+      workArea,
+    );
+    expect(left.bounds.x).toBe(0);
+    expect(left.pillOffset.x).toBe(0);
+  });
+
+  it("never shrinks below the pill and ignores non-finite requests", () => {
+    const pill = { x: 100, y: 500, width: 560, height: 64 };
+    const l = hudExpansionLayout(pill, { width: Number.NaN, height: 10 }, workArea);
+    expect(l.bounds).toEqual(pill);
   });
 });
 

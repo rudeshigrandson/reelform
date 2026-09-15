@@ -27,6 +27,8 @@ export type CreateProjectRequest = RequestOf<"project:create">;
 export type CreateProjectResult = ResponseOf<"project:create">;
 export type SaveProjectRequest = RequestOf<"project:save">;
 export type ClosableWindowKind = RequestOf<"windows:closeKind">["kind"];
+export type HudExpansionSize = NonNullable<RequestOf<"windows:setHudExpansion">["size"]>;
+export type HudLayoutInfo = NonNullable<ResponseOf<"windows:setHudExpansion">["layout"]>;
 
 export interface AppRecordingPort extends RecordingPort {
   listSources(): Promise<SourcesResult>;
@@ -43,6 +45,13 @@ export interface WindowsPort {
   openWebcamBubble(): Promise<void>;
   closeKind(kind: ClosableWindowKind): Promise<void>;
   openEditor(projectId: string): Promise<void>;
+}
+
+/** What the HUD window itself needs from `windows:*` (pre-record popovers, preview, settings). */
+export interface HudWindowsPort extends Pick<WindowsPort, "openWebcamBubble" | "closeKind"> {
+  /** Grow the HUD window for popovers keeping the pill anchored; `null` collapses. */
+  setHudExpansion(size: HudExpansionSize | null): Promise<HudLayoutInfo | null>;
+  openSettings(): Promise<void>;
 }
 
 export interface ProjectPort {
@@ -197,6 +206,21 @@ export function createIpcWindowsPort(ipc: IpcClient = defaultIpcClient): Windows
     },
     openEditor: async (projectId) => {
       await call(ipc, "windows:openEditor", { projectId });
+    },
+  };
+}
+
+export function createIpcHudWindowsPort(ipc: IpcClient = defaultIpcClient): HudWindowsPort {
+  return {
+    openWebcamBubble: async () => {
+      await call(ipc, "windows:openWebcamBubble", {});
+    },
+    closeKind: async (kind) => {
+      await call(ipc, "windows:closeKind", { kind });
+    },
+    setHudExpansion: async (size) => (await call(ipc, "windows:setHudExpansion", { size })).layout,
+    openSettings: async () => {
+      await call(ipc, "windows:openSettings", undefined);
     },
   };
 }

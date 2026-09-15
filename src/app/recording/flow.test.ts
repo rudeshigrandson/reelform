@@ -517,3 +517,46 @@ describe("recording flow — region + bus", () => {
     expect(t.otherSeen.filter((m) => m.type === "micLevel" || m.type === "warning")).toEqual([]);
   });
 });
+
+describe("recording flow — pre-record HUD start requests", () => {
+  it("startRequest over the bus starts like the launcher's Record", async () => {
+    const t = harness();
+    t.other.post({ type: "startRequest", setup: SETUP });
+    await drain();
+    expect(t.port.lastStart).toMatchObject({ source: { kind: "display", id: "d1" }, fps: 60 });
+    expect(t.state()).toMatchObject({ phase: "countdown", sessionId: "s1" });
+    expect(t.otherSeen).toContainEqual(
+      expect.objectContaining({
+        type: "snapshot",
+        snapshot: expect.objectContaining({ phase: "starting" }),
+      }),
+    );
+  });
+
+  it("region startRequest opens the selection overlays first", async () => {
+    const t = harness();
+    t.other.post({ type: "startRequest", setup: { ...SETUP, mode: "region" } });
+    await drain();
+    expect(t.state().phase).toBe("selectingRegion");
+    expect(t.port.calls).not.toContain("start");
+    expect(t.windows.calls).toContain("openRegionOverlays");
+  });
+
+  it("a startRequest while a session is live is ignored", async () => {
+    const t = harness();
+    await toRecording(t);
+    const starts = t.port.calls.filter((c) => c === "start").length;
+    t.other.post({ type: "startRequest", setup: { ...SETUP, sourceId: "d2" } });
+    await drain();
+    expect(t.port.calls.filter((c) => c === "start")).toHaveLength(starts);
+    expect(t.state().phase).toBe("recording");
+  });
+
+  it("ignored after dispose", async () => {
+    const t = harness();
+    t.flow.dispose();
+    t.other.post({ type: "startRequest", setup: SETUP });
+    await drain();
+    expect(t.port.calls).not.toContain("start");
+  });
+});

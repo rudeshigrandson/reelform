@@ -39,3 +39,73 @@ export const sampleHudProps: RecordingHudProps = {
   onPauseToggle: () => {},
   onDiscard: () => {},
 };
+
+// ---- Pre-record pill (guide S05) ------------------------------------------------
+
+export type PreRecordMode = "screen" | "window" | "region";
+
+/** A chip above the pill: fallback capture, device errors, start failures. */
+export interface HudChip {
+  id: string;
+  tone: "warning" | "danger";
+  message: string;
+}
+
+export interface HudDevice {
+  id: string;
+  label: string;
+}
+
+/** Overflow options (countdown, cursor, fps, hide HUD while recording). */
+export interface PreRecordOptions {
+  countdown: 0 | 3 | 5 | 10;
+  hideCursor: boolean;
+  fps: 30 | 60;
+  hideHudWhileRecording: boolean;
+}
+
+export type PreRecordMenu = "mic" | "camera" | "overflow";
+
+export interface PreRecordHudProps {
+  mode: PreRecordMode;
+  onModeChange: (mode: PreRecordMode) => void;
+  /** Chosen source label, e.g. "Studio Display" / "Figma — Onboarding.fig". */
+  sourceLabel: string;
+  onOpenSourcePicker: () => void;
+  sourcePickerOpen?: boolean | undefined;
+
+  micOn: boolean;
+  micDeviceId: string;
+  micDevices: ReadonlyArray<HudDevice>;
+  /** Live input level 0..1 while the mic is on. */
+  micLevel?: number | undefined;
+  /** Device id to turn the mic on with that device, `null` = Off. */
+  onMicChange: (deviceId: string | null) => void;
+
+  systemAudio: boolean;
+  systemAudioSupported: boolean;
+  /** Why system audio is disabled. */
+  systemAudioNote?: string | undefined;
+  onSystemAudioChange: (on: boolean) => void;
+
+  cameraOn: boolean;
+  cameraDeviceId: string;
+  cameraDevices: ReadonlyArray<HudDevice>;
+  onCameraChange: (deviceId: string | null) => void;
+  onShowPreview: () => void;
+
+  options: PreRecordOptions;
+  onOptionsChange: (patch: Partial<PreRecordOptions>) => void;
+  onOpenSettings?: (() => void) | undefined;
+
+  onRecord: () => void;
+  recordDisabled?: boolean | undefined;
+  /** Shown instead of the tooltip while a start is in progress. */
+  busyLabel?: string | undefined;
+  /** Accelerator shown in the Record tooltip, e.g. "⌘⇧R". */
+  recordShortcut: string;
+
+  /** Open menu (controlled so the container can grow the window first). */
+  openMenu: PreRecordMenu | null;
+  onMenuChange: (menu: PreRecordMenu | null) => void;
+}

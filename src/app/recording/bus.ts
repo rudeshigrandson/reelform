@@ -1,3 +1,5 @@
+import type { RecordOptions } from "../../launcher/types";
+
 /**
  * Cross-window recording bus. The launcher window hosts the capture session
  * (MediaRecorders, finalize, project creation); the HUD, countdown, region
@@ -51,7 +53,9 @@ export type RecordingBusMessage =
       pixelRegion: RegionRect;
       scaleFactor: number;
     }
-  | { type: "regionCancelled"; displayId: string };
+  | { type: "regionCancelled"; displayId: string }
+  /** The pre-record HUD asks the launcher-hosted flow to start (region → selection first). */
+  | { type: "startRequest"; setup: RecordOptions };
 
 export interface RecordingBus {
   post(message: RecordingBusMessage): void;
@@ -77,6 +81,27 @@ const SNAPSHOT_PHASES: readonly string[] = [
   "paused",
   "finalizing",
 ];
+
+const MODES: readonly string[] = ["screen", "window", "region"];
+const isBool = (v: unknown): v is boolean => typeof v === "boolean";
+const isOptStr = (v: unknown): boolean => v === undefined || isStr(v);
+
+function isRecordOptions(v: unknown): v is RecordOptions {
+  return (
+    isObj(v) &&
+    isStr(v.sourceId) &&
+    isStr(v.mode) &&
+    MODES.includes(v.mode) &&
+    isBool(v.mic) &&
+    isOptStr(v.micDeviceId) &&
+    isBool(v.systemAudio) &&
+    isBool(v.webcam) &&
+    isOptStr(v.webcamDeviceId) &&
+    (v.fps === 30 || v.fps === 60) &&
+    (v.countdown === 0 || v.countdown === 3 || v.countdown === 5 || v.countdown === 10) &&
+    isBool(v.hideCursor)
+  );
+}
 
 function isSnapshot(v: unknown): v is SessionSnapshot {
   return (
@@ -113,6 +138,8 @@ export function isRecordingBusMessage(v: unknown): v is RecordingBusMessage {
       );
     case "regionCancelled":
       return isStr(v.displayId);
+    case "startRequest":
+      return isRecordOptions(v.setup);
     default:
       return false;
   }

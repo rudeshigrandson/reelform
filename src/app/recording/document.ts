@@ -2,7 +2,7 @@ import type { ProjectV1 } from "../../editor/model/v1";
 import type { MediaSourceV1 } from "../../editor/model/v1";
 import { toProjectDocument } from "../../editor/persistence";
 import { initialEditorData } from "../../editor/store";
-import type { RecordOptions, SourceItem, SourceMode } from "../../launcher/types";
+import type { PickerSource, RecordOptions, SourceItem, SourceMode } from "../../launcher/types";
 import type { CaptureOptions } from "../../recording/captureSession";
 import { type Platform, sourcePixelSize } from "../../recording/constraints";
 import type { TrackKind } from "../../recording/port";
@@ -74,6 +74,44 @@ export function toSourceItems(sources: SourcesResult | null, mode: SourceMode): 
     );
   });
 }
+
+/** An empty data URL: Electron's thumbnail for a minimized window. */
+const EMPTY_THUMBNAIL = /^data:image\/[a-z]+;base64,?$/;
+
+/** S06 picker entries: displays then windows, with app grouping and minimized state. */
+export function toPickerSources(sources: SourcesResult | null): PickerSource[] {
+  if (!sources) return [];
+  const displays = toSourceItems(sources, "screen").map(
+    (d): PickerSource => ({ ...d, title: d.name, minimized: false }),
+  );
+  const windows = toSourceItems(sources, "window").map((item, i): PickerSource => {
+    const w = sources.windows[i];
+    const thumb = w?.thumbnail;
+    const minimized = thumb !== undefined && EMPTY_THUMBNAIL.test(thumb);
+    const { thumbnailUrl, ...rest } = item;
+    const base: PickerSource = { ...rest, title: w?.title ?? item.name, minimized };
+    // Minimized windows have no live thumbnail (Electron reports an empty image).
+    if (thumbnailUrl && !minimized) base.thumbnailUrl = thumbnailUrl;
+    if (w?.appName) base.appName = w.appName;
+    if (w?.appIcon) base.appIcon = w.appIcon;
+    return base;
+  });
+  return [...displays, ...windows];
+}
+
+/** The Electron backend is the fallback everywhere but Linux (guide S04/S05 notice). */
+export function usesFallbackCapture(platform: Platform, backend: string | null): boolean {
+  return backend === "electron" && platform !== "linux";
+}
+
+/** System audio can't be captured by the Electron backend on macOS. */
+export function systemAudioSupported(platform: Platform, backend: string | null): boolean {
+  return !(platform === "darwin" && backend === "electron");
+}
+
+export const FALLBACK_CAPTURE_COPY =
+  "Native capture unavailable — using fallback, cursor may be visible.";
+export const SYSTEM_AUDIO_UNSUPPORTED_COPY = "Unavailable with fallback capture on macOS";
 
 function withThumb(item: SourceItem, thumbnail: string | undefined): SourceItem {
   return thumbnail ? { ...item, thumbnailUrl: thumbnail } : item;

@@ -2,10 +2,13 @@ import { type HudPositionStore, resolveHudPosition, saveHudPosition } from "./hu
 import { CONTENT_PROTECTED, type WindowKind, type WindowParams, windowKey } from "./windowKinds";
 import {
   HUD_SIZE,
+  type HudLayout,
   type Point,
   type Rect,
+  type Size,
   type WindowOptions,
   buildWindowOptions,
+  hudExpansionLayout,
 } from "./windowOptions";
 import { type LoadSource, buildLoadTarget } from "./windowUrl";
 
@@ -26,6 +29,7 @@ export interface ManagedWindow {
   isMinimized(): boolean;
   isDestroyed(): boolean;
   getBounds(): Rect;
+  setBounds(bounds: Rect): void;
   once(event: "ready-to-show", listener: () => void): unknown;
   on(event: "close" | "closed" | "moved", listener: () => void): unknown;
   setAlwaysOnTop(flag: boolean, level?: "screen-saver" | "floating"): void;
@@ -60,6 +64,8 @@ export class WindowManager {
   private readonly registry = new Map<string, ManagedWindow>();
   /** Params each live registry entry was opened with. */
   private readonly params = new Map<string, WindowParams>();
+  /** The HUD window currently grown around its pill, and where the pill sits in it. */
+  private hudExpansion: { win: ManagedWindow; pillOffset: Point } | null = null;
 
   constructor(private readonly deps: WindowManagerDeps) {}
 
@@ -103,6 +109,37 @@ export class WindowManager {
       buildWindowOptions("hud", { preloadPath: this.deps.preloadPath, position }),
     );
     return win;
+  }
+
+  /**
+   * Grow the HUD window for popovers keeping the pill at the same screen
+   * position (`null` collapses back to the pill). Returns the layout the HUD
+   * renderer uses to place the pill, or null when collapsed / no HUD.
+   */
+  setHudExpansion(size: Size | null): HudLayout | null {
+    const win = this.get({ kind: "hud" });
+    if (!win) return null;
+    const pill = this.hudPillRect(win);
+    if (!size) {
+      if (this.hudExpansion?.win === win) {
+        this.hudExpansion = null;
+        win.setBounds(pill);
+      }
+      return null;
+    }
+    const display = this.deps.screen.getDisplayMatching(pill);
+    const layout = hudExpansionLayout(pill, size, display.workArea);
+    this.hudExpansion = { win, pillOffset: layout.pillOffset };
+    win.setBounds(layout.bounds);
+    return layout;
+  }
+
+  /** Screen rect of the HUD pill (the whole window unless expanded). */
+  private hudPillRect(win: ManagedWindow): Rect {
+    const b = win.getBounds();
+    const exp = this.hudExpansion?.win === win ? this.hudExpansion : null;
+    if (!exp) return { x: b.x, y: b.y, width: b.width, height: b.height };
+    return { x: b.x + exp.pillOffset.x, y: b.y + exp.pillOffset.y, ...HUD_SIZE };
   }
 
   /** One click-through overlay per connected display. */
@@ -220,13 +257,17 @@ export class WindowManager {
         win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
         const persist = () => {
           if (win.isDestroyed()) return;
-          const bounds = win.getBounds();
-          const display = this.deps.screen.getDisplayMatching(bounds);
-          saveHudPosition(this.deps.hudPositions, String(display.id), display.workArea, bounds);
+          // Persist the pill, never the grown popover window around it.
+          const pill = this.hudPillRect(win);
+          const display = this.deps.screen.getDisplayMatching(pill);
+          saveHudPosition(this.deps.hudPositions, String(display.id), display.workArea, pill);
         };
         // `moved` is macOS/Windows only; `close` also covers Linux.
         win.on("moved", persist);
         win.on("close", persist);
+        win.on("closed", () => {
+          if (this.hudExpansion?.win === win) this.hudExpansion = null;
+        });
         break;
       }
       case "region-overlay":

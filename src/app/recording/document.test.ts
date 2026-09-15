@@ -12,8 +12,11 @@ import {
   recordingProjectName,
   resolvedFileNames,
   sourceLabel,
+  systemAudioSupported,
+  toPickerSources,
   toSourceItems,
   toStartRequest,
+  usesFallbackCapture,
 } from "./document";
 import { SOURCES, finalizeFixture } from "./testFakes";
 
@@ -296,5 +299,48 @@ describe("finalized recording → project", () => {
     expect(codecFromMime("audio/mp4;codecs=mp4a.40.2", "x")).toBe("aac");
     expect(codecFromMime(undefined, "vp9")).toBe("vp9");
     expect(recordingProjectName("not a date")).toBe("Recording");
+  });
+});
+
+describe("toPickerSources / capture capability helpers", () => {
+  it("maps displays then windows with titles, app grouping and minimized state", () => {
+    const sources = {
+      ...SOURCES,
+      windows: [
+        ...SOURCES.windows,
+        {
+          id: "window:7:0",
+          title: "Inbox",
+          thumbnail: "data:image/png;base64,",
+          appIcon: "data:icon",
+        },
+        { id: "window:8:0", title: "Notes", thumbnail: "data:image/png;base64,AAAA" },
+      ],
+    };
+    const items = toPickerSources(sources);
+    expect(items.map((i) => [i.id, i.kind, i.title, i.minimized])).toEqual([
+      ["d1", "display", "Studio Display", false],
+      ["d2", "display", "LG UltraFine", false],
+      ["window:42:0", "window", "Onboarding.fig", false],
+      ["window:7:0", "window", "Inbox", true],
+      ["window:8:0", "window", "Notes", false],
+    ]);
+    expect(items[2]).toMatchObject({ appName: "Figma", name: "Figma — Onboarding.fig" });
+    expect(items[3]?.thumbnailUrl).toBeUndefined();
+    expect(items[3]?.appIcon).toBe("data:icon");
+    expect(items[4]?.thumbnailUrl).toBe("data:image/png;base64,AAAA");
+    expect(toPickerSources(null)).toEqual([]);
+  });
+
+  it("fallback capture and system audio support by platform and backend", () => {
+    expect(usesFallbackCapture("darwin", "electron")).toBe(true);
+    expect(usesFallbackCapture("win32", "electron")).toBe(true);
+    expect(usesFallbackCapture("linux", "electron")).toBe(false);
+    expect(usesFallbackCapture("darwin", "sck")).toBe(false);
+    expect(usesFallbackCapture("darwin", null)).toBe(false);
+    expect(systemAudioSupported("darwin", "electron")).toBe(false);
+    expect(systemAudioSupported("win32", "electron")).toBe(true);
+    expect(systemAudioSupported("darwin", "sck")).toBe(true);
+    expect(systemAudioSupported("darwin", null)).toBe(true);
   });
 });

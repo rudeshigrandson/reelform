@@ -62,6 +62,10 @@ class FakeWindow implements ManagedWindow {
   getBounds() {
     return this.bounds;
   }
+  setBounds(b: Rect) {
+    this.bounds = { ...b };
+    this.calls.push(`setBounds:${b.x},${b.y},${b.width}x${b.height}`);
+  }
   once(event: string, l: Listener) {
     this.on(event, l);
   }
@@ -325,6 +329,7 @@ describe("windows handlers", () => {
       openWebcamBubble: vi.fn(),
       closeKind: vi.fn(),
       keys: vi.fn(() => []),
+      setHudExpansion: vi.fn(() => null),
     };
     const h = createWindowsHandlers({ manager });
     expect(await h["windows:openEditor"]({ projectId: "p" })).toEqual({ ok: true });
@@ -333,5 +338,66 @@ describe("windows handlers", () => {
     expect(manager.openEditor).toHaveBeenCalledWith("p");
     expect(manager.openSettings).toHaveBeenCalledOnce();
     expect(manager.openLauncher).toHaveBeenCalledOnce();
+    expect(await h["windows:setHudExpansion"]({ size: { width: 720, height: 500 } })).toEqual({
+      ok: true,
+      layout: null,
+    });
+    expect(manager.setHudExpansion).toHaveBeenCalledWith({ width: 720, height: 500 });
+  });
+});
+
+describe("HUD expansion", () => {
+  it("grows upward around the pill, keeps it anchored, and collapses back", () => {
+    const { manager } = setup();
+    const hud = manager.openHud("1") as FakeWindow;
+    const pill = { ...hud.bounds };
+    const layout = manager.setHudExpansion({ width: 720, height: 492 });
+    expect(layout?.placement).toBe("above");
+    expect(hud.bounds).toEqual(layout?.bounds);
+    // Pill's screen position is unchanged.
+    expect(hud.bounds.x + (layout?.pillOffset.x ?? 0)).toBe(pill.x);
+    expect(hud.bounds.y + (layout?.pillOffset.y ?? 0)).toBe(pill.y);
+    expect(manager.setHudExpansion(null)).toBeNull();
+    expect(hud.bounds).toEqual(pill);
+    // Collapsing twice is a no-op.
+    const before = hud.calls.length;
+    manager.setHudExpansion(null);
+    expect(hud.calls.length).toBe(before);
+  });
+
+  it("opens below when the pill sits at the top of the work area", () => {
+    const { manager, hudPositions } = setup();
+    hudPositions.set("1", { x: 400, y: 0 });
+    const hud = manager.openHud("1") as FakeWindow;
+    const layout = manager.setHudExpansion({ width: 560, height: 364 });
+    expect(layout?.placement).toBe("below");
+    expect(layout?.pillOffset).toEqual({ x: 0, y: 0 });
+    expect(hud.bounds.y).toBe(25);
+  });
+
+  it("persists the pill position, not the expanded window, when moved while expanded", () => {
+    const { manager, hudPositions } = setup();
+    const hud = manager.openHud("1") as FakeWindow;
+    const layout = manager.setHudExpansion({ width: 720, height: 492 });
+    hud.bounds = { ...hud.bounds, x: hud.bounds.x + 10, y: hud.bounds.y - 20 };
+    hud.emit("moved");
+    const def = defaultHudPosition(displays[0]?.workArea ?? { x: 0, y: 0, width: 0, height: 0 });
+    expect(layout).not.toBeNull();
+    expect(hudPositions.get("1")).toEqual({ x: def.x + 10, y: def.y - 20 - 25 });
+    manager.setHudExpansion(null);
+    expect(hud.bounds).toEqual({ x: def.x + 10, y: def.y - 20, width: 560, height: 64 });
+  });
+
+  it("returns null without a HUD and forgets the expansion when the HUD closes", () => {
+    const { manager } = setup();
+    expect(manager.setHudExpansion({ width: 720, height: 492 })).toBeNull();
+    const first = manager.openHud("1") as FakeWindow;
+    manager.setHudExpansion({ width: 720, height: 492 });
+    manager.closeKind("hud");
+    const second = manager.openHud("1") as FakeWindow;
+    expect(second).not.toBe(first);
+    expect(second.options).toMatchObject({ width: 560, height: 64 });
+    expect(manager.setHudExpansion(null)).toBeNull();
+    expect(second.calls.some((c) => c.startsWith("setBounds"))).toBe(false);
   });
 });

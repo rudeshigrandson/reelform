@@ -1,6 +1,7 @@
-import { Button, Dialog, Tag } from "@design/components";
+import { Button, Tag } from "@design/components";
 import { useState } from "react";
 import type { CSSProperties } from "react";
+import { APP_REGION_DRAG } from "./layout";
 import type { RecordingHudProps } from "./types";
 
 const METER_BARS = 12;
@@ -51,9 +52,16 @@ const gripDot: CSSProperties = {
   background: "currentColor",
 };
 
-function DragGrip() {
+/** Drag handle: the window moves by this region (SPEC §5.7); position is persisted by main. */
+export function DragGrip() {
   return (
-    <div style={gripStyle} aria-hidden="true" data-testid="hud-grip" title="Drag">
+    <div
+      style={{ ...gripStyle, ...APP_REGION_DRAG }}
+      aria-hidden="true"
+      data-testid="hud-grip"
+      data-app-region="drag"
+      title="Drag"
+    >
       <div style={gripDotRow}>
         <span style={gripDot} />
         <span style={gripDot} />
@@ -232,116 +240,138 @@ export function RecordingHud(props: RecordingHudProps) {
     );
   }
 
-  return (
-    <>
-      <div style={pillStyle} data-testid="recording-hud" data-phase={phase}>
+  if (confirmOpen) {
+    // Inline confirm (S10 compact style): a dialog would be clipped by the 560×64 window.
+    return (
+      <div
+        style={{ ...pillStyle, borderColor: "var(--danger)" }}
+        data-testid="recording-hud"
+        data-phase={phase}
+        role="alertdialog"
+        aria-label="Discard recording?"
+        aria-describedby="hud-discard-detail"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setConfirmOpen(false);
+        }}
+      >
         <DragGrip />
-
-        <Button
-          variant="primary"
-          icon
-          onClick={onStop}
-          aria-label="Stop recording"
-          title="Stop"
-          style={stopButtonStyle}
-        >
-          <span style={stopDotStyle} />
-        </Button>
-
-        <Button
-          variant="ghost"
-          icon
-          onClick={onPauseToggle}
-          aria-label={isPaused ? "Resume recording" : "Pause recording"}
-          title={isPaused ? "Resume" : "Pause"}
-        >
-          {isPaused ? "▶" : "❚❚"}
-        </Button>
-
-        <Button
-          variant="ghost"
-          icon
-          onClick={() => setConfirmOpen(true)}
-          aria-label="Discard recording"
-          title="Discard"
-        >
-          🗑
-        </Button>
-
+        <span style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+          <strong style={{ fontSize: 13 }}>Discard recording?</strong>
+          <span id="hud-discard-detail" style={{ fontSize: 12, color: "var(--text-2)" }}>
+            The current recording will be deleted. This can't be undone.
+          </span>
+        </span>
         <span
           data-testid="hud-timer"
           style={{
-            fontFamily: "var(--font-heading)",
+            fontFamily: "var(--font-mono)",
             fontVariantNumeric: "tabular-nums",
-            fontSize: 20,
-            fontWeight: 600,
-            minWidth: 62,
-            textAlign: "center",
-            opacity: isPaused ? 0.45 : 1,
+            fontSize: 13,
+            color: "var(--text-2)",
           }}
         >
           {formatElapsed(elapsedMs)}
         </span>
-
-        {isPaused ? <Tag variant="accent-2">Paused</Tag> : null}
-
-        <MicMeter micLevel={micLevel} />
-
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            gap: "var(--space-2)",
-            minWidth: 0,
+        <Button variant="ghost" autoFocus onClick={() => setConfirmOpen(false)}>
+          Keep recording
+        </Button>
+        <Button
+          variant="danger"
+          onClick={() => {
+            setConfirmOpen(false);
+            onDiscard();
           }}
         >
-          {warning ? (
-            <Tag variant="outline" data-testid="hud-warning">
-              {warning}
-            </Tag>
-          ) : null}
-          <span
-            data-testid="hud-source"
-            style={{
-              fontSize: 12,
-              color: "var(--text-2)",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-            title={sourceLabel}
-          >
-            {sourceLabel}
-          </span>
-        </div>
+          Discard
+        </Button>
       </div>
+    );
+  }
 
-      <Dialog
-        open={confirmOpen}
-        onClose={() => setConfirmOpen(false)}
-        title="Discard recording?"
-        actions={
-          <>
-            <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
-              Keep recording
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => {
-                setConfirmOpen(false);
-                onDiscard();
-              }}
-            >
-              Discard
-            </Button>
-          </>
-        }
+  return (
+    <div style={pillStyle} data-testid="recording-hud" data-phase={phase}>
+      <DragGrip />
+
+      <Button
+        variant="primary"
+        icon
+        onClick={onStop}
+        aria-label="Stop recording"
+        title="Stop"
+        style={stopButtonStyle}
       >
-        This will permanently delete the current recording. This can't be undone.
-      </Dialog>
-    </>
+        <span style={stopDotStyle} />
+      </Button>
+
+      <Button
+        variant="ghost"
+        icon
+        onClick={onPauseToggle}
+        aria-label={isPaused ? "Resume recording" : "Pause recording"}
+        title={isPaused ? "Resume" : "Pause"}
+      >
+        {isPaused ? "▶" : "❚❚"}
+      </Button>
+
+      <Button
+        variant="ghost"
+        icon
+        onClick={() => setConfirmOpen(true)}
+        aria-label="Discard recording"
+        title="Discard"
+      >
+        🗑
+      </Button>
+
+      <span
+        data-testid="hud-timer"
+        style={{
+          fontFamily: "var(--font-heading)",
+          fontVariantNumeric: "tabular-nums",
+          fontSize: 20,
+          fontWeight: 600,
+          minWidth: 62,
+          textAlign: "center",
+          opacity: isPaused ? 0.45 : 1,
+        }}
+      >
+        {formatElapsed(elapsedMs)}
+      </span>
+
+      {isPaused ? <Tag variant="accent-2">Paused</Tag> : null}
+
+      <MicMeter micLevel={micLevel} />
+
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "flex-end",
+          gap: "var(--space-2)",
+          minWidth: 0,
+        }}
+      >
+        {warning ? (
+          <Tag variant="outline" data-testid="hud-warning">
+            {warning}
+          </Tag>
+        ) : null}
+        <span
+          data-testid="hud-source"
+          style={{
+            fontSize: 12,
+            color: "var(--text-2)",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+          title={sourceLabel}
+        >
+          {sourceLabel}
+        </span>
+      </div>
+    </div>
   );
 }
 

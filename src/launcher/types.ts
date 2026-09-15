@@ -16,6 +16,20 @@ export interface SourceItem {
   height: number;
 }
 
+/**
+ * A source in the S06 picker: a launcher card plus what the picker groups,
+ * filters and dims by.
+ */
+export interface PickerSource extends SourceItem {
+  /** Window title (displays: the display name). */
+  title: string;
+  appName?: string | undefined;
+  /** data: URL app icon for the group header. */
+  appIcon?: string | undefined;
+  /** Minimized windows have no live thumbnail; shown dimmed. */
+  minimized: boolean;
+}
+
 /** An audio or video input device. */
 export interface DeviceInfo {
   id: string;
@@ -67,4 +81,6 @@ export interface LauncherProps {
   busy?: boolean | undefined;
   busyLabel?: string | undefined;
   defaults?: LauncherDefaults | undefined;
+  /** When set, "Browse…" opens the S06 source picker over these sources. */
+  pickerSources?: ReadonlyArray<PickerSource> | undefined;
 }

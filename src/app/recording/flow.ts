@@ -232,6 +232,11 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
   const unsubscribeStore = store.subscribe(publish);
   const unsubscribeBus = deps.bus?.subscribe((m) => {
     if (m.type === "snapshotRequest") deps.bus?.post({ type: "snapshot", snapshot: snapshot() });
+    // Pre-record HUD (guide S05): same entry points as the launcher's Record.
+    else if (m.type === "startRequest") {
+      if (m.setup.mode === "region") void selectRegion(m.setup);
+      else void start(m.setup);
+    }
   });
 
   // ---- windows ------------------------------------------------------------------

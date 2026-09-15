@@ -226,6 +226,44 @@ export function defaultHudPosition(workArea: Rect, size: Size = HUD_SIZE): Point
   };
 }
 
+export type HudPlacement = "above" | "below";
+
+/** Expanded HUD window: its bounds and where the pill sits inside them. */
+export interface HudLayout {
+  bounds: Rect;
+  /** Popovers open above the pill unless the work area has no room there. */
+  placement: HudPlacement;
+  /** Pill top-left relative to the window, so it stays at the same screen position. */
+  pillOffset: Point;
+}
+
+/**
+ * Grow the HUD window around its pill (menus, source picker, warning chips)
+ * without moving the pill on screen: the window extends upward (or downward
+ * when there is no room above), centred on the pill and clamped horizontally
+ * into the work area while still containing the pill.
+ */
+export function hudExpansionLayout(pill: Rect, requested: Size, workArea: Rect): HudLayout {
+  const fit = (want: number, min: number, max: number) => {
+    const v = Number.isFinite(want) ? want : min;
+    return Math.round(Math.max(min, Math.min(v, Math.max(min, max))));
+  };
+  const width = fit(requested.width, pill.width, workArea.width);
+  const height = fit(requested.height, pill.height, workArea.height);
+  const aboveY = pill.y + pill.height - height;
+  const placement: HudPlacement = aboveY >= workArea.y ? "above" : "below";
+  const y = placement === "above" ? aboveY : pill.y;
+  const ideal = pill.x + (pill.width - width) / 2;
+  const inArea = Math.min(Math.max(ideal, workArea.x), workArea.x + workArea.width - width);
+  // The pill must stay inside the window even when the area clamp disagrees.
+  const x = Math.round(Math.min(Math.max(inArea, pill.x + pill.width - width), pill.x));
+  return {
+    bounds: { x, y: Math.round(y), width, height },
+    placement,
+    pillOffset: { x: Math.round(pill.x - x), y: Math.round(pill.y - y) },
+  };
+}
+
 /** Clamp a top-left so a window of `size` stays fully inside `area` (when it fits). */
 export function clampIntoArea(pos: Point, area: Rect, size: Size): Point {
   const clamp = (v: number, lo: number, hi: number) =>

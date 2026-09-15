@@ -68,6 +68,37 @@ export const windowsContracts = {
     request: z.object({ kind: z.enum(CLOSABLE_WINDOW_KINDS) }),
     response: Ok,
   },
+  /**
+   * Grow the HUD window for its popovers (menus, source picker, chips) keeping
+   * the pill anchored on screen; `size: null` collapses back to the pill.
+   * `layout` is null when collapsed or no HUD is open.
+   */
+  "windows:setHudExpansion": {
+    name: "windows:setHudExpansion",
+    request: z.object({
+      size: z
+        .object({
+          width: z.number().int().positive().max(8192),
+          height: z.number().int().positive().max(8192),
+        })
+        .nullable(),
+    }),
+    response: z.object({
+      ok: z.literal(true),
+      layout: z
+        .object({
+          bounds: z.object({
+            x: z.number(),
+            y: z.number(),
+            width: z.number(),
+            height: z.number(),
+          }),
+          placement: z.enum(["above", "below"]),
+          pillOffset: z.object({ x: z.number(), y: z.number() }),
+        })
+        .nullable(),
+    }),
+  },
 } as const;
 
 type WindowsContracts = typeof windowsContracts;
@@ -91,6 +122,7 @@ export interface WindowsDeps {
     | "openWebcamBubble"
     | "closeKind"
     | "keys"
+    | "setHudExpansion"
   >;
 }
 
@@ -137,5 +169,9 @@ export function createWindowsHandlers(deps: WindowsDeps): WindowsHandlers {
       deps.manager.closeKind(kind);
       return { ok: true };
     },
+    "windows:setHudExpansion": async ({ size }) => ({
+      ok: true,
+      layout: deps.manager.setHudExpansion(size),
+    }),
   };
 }

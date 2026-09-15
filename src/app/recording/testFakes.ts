@@ -10,6 +10,8 @@ import type {
   TrackKind,
   WriteChunkRequest,
 } from "../../recording/port";
+import type { DeviceLike } from "./LauncherContainer";
+import type { HudTimers, MicLevelHandlers, PreRecordDeps } from "./PreRecordContainer";
 import type { CaptureHooks } from "./flow";
 import type {
   AppRecordingPort,
@@ -17,6 +19,9 @@ import type {
   CreateProjectRequest,
   CreateProjectResult,
   FinalizeResult,
+  HudExpansionSize,
+  HudLayoutInfo,
+  HudWindowsPort,
   ProjectPort,
   SaveProjectRequest,
   SourcesResult,
@@ -289,4 +294,108 @@ export function fakeCaptureFactory(log: string[]) {
       return s;
     },
   };
+}
+
+// ---- HUD pre-record -----------------------------------------------------------------
+
+export class FakeHudWindows implements HudWindowsPort {
+  calls: string[] = [];
+  /** Layout returned for a non-null expansion; null simulates "no HUD". */
+  layoutFor: (size: HudExpansionSize) => HudLayoutInfo | null = (size) => ({
+    bounds: { x: 440 - (size.width - 560) / 2, y: 836 - size.height, ...size },
+    placement: "above",
+    pillOffset: { x: (size.width - 560) / 2, y: size.height - 64 },
+  });
+  async setHudExpansion(size: HudExpansionSize | null) {
+    this.calls.push(size ? `expand:${size.width}x${size.height}` : "collapse");
+    return size ? this.layoutFor(size) : null;
+  }
+  async openWebcamBubble() {
+    this.calls.push("openWebcamBubble");
+  }
+  async closeKind(kind: ClosableWindowKind) {
+    this.calls.push(`closeKind:${kind}`);
+  }
+  async openSettings() {
+    this.calls.push("openSettings");
+  }
+}
+
+/** Manual interval + timeout timers: `tick()` fires intervals, `runTimeouts()` fires timeouts. */
+export function manualHudTimers(): HudTimers & {
+  intervals: Map<number, () => void>;
+  timeouts: Map<number, () => void>;
+  tick(): void;
+  runTimeouts(): void;
+} {
+  const intervals = new Map<number, () => void>();
+  const timeouts = new Map<number, () => void>();
+  let id = 0;
+  return {
+    intervals,
+    timeouts,
+    setInterval: (cb) => {
+      intervals.set(++id, cb);
+      return id;
+    },
+    clearInterval: (h) => {
+      intervals.delete(h as number);
+    },
+    setTimeout: (cb) => {
+      timeouts.set(++id, cb);
+      return id;
+    },
+    clearTimeout: (h) => {
+      timeouts.delete(h as number);
+    },
+    tick() {
+      for (const cb of [...intervals.values()]) cb();
+    },
+    runTimeouts() {
+      const due = [...timeouts.entries()];
+      timeouts.clear();
+      for (const [, cb] of due) cb();
+    },
+  };
+}
+
+export const HUD_DEVICES: DeviceLike[] = [
+  { deviceId: "mic-1", kind: "audioinput", label: "MacBook Pro Microphone" },
+  { deviceId: "mic-2", kind: "audioinput", label: "Shure MV7" },
+  { deviceId: "cam-1", kind: "videoinput", label: "FaceTime HD Camera" },
+];
+
+export function fakePreRecordDeps(overrides: Partial<PreRecordDeps> = {}) {
+  const log: string[] = [];
+  const state = {
+    sources: SOURCES as SourcesResult,
+    sourcesError: null as Failure | null,
+    devices: HUD_DEVICES,
+    micError: null as Failure | null,
+    levelHandlers: null as MicLevelHandlers | null,
+  };
+  const windows = new FakeHudWindows();
+  const timers = manualHudTimers();
+  const deps: PreRecordDeps = {
+    listSources: async () => {
+      log.push("listSources");
+      if (state.sourcesError) throw state.sourcesError;
+      return state.sources;
+    },
+    enumerateDevices: async () => {
+      log.push("enumerateDevices");
+      return state.devices;
+    },
+    openMicLevel: async (deviceId, handlers) => {
+      log.push(`mic.open:${deviceId}`);
+      if (state.micError) throw state.micError;
+      state.levelHandlers = handlers;
+      return () => log.push(`mic.stop:${deviceId}`);
+    },
+    windows,
+    platform: "darwin",
+    timers,
+    ...overrides,
+  };
+  return { deps, log, state, windows, timers };
 }

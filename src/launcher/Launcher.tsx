@@ -1,6 +1,8 @@
 import { Button, Card, CardMeta, CardTitle, Segmented, Tag } from "@design/components";
 import type { SegmentedOption } from "@design/components";
 import { useState } from "react";
+import { SourcePicker } from "./SourcePicker";
+import { effectiveDeviceId, effectiveSourceId, modeForPick, sourceKindFor } from "./selection";
 import type {
   Countdown,
   DeviceInfo,
@@ -251,6 +253,7 @@ export function Launcher({
   busy = false,
   busyLabel,
   defaults,
+  pickerSources,
 }: LauncherProps) {
   const [mode, setMode] = useState<SourceMode>(defaults?.mode ?? "screen");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -265,17 +268,12 @@ export function Launcher({
 
   // Screen and region capture displays; window mode lists windows. The list
   // refreshes while open, so keep the selection only while it still exists.
-  const wantKind = mode === "window" ? "window" : "display";
+  const wantKind = sourceKindFor(mode);
   const visibleSources = sources.filter((s) => s.kind === wantKind);
-  const effectiveId = visibleSources.some((s) => s.id === selectedId)
-    ? selectedId
-    : (visibleSources[0]?.id ?? null);
-  const micDeviceId = micDevices.some((d) => d.id === micPick)
-    ? micPick
-    : (micDevices[0]?.id ?? "");
-  const webcamDeviceId = webcamDevices.some((d) => d.id === webcamPick)
-    ? webcamPick
-    : (webcamDevices[0]?.id ?? "");
+  const effectiveId = effectiveSourceId(sources, mode, selectedId);
+  const micDeviceId = effectiveDeviceId(micDevices, micPick);
+  const webcamDeviceId = effectiveDeviceId(webcamDevices, webcamPick);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const canRecord = effectiveId !== null && !busy && sourcesStatus === "ready";
 
@@ -371,7 +369,41 @@ export function Launcher({
 
       {/* Sources grid */}
       <section style={sectionStyle}>
-        <span style={labelStyle}>Sources</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={labelStyle}>Sources</span>
+          {pickerSources ? (
+            <Button variant="ghost" onClick={() => setPickerOpen(true)}>
+              Browse…
+            </Button>
+          ) : null}
+        </div>
+        {pickerSources && pickerOpen ? (
+          <div
+            data-testid="launcher-picker-backdrop"
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 10,
+              display: "grid",
+              placeItems: "center",
+              background: "color-mix(in srgb, var(--bg-sunken) 60%, transparent)",
+            }}
+          >
+            <SourcePicker
+              sources={pickerSources}
+              status={sourcesStatus}
+              error={sourcesError}
+              selectedId={effectiveId}
+              initialTab={mode === "window" ? "windows" : "displays"}
+              onCancel={() => setPickerOpen(false)}
+              onSelect={(source) => {
+                setMode(modeForPick(mode, source.kind));
+                setSelectedId(source.id);
+                setPickerOpen(false);
+              }}
+            />
+          </div>
+        ) : null}
         <div
           role="listbox"
           aria-label="Capturable sources"
