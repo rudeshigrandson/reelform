@@ -56,6 +56,11 @@ describe("CursorInspector — default state", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Sway" }));
     expect(lastChange(onChange).sway).toBe(true);
 
+    const scale = screen.getByRole("switch", { name: "Scale with zoom" });
+    expect(scale).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(scale);
+    expect(lastChange(onChange)).toEqual({ ...DEFAULT_CURSOR_SETTINGS, scaleWithZoom: true });
+
     fireEvent.click(screen.getByRole("switch", { name: "Loop mode" }));
     expect(lastChange(onChange).loop).toBe(true);
 

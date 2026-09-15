@@ -2,6 +2,7 @@ import { type ReactElement, useState } from "react";
 import { useProjectSession } from "../../../app/project/session";
 import type { ProjectMeta } from "../../persistence";
 import { useEditorStore } from "../../store";
+import { detectFaceCenter } from "../../webcam/faceDetect";
 import { WebcamInspector } from "../webcam";
 import { clampSyncOffset } from "../webcam/logic";
 import type { WebcamSource } from "../webcam/types";
@@ -47,7 +48,13 @@ export function withoutWebcamSource(meta: ProjectMeta): ProjectMeta {
   return { ...meta, sources };
 }
 
-export function WebcamTab({ host }: { host: InspectorHost }): ReactElement {
+export interface WebcamTabProps {
+  host: InspectorHost;
+  /** Face detector for "Center on face" (tests inject one). */
+  detectFace?: ((webcamUrl: string) => Promise<{ x: number; y: number } | null>) | undefined;
+}
+
+export function WebcamTab({ host, detectFace = detectFaceCenter }: WebcamTabProps): ReactElement {
   const webcam = useEditorStore((s) => s.webcam);
   const meta = useProjectSession((s) => s.meta);
   const webcamUrl = useProjectSession((s) => s.webcamUrl);
@@ -128,6 +135,7 @@ export function WebcamTab({ host }: { host: InspectorHost }): ReactElement {
       onAutoSync={() => void autoSync()}
       syncing={syncing}
       syncNotice={notice}
+      onCenterOnFace={webcamUrl ? () => detectFace(webcamUrl) : undefined}
     />
   );
 }

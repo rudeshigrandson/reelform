@@ -1,16 +1,22 @@
 import type { CursorSettings, CursorStyle } from "../inspector/cursor/types";
+import type { EffectsSettings } from "../inspector/effects/types";
 import type { FrameBackground, FrameSettings, Size } from "../inspector/frame/types";
-import type { ZoomRegion } from "../inspector/zoom/types";
+import type { CameraSettings, ZoomRegion } from "../inspector/zoom/types";
 import {
   type CameraTransform,
   type CursorPositionSource,
+  PARALLAX_OVERSCAN,
   type Point,
+  TILT_DT_MS,
+  cameraTilt,
   cameraTransform,
-  focusAt,
+  followFocusAt,
+  parallaxOffset,
   zoomLevelAt,
 } from "./camera";
 import type { SceneComposition } from "./compose";
 import { type FrameLayout, computeFrameLayout } from "./layout";
+import { type SceneTransitionInput, type TransitionState, transitionAt } from "./transitions";
 import type { MeshPoint, WallpaperRegistry } from "./wallpapers";
 import { wallpaperPaint } from "./wallpapers";
 
@@ -40,6 +46,12 @@ export interface SceneInput {
    * Omitted = identity (untrimmed timeline).
    */
   sourceTimeAt?: ((timelineMs: number) => number) | undefined;
+  /** Follow-focus smoothing + speed limit; omitted = project defaults. */
+  camera?: CameraSettings | undefined;
+  /** `effects.motion`: 3D tilt on zooms and parallax background. */
+  cameraMotion?: EffectsSettings["motion"] | undefined;
+  /** Clip-boundary transition (cut-with-zoom bump, cross-dissolve mix). */
+  transition?: SceneTransitionInput | undefined;
 }
 
 export interface PaintStop {
@@ -71,8 +83,24 @@ export interface CursorState {
 export interface SceneState {
   tMs: number;
   layout: FrameLayout;
-  background: { paint: BackgroundPaint; blur: number };
-  camera: CameraTransform & { level: number; regionId: string | null; focus: Point };
+  /** `offsetX/Y` (px) + `scale` (overscan, around the frame center) come from parallax. */
+  background: {
+    paint: BackgroundPaint;
+    blur: number;
+    offsetX: number;
+    offsetY: number;
+    scale: number;
+  };
+  /** `tiltX/Y`: CameraContainer skew in radians (3D tilt); 0 when off. */
+  camera: CameraTransform & {
+    level: number;
+    regionId: string | null;
+    focus: Point;
+    tiltX: number;
+    tiltY: number;
+  };
+  /** Active clip-boundary transition, or null. */
+  transition: TransitionState | null;
   content: {
     radius: number;
     squircle: boolean;
@@ -187,10 +215,34 @@ export function evaluateScene(input: SceneInput, tMs: number): SceneState {
   const layout = computeFrameLayout(input.canvas, frame, input.sourceSize);
   const contentW = layout.content.width;
   const contentH = layout.content.height;
+  const transition = transitionAt(input.transition, t);
 
-  const { level, region } = zoomLevelAt(input.zoomRegions, t);
-  const focus = region ? focusAt(region, t, cursorTrack) : { x: 0.5, y: 0.5 };
-  const cam = cameraTransform({ level, focus, contentW, contentH });
+  const cameraAt = (at: number) => {
+    const { level: z, region: r } = zoomLevelAt(input.zoomRegions, at);
+    const f = r
+      ? followFocusAt(r, at, input.cursorTrack, input.camera, toSource)
+      : { x: 0.5, y: 0.5 };
+    const bump = transitionAt(input.transition, at)?.zoom ?? 1;
+    return {
+      region: r,
+      focus: f,
+      cam: cameraTransform({ level: z * bump, focus: f, contentW, contentH }),
+    };
+  };
+  const { region, focus, cam } = cameraAt(t);
+
+  let tilt = { x: 0, y: 0 };
+  if (input.cameraMotion?.tilt3d && contentW > 0 && contentH > 0 && cam.scale > 1) {
+    const a = cameraAt(t - TILT_DT_MS).cam;
+    const b = cameraAt(t + TILT_DT_MS).cam;
+    const dtS = (2 * TILT_DT_MS) / 1000;
+    tilt = cameraTilt(
+      (b.pivotX - a.pivotX) / contentW / dtS,
+      (b.pivotY - a.pivotY) / contentH / dtS,
+      cam.scale,
+    );
+  }
+  const parallax = input.cameraMotion?.parallax ? parallaxOffset(cam) : null;
 
   const crop = frame.crop ? { ...frame.crop } : null;
   let cursorState: CursorState = { visible: false, x: 0, y: 0, size: 0, style: cursor.style };
@@ -204,7 +256,8 @@ export function evaluateScene(input: SceneInput, tMs: number): SceneState {
       visible: Number.isFinite(cx) && Number.isFinite(cy),
       x: (Number.isFinite(cx) ? cx : 0) * contentW,
       y: (Number.isFinite(cy) ? cy : 0) * contentH,
-      size: (CURSOR_BASE_PX * pct * layout.scale) / cam.scale,
+      // Default keeps apparent size while zoomed; "scale with zoom" lets it grow (§6.6).
+      size: (CURSOR_BASE_PX * pct * layout.scale) / (cursor.scaleWithZoom ? 1 : cam.scale),
       style: cursor.style,
     };
   }
@@ -215,8 +268,22 @@ export function evaluateScene(input: SceneInput, tMs: number): SceneState {
   return {
     tMs: t,
     layout,
-    background: { paint: bgPaint, blur: blurs ? layout.backgroundBlur : 0 },
-    camera: { ...cam, level: cam.scale, regionId: region?.id ?? null, focus },
+    background: {
+      paint: bgPaint,
+      blur: blurs ? layout.backgroundBlur : 0,
+      offsetX: parallax?.x ?? 0,
+      offsetY: parallax?.y ?? 0,
+      scale: parallax ? PARALLAX_OVERSCAN : 1,
+    },
+    camera: {
+      ...cam,
+      level: cam.scale,
+      regionId: region?.id ?? null,
+      focus,
+      tiltX: tilt.x,
+      tiltY: tilt.y,
+    },
+    transition,
     content: {
       radius: layout.radius,
       squircle: frame.squircle,

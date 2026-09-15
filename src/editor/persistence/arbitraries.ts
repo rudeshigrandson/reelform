@@ -102,6 +102,7 @@ const cursor: fc.Arbitrary<CursorSettings> = fc.record({
     { nil: null },
   ),
   size: num(50, 300),
+  scaleWithZoom: fc.boolean(),
   smoothing: num(0, 100),
   motionBlur: fc.record({ enabled: fc.boolean(), amount: num(0, 100) }),
   clickEffect: fc.record({
@@ -213,6 +214,14 @@ const captionStyle: fc.Arbitrary<CaptionStyle> = fc.record({
   highlightColor: hex,
   uppercase: fc.boolean(),
   outline: fc.boolean(),
+  customFonts: fc.array(
+    fc.record({
+      family: fc.string({ minLength: 1 }),
+      fileName: fc.string({ minLength: 1 }),
+      path: fc.string({ minLength: 1 }),
+    }),
+    { maxLength: 3 },
+  ),
 });
 
 const anim: fc.Arbitrary<AnnotationAnim> = fc.record({

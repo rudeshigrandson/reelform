@@ -1,3 +1,4 @@
+import type { MetaUpdateEffects } from "../../editor/inspector/host/types";
 import type { ProjectMeta } from "../../editor/persistence";
 import { type Command, type History, patchCommand } from "../../editor/state";
 import type { EditorData, EditorState } from "../../editor/store";
@@ -14,6 +15,7 @@ export type MetaUpdate = (
   label: string,
   update: (meta: ProjectMeta) => ProjectMeta,
   patch?: Partial<EditorData> | undefined,
+  effects?: MetaUpdateEffects | undefined,
 ) => void;
 
 interface SessionLike {
@@ -26,22 +28,27 @@ export function createMetaUpdate(
   history: Pick<History<EditorState>, "push">,
   session: SessionLike = useProjectSession,
 ): MetaUpdate {
-  return (label, update, patch) => {
+  return (label, update, patch, effects) => {
     const before = session.getState().meta;
     if (!before) return;
     const after = update(structuredClone(before));
     const editor = patch ? patchCommand<EditorState>(label, patch) : null;
     metaSeq += 1;
+    // Side effects (e.g. restoring a trimmed file) run on undo and redo, not on the first apply.
+    let applied = false;
     const command: Command<EditorState> = {
       id: `meta-${metaSeq}`,
       label,
       do(draft) {
         session.getState().setSession({ meta: after });
         editor?.do(draft);
+        if (applied) effects?.onRedo?.();
+        applied = true;
       },
       undo(draft) {
         editor?.undo(draft);
         session.getState().setSession({ meta: before });
+        effects?.onUndo?.();
       },
     };
     history.push(command);

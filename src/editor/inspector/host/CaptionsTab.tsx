@@ -1,10 +1,16 @@
-import { type ReactElement, useCallback, useEffect, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useMemo, useState } from "react";
 import { useProjectSession } from "../../../app/project/session";
+import {
+  FONT_FILE_EXTENSIONS,
+  fontFamilyFromFileName,
+  registerProjectFonts,
+  uniqueFontFamily,
+} from "../../captions/fonts";
 import { parseSidecar, serializeSidecar } from "../../captions/sidecar";
 import { usePlaybackStore } from "../../playback";
 import { useEditorStore } from "../../store";
 import { CaptionsInspector } from "../captions";
-import type { GenerationStatus } from "../captions/types";
+import { DEFAULT_CAPTION_FONTS, type GenerationStatus } from "../captions/types";
 import { fileNameOf } from "./audioPeaks";
 import {
   NOTHING_TO_TRANSCRIBE_MESSAGE,
@@ -17,7 +23,7 @@ import {
   sidecarFileName,
   statusFromProgress,
 } from "./captionsFlow";
-import { hostId } from "./hooks";
+import { errorMessage, hostId } from "./hooks";
 import { deriveTranscribeRanges, timelineClips, toIpcRanges } from "./timeMap";
 import type { InspectorHost } from "./types";
 
@@ -26,12 +32,20 @@ import type { InspectorHost } from "./types";
 const setStatus = (captionStatus: GenerationStatus) =>
   useEditorStore.getState().update({ captionStatus });
 
+export const FONT_FILTERS = [{ name: "Fonts", extensions: [...FONT_FILE_EXTENSIONS] }];
+
 export function CaptionsTab({ host }: { host: InspectorHost }): ReactElement {
   const e = useEditorStore();
   const currentMs = usePlaybackStore((p) => p.currentMs);
   const seek = usePlaybackStore((p) => p.seek);
   const meta = useProjectSession((s) => s.meta);
   const projectPath = useProjectSession((s) => s.projectPath);
+  const mediaBaseUrl = useProjectSession((s) => s.mediaBaseUrl);
+  const customFonts = e.captionStyle.customFonts;
+  const fonts = useMemo(
+    () => [...DEFAULT_CAPTION_FONTS, ...(customFonts ?? []).map((f) => f.family)],
+    [customFonts],
+  );
   const [installed, setInstalled] = useState<ReadonlySet<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
   const modelId = modelIdForTier(e.captionModel);
@@ -48,6 +62,47 @@ export function CaptionsTab({ host }: { host: InspectorHost }): ReactElement {
   useEffect(() => {
     void refreshModels();
   }, [refreshModels]);
+
+  // Undo/redo can bring fonts back; registration is cached per font set.
+  useEffect(() => {
+    if (customFonts && customFonts.length > 0) void registerProjectFonts(mediaBaseUrl, customFonts);
+  }, [mediaBaseUrl, customFonts]);
+
+  const addCustomFont = async () => {
+    setNotice(null);
+    try {
+      const picked = await host.pickFile({ title: "Add custom font", filters: FONT_FILTERS });
+      if (!picked) return;
+      const media = await host.importMedia("font", picked);
+      const fileName = picked.split(/[\\/]/).pop() ?? picked;
+      const style = useEditorStore.getState().captionStyle;
+      const existing = style.customFonts ?? [];
+      const known = existing.find((f) => f.path === media.path);
+      const family =
+        known?.family ??
+        uniqueFontFamily(fontFamilyFromFileName(fileName), [
+          ...DEFAULT_CAPTION_FONTS,
+          ...existing.map((f) => f.family),
+        ]);
+      const font = { family, fileName, path: media.path };
+      const [loaded] = await registerProjectFonts(useProjectSession.getState().mediaBaseUrl, [
+        font,
+      ]);
+      if (!loaded) {
+        setNotice(`Couldn't load ${fileName} as a font.`);
+        return;
+      }
+      host.documentUpdate("Add caption font", {
+        captionStyle: {
+          ...style,
+          font: family,
+          customFonts: known ? existing : [...existing, font],
+        },
+      });
+    } catch (err) {
+      setNotice(`Couldn't add the font. ${errorMessage(err, "")}`.trim());
+    }
+  };
 
   const download = async () => {
     const id = modelId;
@@ -158,6 +213,8 @@ export function CaptionsTab({ host }: { host: InspectorHost }): ReactElement {
       onStyleChange={(captionStyle) =>
         host.documentUpdate("Caption style", { captionStyle }, "caption-style")
       }
+      fonts={fonts}
+      onAddCustomFont={() => void addCustomFont()}
       status={e.captionStatus}
       modelDownloaded={installed.has(modelId)}
       model={e.captionModel}

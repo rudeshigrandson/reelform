@@ -1,5 +1,7 @@
-import { type ReactElement, useEffect, useState } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 import { type ProjectSessionData, useProjectSession } from "../../../app/project/session";
+import { measureLoudness, tracksToMeasure } from "../../audio/loudnessRunner";
+import { type LoudnessTrack, useLoudnessStore } from "../../audio/loudnessStore";
 import { usePlaybackStore } from "../../playback";
 import { useEditorStore } from "../../store";
 import { AudioInspector, WAVEFORM_BARS, addRegion } from "../audio";
@@ -44,6 +46,45 @@ export function AudioTab({ host }: { host: InspectorHost }): ReactElement {
   const [regionPeaks, setRegionPeaks] = useState<Record<string, number[]>>({});
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // §9.5: measure integrated loudness (off-thread) the first time Normalize is on for a source.
+  // Measurements are keyed by source URL in the store, so remounting this tab doesn't
+  // re-measure and a replaced source (or another project) never reuses a stale value.
+  const measuredUrls = useRef<Partial<Record<LoudnessTrack, string>>>({
+    ...useLoudnessStore.getState().sources,
+  });
+  const micNormalize = audio.tracks.mic.normalize;
+  const systemNormalize = audio.tracks.system.normalize;
+  useEffect(() => {
+    const urls = { mic: micUrl, system: systemAudioUrl };
+    const store = useLoudnessStore.getState();
+    for (const kind of ["mic", "system"] as const) {
+      const measuredFrom = store.sources[kind];
+      if ((measuredFrom !== undefined || kind in store.lufs) && measuredFrom !== urls[kind]) {
+        store.forget(kind);
+        if (measuredUrls.current[kind] === measuredFrom) delete measuredUrls.current[kind];
+      }
+    }
+    const tracks = { mic: { normalize: micNormalize }, system: { normalize: systemNormalize } };
+    for (const kind of tracksToMeasure(tracks, urls, measuredUrls.current)) {
+      const url = urls[kind];
+      if (!url) continue;
+      measuredUrls.current[kind] = url;
+      const stale = () => measuredUrls.current[kind] !== url;
+      decodeCached(host, url)
+        .then((decoded) => (decoded ? measureLoudness(decoded) : null))
+        .then(
+          (lufs) => {
+            if (stale()) return;
+            if (lufs === null) delete measuredUrls.current[kind];
+            else useLoudnessStore.getState().setLufs(kind, lufs, url);
+          },
+          () => {
+            if (!stale()) delete measuredUrls.current[kind];
+          },
+        );
+    }
+  }, [host, micUrl, systemAudioUrl, micNormalize, systemNormalize]);
 
   const regionKey = audio.regions.map((r) => `${r.id}:${r.path}`).join("|");
   // biome-ignore lint/correctness/useExhaustiveDependencies: regionKey summarizes audio.regions

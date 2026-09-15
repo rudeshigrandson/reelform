@@ -37,6 +37,7 @@ export class FakeContainer implements ContainerLike {
   position = new FakePoint(0);
   scale = new FakePoint(1);
   pivot = new FakePoint(0);
+  skew = new FakePoint(0);
   mask: unknown = null;
   filters: unknown = null;
   filterArea: unknown = null;

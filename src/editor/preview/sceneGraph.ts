@@ -28,7 +28,7 @@ import { squirclePoints } from "./squircle";
  *    ├ ContentGroup
  *    │  ├ Shadow                   (BlurFilter)
  *    │  ├ CameraContainer          (zoom; masked by Mask)
- *    │  │  ├ Placeholder, VideoSprite
+ *    │  │  ├ Placeholder, VideoSprite, VideoSpriteNext (cross-dissolve)
  *    │  │  ├ EffectRegions         (masked video copies: blur / pixelate)
  *    │  │  ├ AnnotationImages, AnnotationLayer
  *    │  │  ├ ClickEffects, CursorGhosts, Cursor
@@ -63,6 +63,8 @@ export interface SceneGraphicsLike extends GraphicsLike {
 export interface SceneContainerLike extends ContainerLike {
   filters: unknown;
   filterArea?: unknown;
+  /** Radians; used for the 3D-tilt camera lean. */
+  skew: PointLike;
 }
 
 export interface GradientLike {
@@ -128,6 +130,11 @@ export interface SceneGraph {
   /** Add to the stage. */
   root: ContainerLike;
   setVideoTexture(texture: TextureLike | null): void;
+  /**
+   * Cross-dissolve source: a texture holding the incoming clip's first frame
+   * (`SceneState.transition.incomingSourceMs`), drawn over the video at `mix`.
+   */
+  setNextVideoTexture(texture: TextureLike | null): void;
   setWebcamTexture(texture: TextureLike | null): void;
   apply(state: SceneState): void;
   /** True while textures / packs requested by `apply` are still loading. */
@@ -254,6 +261,7 @@ export function createSceneGraph(
   const camera = C("CameraContainer");
   const placeholder = G("Placeholder");
   const video = S("VideoSprite");
+  const videoNext = S("VideoSpriteNext");
   const effects = C("EffectRegions");
   const imagesContent = C("AnnotationImages");
   const clickFx = G("ClickEffects");
@@ -278,9 +286,11 @@ export function createSceneGraph(
   bgImage.visible = false;
   background.addChild(bgPaint, bgImage);
   video.visible = false;
+  videoNext.visible = false;
   camera.addChild(
     placeholder,
     video,
+    videoNext,
     effects,
     imagesContent,
     layers.annotations.container,
@@ -312,6 +322,7 @@ export function createSceneGraph(
   const ghostNodes: CursorNode[] = [];
 
   let videoTexture: TextureLike | null = null;
+  let nextVideoTexture: TextureLike | null = null;
   let webcamSprite: SceneSpriteLike | null = null;
   let staticKey = "";
   let destroyed = false;
@@ -619,9 +630,9 @@ export function createSceneGraph(
 
   function spriteRef(fx: CursorFxState): CursorSpriteRef | null {
     if (fx.style === "custom") {
-      return fx.customUrl
-        ? { type: "arrow", url: fx.customUrl, hotspot: { x: 0, y: 0 }, boxSize: 0 }
-        : null;
+      // Uploaded cursors are stored project-relative; URLs pass through unchanged.
+      const url = fx.customUrl ? (assets?.resolveMediaUrl(fx.customUrl) ?? null) : null;
+      return url ? { type: "arrow", url, hotspot: { x: 0, y: 0 }, boxSize: 0 } : null;
     }
     const pack = packFor(fx.style);
     return pack ? cursorSpriteFor(pack, fx.type) : null;
@@ -745,6 +756,13 @@ export function createSceneGraph(
       for (const node of effectNodes.values()) if (texture) node.sprite.texture = texture;
     },
 
+    setNextVideoTexture(texture) {
+      if (destroyed) return;
+      nextVideoTexture = texture;
+      if (texture) videoNext.texture = texture;
+      else videoNext.visible = false;
+    },
+
     setWebcamTexture(texture) {
       if (destroyed) return;
       if (!texture) {
@@ -769,6 +787,21 @@ export function createSceneGraph(
       camera.scale.set(cam.scale);
       camera.pivot.set(cam.pivotX, cam.pivotY);
       camera.position.set(cam.positionX, cam.positionY);
+      camera.skew.set(cam.tiltX, cam.tiltY);
+
+      // Parallax: overscan the background around the frame center, then offset it.
+      const bgs = state.background;
+      if (bgs.scale !== 1 || bgs.offsetX !== 0 || bgs.offsetY !== 0) {
+        const cx = state.layout.frame.width / 2;
+        const cy = state.layout.frame.height / 2;
+        background.pivot.set(cx, cy);
+        background.position.set(cx + bgs.offsetX, cy + bgs.offsetY);
+        background.scale.set(bgs.scale);
+      } else {
+        background.pivot.set(0, 0);
+        background.position.set(0, 0);
+        background.scale.set(1);
+      }
 
       const hasVideo = state.video.visible && videoTexture !== null;
       placeholder.visible = !hasVideo;
@@ -777,6 +810,14 @@ export function createSceneGraph(
       video.position.set(vr.x, vr.y);
       video.width = vr.width;
       video.height = vr.height;
+
+      const tr = state.transition;
+      const dissolve = tr?.kind === "cross-dissolve" ? tr.mix : 0;
+      videoNext.visible = hasVideo && nextVideoTexture !== null && dissolve > 0;
+      videoNext.alpha = dissolve;
+      videoNext.position.set(vr.x, vr.y);
+      videoNext.width = vr.width;
+      videoNext.height = vr.height;
 
       applyEffects(state, hasVideo, vr);
       applyImages(state);
@@ -842,6 +883,8 @@ export function createSceneGraph(
       noiseFilter.destroy();
       // Video/webcam textures are owned by the stage / engine.
       video.texture = null;
+      videoNext.texture = null;
+      nextVideoTexture = null;
       layers.destroy();
       frameRoot.destroy({ children: true });
     },

@@ -21,6 +21,16 @@ import type { TitleCardLayerState } from "./layers/titleCardLayer";
 import type { WebcamLayerInput, WebcamLayerState } from "./layers/webcamLayer";
 import { type SceneInput, type SceneState, evaluateScene } from "./scene";
 import { sourceTimeAt } from "./timeMapping";
+import { transitionInputFrom } from "./transitions";
+
+export {
+  CUT_ZOOM_PEAK,
+  type SceneTransitionInput,
+  type TransitionState,
+  clipBoundaries,
+  transitionAt,
+  transitionInputFrom,
+} from "./transitions";
 
 /**
  * Full scene composition — `SceneBuilder.update(tMs)` (§6.4). Evaluates the
@@ -29,6 +39,15 @@ import { sourceTimeAt } from "./timeMapping";
  * shared scene graph (`sceneGraph.ts`) applies them.
  */
 
+/**
+ * Everything `composeScene` needs. Beyond `SceneInput`:
+ * - `effects.motion` drives `cameraMotion` (tilt / parallax) unless given explicitly.
+ * - `effects.transition` + `clips` drive `transition` unless given explicitly. The
+ *   result is `SceneState.transition` (`TransitionState`): for `cross-dissolve`,
+ *   renderers draw the incoming clip's first frame (`incomingSourceMs`) over the
+ *   live video at opacity `mix` (`SceneGraph.setNextVideoTexture`); for
+ *   `cut-with-zoom` the camera scale already includes the bump.
+ */
 export interface ComposeInput extends SceneInput {
   /** Trimmed clip sequence; empty/omitted = identity timeline. */
   clips?: readonly Clip[] | null | undefined;
@@ -114,7 +133,9 @@ function evaluateCursorFx(
     x: (crop && crop.width > 0 ? (p.x - crop.x) / crop.width : p.x) * cw,
     y: (crop && crop.height > 0 ? (p.y - crop.y) / crop.height : p.y) * ch,
   });
-  const zoomK = layout.scale / (camera.scale > 0 ? camera.scale : 1);
+  const zoomK = cursor.scaleWithZoom
+    ? layout.scale
+    : layout.scale / (camera.scale > 0 ? camera.scale : 1);
   const src = toSource(t);
   const motion = input.motion ?? null;
 
@@ -181,14 +202,29 @@ function evaluateCursorFx(
   };
 }
 
+/** One mapping function per clips array, so follow-path caches stay warm across frames. */
+const toSourceByClips = new WeakMap<readonly Clip[], (t: number) => number>();
+function clipsToSource(clips: readonly Clip[]): (t: number) => number {
+  let fn = toSourceByClips.get(clips);
+  if (!fn) {
+    fn = (t: number) => sourceTimeAt(clips, t);
+    toSourceByClips.set(clips, fn);
+  }
+  return fn;
+}
+
 export function composeScene(input: ComposeInput, tMs: number): SceneState {
   const clips = input.clips;
   const toSource =
-    input.sourceTimeAt ??
-    (clips && clips.length > 0 ? (t: number) => sourceTimeAt(clips, t) : undefined);
-  const sceneInput: SceneInput = toSource ? { ...input, sourceTimeAt: toSource } : input;
-  const base = evaluateScene(sceneInput, tMs);
+    input.sourceTimeAt ?? (clips && clips.length > 0 ? clipsToSource(clips) : undefined);
   const effects = input.effects ?? DEFAULT_EFFECTS_SETTINGS;
+  const sceneInput: SceneInput = {
+    ...input,
+    sourceTimeAt: toSource,
+    cameraMotion: input.cameraMotion ?? effects.motion,
+    transition: input.transition ?? transitionInputFrom(effects, clips),
+  };
+  const base = evaluateScene(sceneInput, tMs);
   const layers = extendScene(base, {
     annotations: { annotations: input.annotations ?? [] },
     captions: input.captions,

@@ -28,8 +28,28 @@ export interface SaveFileOptions {
   contents: string;
 }
 
-/** What an imported file is for; decides the `media/` sub-folder. */
-export type ImportKind = "webcam" | "audio" | "image";
+/**
+ * What an imported file is for. `webcam` / `audio` / `image` are the
+ * `system:copyIntoProject` kinds (they decide the `media/imported/` sub-folder);
+ * the others ride on one of those (see {@link ipcImportKind}).
+ */
+export type ImportKind = "webcam" | "audio" | "image" | "font" | "cursor" | "sound";
+
+/** Kinds the `system:copyIntoProject` channel accepts. */
+export type IpcImportKind = "webcam" | "audio" | "image";
+
+/** Fonts and custom cursors are copied like images (no probe); click sounds like audio. */
+export function ipcImportKind(kind: ImportKind): IpcImportKind {
+  switch (kind) {
+    case "font":
+    case "cursor":
+      return "image";
+    case "sound":
+      return "audio";
+    default:
+      return kind;
+  }
+}
 
 export interface ImportedMedia {
   /** Project-relative path (posix separators) to store in the document. */
@@ -62,6 +82,16 @@ export interface TrimSourceResult {
   videoPath: string;
   videoDurationMs: number;
   savedBytes: number;
+  /** Token for `restoreTrimmedSource` (the original is stashed until app quit). */
+  undoToken?: string | undefined;
+}
+
+/** Side effects a meta history entry runs when it is undone / redone. */
+export interface MetaUpdateEffects {
+  /** After the entry's state is rolled back. */
+  onUndo?: (() => void) | undefined;
+  /** After the entry's state is re-applied by redo (not on the first apply). */
+  onRedo?: (() => void) | undefined;
 }
 
 /** Decoded PCM (one Float32Array per channel). */
@@ -132,6 +162,8 @@ export interface InspectorHost {
   relinkMedia(req: RelinkRequest): Promise<RelinkResult>;
   /** ffmpeg `-c copy` cut to the used range with 1s handles (§9.9); null when unsupported. */
   trimSource(clips: NonNullable<ProjectMeta["clips"]>): Promise<TrimSourceResult | null>;
+  /** Move a trimmed original back (undo of `trimSource`); absent when unsupported. */
+  restoreTrimmedSource?: ((undoToken: string) => Promise<void>) | undefined;
   deleteProject(opts: DeleteProjectOptions): Promise<void>;
   /** Sizes of project-relative source paths; absent key = unknown. */
   statSources(paths: readonly string[]): Promise<Record<string, SourceStat>>;
@@ -151,6 +183,7 @@ export interface InspectorHost {
     label: string,
     update: (meta: ProjectMeta) => ProjectMeta,
     patch?: EditorPatch | undefined,
+    effects?: MetaUpdateEffects | undefined,
   ): void;
 
   /** Platform for shortcut glyphs. */

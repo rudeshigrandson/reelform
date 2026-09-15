@@ -6,10 +6,12 @@ import type {
   ImportKind,
   ImportedMedia,
   InspectorHost,
+  IpcImportKind,
   PickFileOptions,
   SaveFileOptions,
   TrimSourceResult,
 } from "../../editor/inspector/host/types";
+import { ipcImportKind } from "../../editor/inspector/host/types";
 import type { DeleteProjectOptions, SourceStat } from "../../editor/inspector/project/types";
 import type { ProjectMeta } from "../../editor/persistence";
 import { invoke as realInvoke, onEvent as realOnEvent } from "../ipc";
@@ -28,11 +30,13 @@ export interface SystemPort {
   readTextFile(path: string): Promise<string>;
   reveal(path: string): Promise<void>;
   /** Copy `sourcePath` into `<project>/media/imported/<kind>/` and return its relative path. */
-  copyIntoProject(projectPath: string, kind: ImportKind, sourcePath: string): Promise<string>;
+  copyIntoProject(projectPath: string, kind: IpcImportKind, sourcePath: string): Promise<string>;
   statFiles(projectPath: string, relPaths: readonly string[]): Promise<Record<string, SourceStat>>;
   trimSource?:
     | ((projectPath: string, clips: NonNullable<ProjectMeta["clips"]>) => Promise<TrimSourceResult>)
     | undefined;
+  /** `project:restoreTrimmedSource`: move the stashed original back (trim undo). */
+  restoreTrimmedSource?: ((projectPath: string, undoToken: string) => Promise<void>) | undefined;
   /** Close the editor window after its project was trashed. */
   closeWindow?: (() => void) | undefined;
 }
@@ -160,11 +164,13 @@ export function createInspectorHost(deps: CreateInspectorHostDeps): InspectorHos
 
   const importMedia = async (kind: ImportKind, sourcePath: string): Promise<ImportedMedia> => {
     const root = projectPath();
-    const rel = await deps.system.copyIntoProject(root, kind, sourcePath);
+    const channelKind = ipcImportKind(kind);
+    const rel = await deps.system.copyIntoProject(root, channelKind, sourcePath);
     const url = mediaUrlFor(getSession().mediaBaseUrl, rel);
     if (!url)
       throw new InspectorHostError("media-unserved", "The project media folder isn't registered.");
-    if (kind === "image") {
+    if (channelKind === "image") {
+      // Images, fonts and cursors: nothing to probe.
       return { path: rel, url, durationMs: null, width: null, height: null, hasAudio: false };
     }
     // Probe failures are non-fatal: the tab falls back to the decoded duration.
@@ -175,9 +181,10 @@ export function createInspectorHost(deps: CreateInspectorHostDeps): InspectorHos
       durationMs: probe?.durationMs ?? null,
       width: probe?.width ?? null,
       height: probe?.height ?? null,
-      hasAudio: kind === "audio" || (probe?.hasAudio ?? false),
+      hasAudio: channelKind === "audio" || (probe?.hasAudio ?? false),
     };
   };
+  const restore = deps.system.restoreTrimmedSource;
 
   return createDefaultInspectorHost({
     pickFile: (o) => deps.system.pickFile(o),
@@ -200,6 +207,9 @@ export function createInspectorHost(deps: CreateInspectorHostDeps): InspectorHos
     async trimSource(clips) {
       return deps.system.trimSource ? deps.system.trimSource(projectPath(), clips) : null;
     },
+    ...(restore
+      ? { restoreTrimmedSource: (undoToken: string) => restore(projectPath(), undoToken) }
+      : {}),
     async deleteProject(_opts: DeleteProjectOptions) {
       // §9.9: the whole `.reelform` folder (recordings included) goes to the OS trash.
       required(await invoke("project:trash", { path: projectPath() }), "Deleting projects");

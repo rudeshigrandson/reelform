@@ -243,6 +243,47 @@ describe("createInspectorHost", () => {
     expect(host.platform).toBe("win");
   });
 
+  it("copies fonts and cursors like images and click sounds like audio", async () => {
+    const { host, sys, ipc } = make({
+      "media:probe": () => ({ durationMs: 120, width: 0, height: 0, hasAudio: true }),
+    });
+    expect(await host.importMedia("font", "/f/Brand.ttf")).toEqual({
+      path: "media/imported/image/Brand.ttf",
+      url: "reelform-media://root/media/imported/image/Brand.ttf",
+      durationMs: null,
+      width: null,
+      height: null,
+      hasAudio: false,
+    });
+    expect(sys.copyIntoProject).toHaveBeenLastCalledWith(
+      "/P/Demo.reelform",
+      "image",
+      "/f/Brand.ttf",
+    );
+    await host.importMedia("cursor", "/c/arrow.svg");
+    expect(sys.copyIntoProject).toHaveBeenLastCalledWith(
+      "/P/Demo.reelform",
+      "image",
+      "/c/arrow.svg",
+    );
+    expect(ipc.calls).toEqual([]);
+    const sound = await host.importMedia("sound", "/s/click.wav");
+    expect(sys.copyIntoProject).toHaveBeenLastCalledWith(
+      "/P/Demo.reelform",
+      "audio",
+      "/s/click.wav",
+    );
+    expect(sound).toMatchObject({ path: "media/imported/audio/click.wav", hasAudio: true });
+  });
+
+  it("exposes restoreTrimmedSource only when the system port supports it", async () => {
+    expect(make({}).host.restoreTrimmedSource).toBeUndefined();
+    const restoreTrimmedSource = vi.fn(async () => {});
+    const { host } = make({}, system({ restoreTrimmedSource }));
+    await host.restoreTrimmedSource?.("tok-1");
+    expect(restoreTrimmedSource).toHaveBeenCalledWith("/P/Demo.reelform", "tok-1");
+  });
+
   it("fails clearly without an open project", async () => {
     const ipc = fakeIpc({});
     const host = createInspectorHost({

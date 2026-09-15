@@ -213,6 +213,16 @@ export const captionStyleSchema = z.object({
   highlightColor: hex6,
   uppercase: z.boolean(),
   outline: z.boolean(),
+  /** Added after v1 shipped: older documents have no custom fonts. */
+  customFonts: z
+    .array(
+      z.object({
+        family: z.string().min(1),
+        fileName: z.string().min(1),
+        path: z.string().min(1),
+      }),
+    )
+    .default([]),
 });
 
 // ── Zoom (SPEC §6.5 / §8) ───────────────────────────────────────────────────

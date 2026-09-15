@@ -12,6 +12,15 @@ export type CaptionPreset = "clean" | "bold" | "karaoke" | "outline" | "pill";
 
 export type CaptionPosition = "bottom" | "top" | "custom";
 
+/** A font file copied into the project and registered as `family` (§9.6). */
+export interface CustomFont {
+  family: string;
+  /** Original file name, for display. */
+  fileName: string;
+  /** Project-relative path (posix separators). */
+  path: string;
+}
+
 export interface CaptionStyle {
   preset: CaptionPreset;
   font: string;
@@ -33,6 +42,8 @@ export interface CaptionStyle {
   uppercase: boolean;
   /** Text stroke — only set by the "Outline" preset; no dedicated control. */
   outline: boolean;
+  /** Fonts added with "Add custom font…", offered after the defaults. */
+  customFonts: CustomFont[];
 }
 
 export type CaptionModel = "fast" | "balanced" | "accurate";
@@ -112,6 +123,7 @@ export const DEFAULT_CAPTION_STYLE: CaptionStyle = {
   highlightColor: "#ffd60a",
   uppercase: false,
   outline: false,
+  customFonts: [],
 };
 
 /** Fields a preset overrides; font, size, position and max lines are kept. */

@@ -278,6 +278,13 @@ export function CursorInspector({
             disabled={controlsDisabled}
             onChange={(size) => patch({ size })}
           />
+          <Switch
+            label="Scale with zoom"
+            hint="Cursor grows when the camera zooms in"
+            checked={value.scaleWithZoom}
+            disabled={controlsDisabled}
+            onChange={(scaleWithZoom) => patch({ scaleWithZoom })}
+          />
         </Section>
 
         <Section title="Motion">

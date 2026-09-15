@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CURSOR_SETTINGS } from "../inspector/cursor/types";
 import { DEFAULT_FRAME_SETTINGS, type FrameSettings } from "../inspector/frame/types";
-import type { ZoomRegion } from "../inspector/zoom/types";
+import { DEFAULT_ZOOM_SETTINGS, type ZoomRegion } from "../inspector/zoom/types";
+import { PARALLAX_FACTOR, PARALLAX_OVERSCAN, TILT_MAX_RAD, cameraFollowPath } from "./camera";
 import { buildSmoothedCursorTrack } from "./cursorSmoothing";
 import {
   CURSOR_BASE_PX,
@@ -10,6 +11,7 @@ import {
   resolveBackgroundPaint,
   wallpaperFallbackPaint,
 } from "./scene";
+import { CUT_ZOOM_PEAK } from "./transitions";
 
 const zoom: ZoomRegion = {
   id: "z",
@@ -92,10 +94,84 @@ describe("evaluateScene", () => {
     );
   });
 
-  it("follow zoom tracks the cursor", () => {
+  it("follow zoom reads the smoothed, speed-limited camera path", () => {
     const s = evaluateScene(input(), 3000);
-    const p = track.positionAt(3000);
-    expect(s.camera.focus.x).toBeCloseTo(p.x, 10);
+    const path = cameraFollowPath(zoom, track, DEFAULT_ZOOM_SETTINGS.camera);
+    expect(s.camera.focus.x).toBeCloseTo(path.positionAt(3000).x, 10);
+    // Lags the raw cursor but stays near it.
+    expect(Math.abs(s.camera.focus.x - track.positionAt(3000).x)).toBeLessThan(0.05);
+  });
+
+  it("follow zoom honours camera.smoothing and maxZoomSpeed", () => {
+    const snappy = evaluateScene(input({ camera: { smoothing: 0, maxZoomSpeed: 10 } }), 1500);
+    const silky = evaluateScene(input({ camera: { smoothing: 1, maxZoomSpeed: 10 } }), 1500);
+    const raw = track.positionAt(1500).x;
+    expect(Math.abs(silky.camera.focus.x - raw)).toBeGreaterThan(
+      Math.abs(snappy.camera.focus.x - raw),
+    );
+    const slow = evaluateScene(input({ camera: { smoothing: 0, maxZoomSpeed: 0.5 } }), 1500);
+    expect(Math.abs(slow.camera.focus.x - raw)).toBeGreaterThan(
+      Math.abs(snappy.camera.focus.x - raw),
+    );
+  });
+
+  it("scale with zoom keeps the cursor growing with the camera", () => {
+    const grow = input();
+    grow.cursor.scaleWithZoom = true;
+    const out = evaluateScene(grow, 0);
+    const inZoom = evaluateScene(grow, 3000);
+    expect(inZoom.cursor.size).toBeCloseTo(out.cursor.size, 6);
+    expect(inZoom.cursor.size).toBeCloseTo(CURSOR_BASE_PX * inZoom.layout.scale, 6);
+  });
+
+  it("3D tilt is zero when off, at 1×, or with a still camera", () => {
+    const off = evaluateScene(input(), 3000);
+    expect([off.camera.tiltX, off.camera.tiltY]).toEqual([0, 0]);
+    const on = evaluateScene(input({ cameraMotion: { tilt3d: true, parallax: false } }), 0);
+    expect([on.camera.tiltX, on.camera.tiltY]).toEqual([0, 0]);
+    const fixed = evaluateScene(
+      input({
+        cameraMotion: { tilt3d: true, parallax: false },
+        zoomRegions: [{ ...zoom, focus: { mode: "fixed", x: 0.3, y: 0.3 } }],
+      }),
+      3000,
+    );
+    expect([fixed.camera.tiltX, fixed.camera.tiltY]).toEqual([0, 0]);
+  });
+
+  it("3D tilt leans against horizontal camera motion within the max skew", () => {
+    const s = evaluateScene(input({ cameraMotion: { tilt3d: true, parallax: false } }), 2500);
+    // Cursor moves right (+x) here → negative lean.
+    expect(s.camera.tiltX).toBeLessThan(0);
+    expect(Math.abs(s.camera.tiltX)).toBeLessThanOrEqual(TILT_MAX_RAD);
+    expect(evaluateScene(input({ cameraMotion: { tilt3d: true, parallax: false } }), 2500)).toEqual(
+      s,
+    );
+  });
+
+  it("parallax offsets the background opposite the pivot delta with overscan", () => {
+    const s = evaluateScene(input({ cameraMotion: { tilt3d: false, parallax: true } }), 3000);
+    expect(s.background.scale).toBe(PARALLAX_OVERSCAN);
+    expect(s.background.offsetX).toBeCloseTo(
+      -(s.camera.pivotX - s.camera.positionX) * PARALLAX_FACTOR,
+      10,
+    );
+    const off = evaluateScene(input(), 3000).background;
+    expect([off.offsetX, off.offsetY, off.scale]).toEqual([0, 0, 1]);
+  });
+
+  it("cut-with-zoom bumps the camera scale around a clip boundary", () => {
+    const clips = [
+      { id: "a", sourceStartMs: 0, sourceEndMs: 3000, timelineStartMs: 0 },
+      { id: "b", sourceStartMs: 4000, sourceEndMs: 8000, timelineStartMs: 3000 },
+    ];
+    const transition = { kind: "cut-with-zoom" as const, durationMs: 400, clips };
+    const plain = input({ zoomRegions: [] });
+    const at = evaluateScene({ ...plain, transition }, 3000);
+    expect(at.camera.scale).toBeCloseTo(CUT_ZOOM_PEAK, 10);
+    expect(at.transition?.kind).toBe("cut-with-zoom");
+    expect(evaluateScene({ ...plain, transition }, 2500).camera.scale).toBe(1);
+    expect(evaluateScene({ ...plain, transition }, 2900).camera.scale).toBeGreaterThan(1);
   });
 
   it("marks video hidden when no video is attached", () => {

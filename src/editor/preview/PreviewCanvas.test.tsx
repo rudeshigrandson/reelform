@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CURSOR_SETTINGS } from "../inspector/cursor/types";
+import { DEFAULT_EFFECTS_SETTINGS } from "../inspector/effects/types";
 import { DEFAULT_FRAME_SETTINGS } from "../inspector/frame/types";
 import { PreviewCanvas, type PreviewCanvasProps } from "./PreviewCanvas";
 import type { CreatePreviewStage, PreviewStage } from "./pixiStage";
@@ -64,6 +65,32 @@ describe("PreviewCanvas", () => {
     const state = stage.render.mock.lastCall?.[0];
     expect(state?.tMs).toBe(0);
     expect(state?.video.visible).toBe(true);
+  });
+
+  it("mounts a second video for cross-dissolve and parks it on the incoming frame", async () => {
+    const { stage, create } = fakeStage();
+    const setNextVideo = vi.fn<(el: HTMLVideoElement | null) => void>();
+    const withNext = { ...stage, setNextVideo };
+    const createNext = vi.fn<CreatePreviewStage>(() => Promise.resolve(withNext));
+    const clips = [
+      { id: "a", sourceStartMs: 0, sourceEndMs: 2000, timelineStartMs: 0 },
+      { id: "b", sourceStartMs: 5000, sourceEndMs: 8000, timelineStartMs: 2000 },
+    ];
+    const effects = structuredClone(DEFAULT_EFFECTS_SETTINGS);
+    effects.transition = { kind: "cross-dissolve", durationMs: 400 };
+    const props = { ...baseProps(createNext), clips, effects, currentMs: 1800 };
+    const { rerender } = render(<PreviewCanvas {...props} />);
+    await act(async () => {});
+    const next = screen.getByTestId("preview-next-video") as HTMLVideoElement;
+    expect(setNextVideo).toHaveBeenLastCalledWith(next);
+    expect(next.currentTime).toBeCloseTo(5, 6);
+    expect(stage.render.mock.lastCall?.[0].transition?.kind).toBe("cross-dissolve");
+
+    rerender(<PreviewCanvas {...props} effects={DEFAULT_EFFECTS_SETTINGS} />);
+    await act(async () => {});
+    expect(screen.queryByTestId("preview-next-video")).toBeNull();
+    expect(setNextVideo).toHaveBeenLastCalledWith(null);
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("shows the error state when the stage fails to start", async () => {

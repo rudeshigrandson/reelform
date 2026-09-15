@@ -11,7 +11,7 @@ import { VIDEO_FILTERS } from "./WebcamTab";
 import { errorMessage } from "./hooks";
 import { type SourceRole, projectInfoFromSession, roleForPath, sourcePaths } from "./projectInfo";
 import { timelineClips } from "./timeMap";
-import type { InspectorHost } from "./types";
+import type { InspectorHost, MetaUpdateEffects, TrimSourceResult } from "./types";
 
 /** Project tab from the open session (guide S21, SPEC §9.9). */
 
@@ -19,6 +19,60 @@ export function withSourcePath(meta: ProjectMeta, role: SourceRole, path: string
   const src = meta.sources[role];
   if (!src) return meta;
   return { ...meta, sources: { ...meta.sources, [role]: { ...src, path } } };
+}
+
+/** Meta after a trim: rewritten clips and the trimmed video file. */
+export function withTrimmedSource(meta: ProjectMeta, res: TrimSourceResult): ProjectMeta {
+  return {
+    ...meta,
+    clips: res.clips,
+    sources: {
+      ...meta.sources,
+      video: { ...meta.sources.video, path: res.videoPath, durationMs: res.videoDurationMs },
+    },
+  };
+}
+
+/**
+ * Undo/redo side effects for a trim history entry. Undo moves the stashed
+ * original back (`restoreTrimmedSource`, which also removes the trimmed file);
+ * redo trims again from the restored original and re-points meta + clips at the
+ * new file. Null when the trim can't be undone on disk.
+ */
+export function trimHistoryEffects(
+  host: Pick<InspectorHost, "trimSource" | "restoreTrimmedSource">,
+  sourceClips: NonNullable<ProjectMeta["clips"]>,
+  first: TrimSourceResult,
+  onError: (message: string) => void,
+  onDone: () => void,
+): MetaUpdateEffects | null {
+  const restore = host.restoreTrimmedSource;
+  if (!first.undoToken || !restore) return null;
+  let token: string | undefined = first.undoToken;
+  return {
+    onUndo: () => {
+      const t = token;
+      token = undefined;
+      if (!t) return;
+      restore(t).then(onDone, (err: unknown) =>
+        onError(`Couldn't restore the original recording. ${errorMessage(err, "")}`.trim()),
+      );
+    },
+    onRedo: () => {
+      host.trimSource(sourceClips).then(
+        (res) => {
+          if (!res) return;
+          token = res.undoToken;
+          const session = useProjectSession.getState();
+          if (session.meta) session.setSession({ meta: withTrimmedSource(session.meta, res) });
+          useEditorStore.getState().update({ clips: res.clips });
+          onDone();
+        },
+        (err: unknown) =>
+          onError(`Couldn't trim the source again. ${errorMessage(err, "")}`.trim()),
+      );
+    },
+  };
 }
 
 const URL_KEY: Readonly<
@@ -112,17 +166,14 @@ export function ProjectTab({ host }: { host: InspectorHost }): ReactElement {
         return;
       }
       // Sources live in meta, clips in the editor store: one history entry for both.
+      const effects = trimHistoryEffects(host, clips, res, setNotice, () =>
+        setStatsVersion((v) => v + 1),
+      );
       host.metaUpdate(
         "Trim source",
-        (m) => ({
-          ...m,
-          clips: res.clips,
-          sources: {
-            ...m.sources,
-            video: { ...m.sources.video, path: res.videoPath, durationMs: res.videoDurationMs },
-          },
-        }),
+        (m) => withTrimmedSource(m, res),
         { clips: res.clips },
+        effects ?? undefined,
       );
       setStatsVersion((v) => v + 1);
     } catch (err) {

@@ -7,7 +7,7 @@ import type { EffectsSettings } from "../inspector/effects/types";
 import { outputSize } from "../inspector/frame/frameLogic";
 import type { FrameAspect, FrameSettings, Size } from "../inspector/frame/types";
 import type { WebcamSettings } from "../inspector/webcam/types";
-import type { ZoomRegion } from "../inspector/zoom/types";
+import type { CameraSettings, ZoomRegion } from "../inspector/zoom/types";
 import type { Clip } from "../model/schema";
 import type { CursorPositionSource } from "./camera";
 import { type ComposeInput, composeScene } from "./compose";
@@ -27,6 +27,7 @@ import {
 } from "./quality";
 import type { SceneAssets } from "./sceneGraph";
 import type { SpeedLike } from "./timeMapping";
+import { upcomingIncomingSourceMs } from "./transitions";
 import {
   SCRUB_SETTLE_MS,
   type VideoElementLike,
@@ -42,6 +43,8 @@ import type { WallpaperRegistry } from "./wallpapers";
 export interface PreviewCanvasProps {
   frame: FrameSettings;
   zoomRegions: readonly ZoomRegion[];
+  /** Project `camera` settings (follow smoothing, max speed); defaults when omitted. */
+  camera?: CameraSettings | undefined;
   cursor: CursorSettings;
   /** Smoothed cursor track (e.g. `SmoothedCursorTrack`); null → cursor layer disabled. */
   cursorTrack?: CursorPositionSource | null | undefined;
@@ -180,6 +183,7 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
   const {
     frame,
     zoomRegions,
+    camera,
     cursor,
     cursorTrack,
     currentMs,
@@ -223,6 +227,7 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
   const hostRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const webcamRef = useRef<HTMLVideoElement>(null);
+  const nextVideoRef = useRef<HTMLVideoElement>(null);
   const [well, setWell] = useState<Size>({ width: 0, height: 0 });
   const [zoom, setZoom] = useState<CanvasZoom>("fit");
   const [stage, setStage] = useState<PreviewStage | null>(null);
@@ -234,6 +239,9 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
   const activeUrl = mediaOffline ? null : videoUrl;
   const hasVideo = activeUrl !== null;
   const activeWebcamUrl = mediaOffline ? null : webcamUrl;
+  // Cross-dissolve draws the incoming clip's first frame from a second element.
+  const wantsNextVideo =
+    hasVideo && effects?.transition.kind === "cross-dissolve" && (clips?.length ?? 0) > 1;
 
   const output = useMemo(() => outputSize(frame.aspect, sourceSize), [frame.aspect, sourceSize]);
   const view = useMemo(() => canvasViewSize(zoom, well, output), [zoom, well, output]);
@@ -313,6 +321,12 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
     stage.setWebcam(activeWebcamUrl !== null ? webcamRef.current : null);
   }, [stage, activeWebcamUrl]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-attach when the media URL changes.
+  useEffect(() => {
+    if (!stage?.setNextVideo) return;
+    stage.setNextVideo(wantsNextVideo ? nextVideoRef.current : null);
+  }, [stage, wantsNextVideo, activeUrl]);
+
   // New video frames (after seeks / while playing) → re-upload + redraw.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-subscribe when the media URL changes.
   useEffect(() => {
@@ -321,6 +335,14 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
     const refresh = stage.refreshVideo;
     return watchVideoFrames(v as unknown as VideoElementLike, () => refresh());
   }, [stage, hasVideo, activeUrl]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-subscribe when the media URL changes.
+  useEffect(() => {
+    const v = nextVideoRef.current;
+    if (!stage?.refreshVideo || !v || !wantsNextVideo) return;
+    const refresh = stage.refreshVideo;
+    return watchVideoFrames(v as unknown as VideoElementLike, () => refresh());
+  }, [stage, wantsNextVideo, activeUrl]);
 
   // ── video sync ──
   const sync = useRef<{
@@ -441,6 +463,7 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
       frame: cropMode ? { ...frame, crop: null } : frame,
       sourceSize,
       zoomRegions: suppressCamera ? [] : zoomRegions,
+      camera,
       cursor,
       cursorTrack,
       hasVideo: hasVideo && inClip,
@@ -468,6 +491,7 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
       sourceSize,
       suppressCamera,
       zoomRegions,
+      camera,
       cursor,
       cursorTrack,
       hasVideo,
@@ -491,6 +515,22 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
   useEffect(() => {
     if (stage) stage.render(scene);
   }, [stage, scene]);
+
+  // Park the second element on the incoming clip's first frame: during a dissolve, and
+  // ahead of the next boundary so the frame is already decoded when the window opens.
+  const incomingSourceMs = wantsNextVideo
+    ? scene.transition?.kind === "cross-dissolve"
+      ? scene.transition.incomingSourceMs
+      : upcomingIncomingSourceMs(clips, currentMs)
+    : null;
+  useEffect(() => {
+    const v = nextVideoRef.current;
+    if (!v || !wantsNextVideo || incomingSourceMs === null) return;
+    if (!v.paused) v.pause();
+    if (Math.abs(v.currentTime * 1000 - incomingSourceMs) > 1) {
+      v.currentTime = incomingSourceMs / 1000;
+    }
+  }, [wantsNextVideo, incomingSourceMs]);
 
   const state: string =
     status !== "ready" ? status : mediaOffline ? "offline" : hasVideo ? "ready" : "empty";
@@ -576,6 +616,18 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
         tabIndex={-1}
         data-testid="preview-video"
       />
+      {wantsNextVideo && (
+        <video
+          ref={nextVideoRef}
+          style={hiddenVideoStyle}
+          src={activeUrl ?? undefined}
+          muted
+          playsInline
+          preload="auto"
+          tabIndex={-1}
+          data-testid="preview-next-video"
+        />
+      )}
       {activeWebcamUrl !== null && (
         <video
           ref={webcamRef}

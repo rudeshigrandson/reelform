@@ -272,6 +272,7 @@ describe("scene graph structure", () => {
     expect(labels(camera)).toEqual([
       "Placeholder",
       "VideoSprite",
+      "VideoSpriteNext",
       "EffectRegions",
       "AnnotationImages",
       "AnnotationLayer",
@@ -279,6 +280,79 @@ describe("scene graph structure", () => {
       "CursorGhosts",
       "Cursor",
     ]);
+  });
+
+  it("cross-dissolve draws the next-clip texture over the video at the transition mix", () => {
+    const { graph, root } = build("preview", fakeAssets());
+    graph.setVideoTexture(fakeTexture(1920, 1080, "video"));
+    const clips = [
+      { id: "a", sourceStartMs: 0, sourceEndMs: 2000, timelineStartMs: 0 },
+      { id: "b", sourceStartMs: 3000, sourceEndMs: 5000, timelineStartMs: 2000 },
+    ];
+    const effects = structuredClone(DEFAULT_EFFECTS_SETTINGS);
+    effects.transition = { kind: "cross-dissolve", durationMs: 400 };
+    const input = richInput({ clips, effects });
+    const next = findByLabel(root, "VideoSpriteNext")[0] as FakeSprite;
+
+    // No texture yet → hidden even mid-dissolve.
+    graph.apply(composeScene(input, 1800));
+    expect(next.visible).toBe(false);
+
+    graph.setNextVideoTexture(fakeTexture(1920, 1080, "next"));
+    const mid = composeScene(input, 1800);
+    graph.apply(mid);
+    expect(next.visible).toBe(true);
+    expect(next.alpha).toBeCloseTo(mid.transition?.mix ?? -1, 10);
+    const video = findByLabel(root, "VideoSprite")[0] as FakeSprite;
+    expect([next.width, next.height]).toEqual([video.width, video.height]);
+
+    graph.apply(composeScene(input, 1000));
+    expect(next.visible).toBe(false);
+    graph.setNextVideoTexture(null);
+    graph.apply(mid);
+    expect(next.visible).toBe(false);
+  });
+
+  it("3D tilt skews the camera and parallax offsets an overscanned background", () => {
+    const { graph, root } = build("preview", fakeAssets());
+    const cam = findByLabel(root, "CameraContainer")[0] as FakeContainer;
+    const bg = findByLabel(root, "Background")[0] as FakeContainer;
+    const moving = buildSmoothedCursorTrack(
+      Array.from({ length: 41 }, (_, i) => ({ tMs: i * 100, x: 0.1 + i * 0.02, y: 0.5 })),
+      { smoothing: 0 },
+    );
+    const effects = structuredClone(DEFAULT_EFFECTS_SETTINGS);
+    effects.motion = { tilt3d: true, parallax: true };
+    const input = richInput({
+      effects,
+      cursorTrack: moving,
+      zoomRegions: [
+        {
+          id: "f",
+          startMs: 0,
+          endMs: 4000,
+          level: 2,
+          focus: { mode: "follow", x: 0.5, y: 0.5 },
+          easeInMs: 200,
+          easeOutMs: 200,
+          curve: "linear",
+          source: "manual",
+        },
+      ],
+    });
+    const state = composeScene(input, 2000);
+    graph.apply(state);
+    expect(state.camera.tiltX).not.toBe(0);
+    expect([cam.skew.x, cam.skew.y]).toEqual([state.camera.tiltX, state.camera.tiltY]);
+    expect(bg.scale.x).toBeGreaterThan(1);
+    const { width, height } = state.layout.frame;
+    expect(bg.pivot.x).toBeCloseTo(width / 2, 6);
+    expect(bg.position.x).toBeCloseTo(width / 2 + state.background.offsetX, 6);
+    expect(bg.position.y).toBeCloseTo(height / 2 + state.background.offsetY, 6);
+
+    graph.apply(composeScene(richInput(), 2000));
+    expect([cam.skew.x, cam.skew.y]).toEqual([0, 0]);
+    expect([bg.scale.x, bg.position.x, bg.pivot.x]).toEqual([1, 0, 0]);
   });
 
   it("squircle mask is a superellipse polygon; plain radius uses roundRect", () => {
