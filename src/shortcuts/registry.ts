@@ -1,3 +1,4 @@
+import shortcutsEn from "../i18n/locales/en.shortcuts.json";
 import {
   type Accelerator,
   type ShortcutPlatform,
@@ -6,6 +7,12 @@ import {
   parseAccelerator,
   serializeAccelerator,
 } from "./accelerator";
+
+/** Keys of the `shortcuts.*` catalog namespace (`src/i18n/locales/en.shortcuts.json`). */
+export type ShortcutMessageKey = keyof typeof shortcutsEn;
+
+/** English `shortcuts.*` messages. */
+export const SHORTCUT_MESSAGES: Readonly<Record<ShortcutMessageKey, string>> = shortcutsEn;
 
 /**
  * Central shortcut registry (ENGINEERING_SPEC §6.9; design guide §5 + S24
@@ -28,7 +35,10 @@ export interface ShortcutDefinition {
   id: string;
   scope: ShortcutScope;
   group: ShortcutGroup;
+  /** English label (from the catalog); main-process and fallback use. */
   label: string;
+  /** Catalog key of the label (`shortcuts.label.<id>`). */
+  labelKey: ShortcutMessageKey;
   /** Default accelerators in display form (any string {@link parseAccelerator} accepts). */
   default: { readonly mac: string; readonly win: string };
   /** Fire on auto-repeat keydowns (held key). */
@@ -41,34 +51,34 @@ export interface ShortcutDefinition {
 
 const both = (s: string) => ({ mac: s, win: s }) as const;
 
-export const SHORTCUTS = [
+const DEFINITIONS = [
   // ---- Global (main-process globalShortcut, spec §5.6) -------------------
   {
     id: "record.toggle",
     scope: "global",
     group: "Global",
-    label: "Start / stop recording",
+    labelKey: "shortcuts.label.record.toggle",
     default: { mac: "⇧⌘R", win: "Ctrl+Shift+R" },
   },
   {
     id: "record.pause",
     scope: "global",
     group: "Global",
-    label: "Pause / resume recording",
+    labelKey: "shortcuts.label.record.pause",
     default: { mac: "⇧⌘P", win: "Ctrl+Shift+P" },
   },
   {
     id: "record.region",
     scope: "global",
     group: "Global",
-    label: "Record region",
+    labelKey: "shortcuts.label.record.region",
     default: { mac: "⌥⇧⌘R", win: "Ctrl+Alt+Shift+R" },
   },
   {
     id: "record.cancelCountdown",
     scope: "global",
     group: "Global",
-    label: "Cancel countdown",
+    labelKey: "shortcuts.label.record.cancelCountdown",
     default: both("Escape"),
     countdownOnly: true,
   },
@@ -77,14 +87,14 @@ export const SHORTCUTS = [
     id: "editor.playPause",
     scope: "editor",
     group: "Editor",
-    label: "Play / pause",
+    labelKey: "shortcuts.label.editor.playPause",
     default: both("Space"),
   },
   {
     id: "editor.frameBack",
     scope: "editor",
     group: "Editor",
-    label: "Previous frame",
+    labelKey: "shortcuts.label.editor.frameBack",
     default: both("ArrowLeft"),
     repeat: true,
   },
@@ -92,7 +102,7 @@ export const SHORTCUTS = [
     id: "editor.frameForward",
     scope: "editor",
     group: "Editor",
-    label: "Next frame",
+    labelKey: "shortcuts.label.editor.frameForward",
     default: both("ArrowRight"),
     repeat: true,
   },
@@ -100,7 +110,7 @@ export const SHORTCUTS = [
     id: "editor.secondBack",
     scope: "editor",
     group: "Editor",
-    label: "Back 1 second",
+    labelKey: "shortcuts.label.editor.secondBack",
     default: both("Shift+ArrowLeft"),
     repeat: true,
   },
@@ -108,7 +118,7 @@ export const SHORTCUTS = [
     id: "editor.secondForward",
     scope: "editor",
     group: "Editor",
-    label: "Forward 1 second",
+    labelKey: "shortcuts.label.editor.secondForward",
     default: both("Shift+ArrowRight"),
     repeat: true,
   },
@@ -116,56 +126,56 @@ export const SHORTCUTS = [
     id: "editor.skipStart",
     scope: "editor",
     group: "Editor",
-    label: "Go to start",
+    labelKey: "shortcuts.label.editor.skipStart",
     default: both("Home"),
   },
   {
     id: "editor.skipEnd",
     scope: "editor",
     group: "Editor",
-    label: "Go to end",
+    labelKey: "shortcuts.label.editor.skipEnd",
     default: both("End"),
   },
   {
     id: "editor.shuttleBack",
     scope: "editor",
     group: "Editor",
-    label: "Shuttle back",
+    labelKey: "shortcuts.label.editor.shuttleBack",
     default: both("J"),
   },
   {
     id: "editor.shuttleStop",
     scope: "editor",
     group: "Editor",
-    label: "Shuttle stop",
+    labelKey: "shortcuts.label.editor.shuttleStop",
     default: both("K"),
   },
   {
     id: "editor.shuttleForward",
     scope: "editor",
     group: "Editor",
-    label: "Shuttle forward",
+    labelKey: "shortcuts.label.editor.shuttleForward",
     default: both("L"),
   },
   {
     id: "editor.undo",
     scope: "editor",
     group: "Editor",
-    label: "Undo",
+    labelKey: "shortcuts.label.editor.undo",
     default: { mac: "⌘Z", win: "Ctrl+Z" },
   },
   {
     id: "editor.redo",
     scope: "editor",
     group: "Editor",
-    label: "Redo",
+    labelKey: "shortcuts.label.editor.redo",
     default: { mac: "⇧⌘Z", win: "Ctrl+Shift+Z" },
   },
   {
     id: "editor.save",
     scope: "editor",
     group: "Editor",
-    label: "Save",
+    labelKey: "shortcuts.label.editor.save",
     default: { mac: "⌘S", win: "Ctrl+S" },
     allowInInputs: true,
   },
@@ -173,7 +183,7 @@ export const SHORTCUTS = [
     id: "editor.export",
     scope: "editor",
     group: "Editor",
-    label: "Export…",
+    labelKey: "shortcuts.label.editor.export",
     default: { mac: "⌘E", win: "Ctrl+E" },
     allowInInputs: true,
   },
@@ -181,28 +191,28 @@ export const SHORTCUTS = [
     id: "editor.zoomIn",
     scope: "editor",
     group: "Editor",
-    label: "Zoom in",
+    labelKey: "shortcuts.label.editor.zoomIn",
     default: { mac: "⌘=", win: "Ctrl+=" },
   },
   {
     id: "editor.zoomOut",
     scope: "editor",
     group: "Editor",
-    label: "Zoom out",
+    labelKey: "shortcuts.label.editor.zoomOut",
     default: { mac: "⌘-", win: "Ctrl+-" },
   },
   {
     id: "editor.clearSelection",
     scope: "editor",
     group: "Editor",
-    label: "Clear selection",
+    labelKey: "shortcuts.label.editor.clearSelection",
     default: both("Escape"),
   },
   {
     id: "editor.shortcutsHelp",
     scope: "editor",
     group: "Editor",
-    label: "Keyboard shortcuts",
+    labelKey: "shortcuts.label.editor.shortcutsHelp",
     default: { mac: "⇧/", win: "Shift+/" },
   },
   // ---- Timeline (focus inside the timeline) ------------------------------
@@ -210,28 +220,28 @@ export const SHORTCUTS = [
     id: "timeline.split",
     scope: "timeline",
     group: "Timeline",
-    label: "Split at playhead",
+    labelKey: "shortcuts.label.timeline.split",
     default: both("S"),
   },
   {
     id: "timeline.trimStart",
     scope: "timeline",
     group: "Timeline",
-    label: "Trim start to playhead",
+    labelKey: "shortcuts.label.timeline.trimStart",
     default: both("["),
   },
   {
     id: "timeline.trimEnd",
     scope: "timeline",
     group: "Timeline",
-    label: "Trim end to playhead",
+    labelKey: "shortcuts.label.timeline.trimEnd",
     default: both("]"),
   },
   {
     id: "timeline.nudgeBack",
     scope: "timeline",
     group: "Timeline",
-    label: "Nudge −1 frame",
+    labelKey: "shortcuts.label.timeline.nudgeBack",
     default: both("ArrowLeft"),
     repeat: true,
   },
@@ -239,7 +249,7 @@ export const SHORTCUTS = [
     id: "timeline.nudgeForward",
     scope: "timeline",
     group: "Timeline",
-    label: "Nudge +1 frame",
+    labelKey: "shortcuts.label.timeline.nudgeForward",
     default: both("ArrowRight"),
     repeat: true,
   },
@@ -247,28 +257,28 @@ export const SHORTCUTS = [
     id: "timeline.delete",
     scope: "timeline",
     group: "Timeline",
-    label: "Delete",
+    labelKey: "shortcuts.label.timeline.delete",
     default: { mac: "⌫", win: "Delete" },
   },
   {
     id: "timeline.rippleDelete",
     scope: "timeline",
     group: "Timeline",
-    label: "Ripple delete",
+    labelKey: "shortcuts.label.timeline.rippleDelete",
     default: { mac: "⇧⌫", win: "Shift+Delete" },
   },
   {
     id: "timeline.duplicate",
     scope: "timeline",
     group: "Timeline",
-    label: "Duplicate",
+    labelKey: "shortcuts.label.timeline.duplicate",
     default: { mac: "⌘D", win: "Ctrl+D" },
   },
   {
     id: "timeline.selectAll",
     scope: "timeline",
     group: "Timeline",
-    label: "Select all on track",
+    labelKey: "shortcuts.label.timeline.selectAll",
     default: { mac: "⌘A", win: "Ctrl+A" },
   },
   // ---- Canvas (focus inside the preview canvas) --------------------------
@@ -276,12 +286,20 @@ export const SHORTCUTS = [
     id: "canvas.delete",
     scope: "canvas",
     group: "Editor",
-    label: "Delete selected annotation",
+    labelKey: "shortcuts.label.canvas.delete",
     default: { mac: "⌫", win: "Delete" },
   },
-] as const satisfies readonly ShortcutDefinition[];
+] as const satisfies readonly Omit<ShortcutDefinition, "label">[];
 
-export type ShortcutId = (typeof SHORTCUTS)[number]["id"];
+export type ShortcutId = (typeof DEFINITIONS)[number]["id"];
+
+/**
+ * The registry, with `label` filled from the English catalog. UI that follows
+ * the language setting renders `labelKey` instead (`shortcutLabel` in `./i18n`).
+ */
+export const SHORTCUTS: readonly (ShortcutDefinition & { id: ShortcutId })[] = DEFINITIONS.map(
+  (def) => ({ ...def, label: SHORTCUT_MESSAGES[def.labelKey] }),
+);
 
 /** Ids of `global`-scope shortcuts (what main registers with the OS). */
 export const GLOBAL_SHORTCUT_IDS = SHORTCUTS.filter((s) => s.scope === "global").map(

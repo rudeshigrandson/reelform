@@ -1,14 +1,16 @@
+import type { MessageKey } from "../i18n";
+
 /** Settings window pages, in S24 nav order. */
 export const SETTINGS_SECTIONS = [
-  { id: "general", label: "General" },
-  { id: "recording", label: "Recording" },
-  { id: "editor", label: "Editor" },
-  { id: "shortcuts", label: "Shortcuts" },
-  { id: "appearance", label: "Appearance" },
-  { id: "updates", label: "Updates" },
-  { id: "extensions", label: "Extensions" },
-  { id: "advanced", label: "Advanced" },
-  { id: "about", label: "About" },
-] as const;
+  { id: "general", labelKey: "settings.section.general" },
+  { id: "recording", labelKey: "settings.section.recording" },
+  { id: "editor", labelKey: "settings.section.editor" },
+  { id: "shortcuts", labelKey: "settings.section.shortcuts" },
+  { id: "appearance", labelKey: "settings.section.appearance" },
+  { id: "updates", labelKey: "settings.section.updates" },
+  { id: "extensions", labelKey: "settings.section.extensions" },
+  { id: "advanced", labelKey: "settings.section.advanced" },
+  { id: "about", labelKey: "settings.section.about" },
+] as const satisfies ReadonlyArray<{ id: string; labelKey: MessageKey }>;
 
 export type SectionId = (typeof SETTINGS_SECTIONS)[number]["id"];

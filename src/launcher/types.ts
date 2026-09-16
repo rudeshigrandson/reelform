@@ -16,6 +16,20 @@ export interface SourceItem {
   height: number;
 }
 
+/**
+ * A source in the S06 picker: a launcher card plus what the picker groups,
+ * filters and dims by.
+ */
+export interface PickerSource extends SourceItem {
+  /** Window title (displays: the display name). */
+  title: string;
+  appName?: string | undefined;
+  /** data: URL app icon for the group header. */
+  appIcon?: string | undefined;
+  /** Minimized windows have no live thumbnail; shown dimmed. */
+  minimized: boolean;
+}
+
 /** An audio or video input device. */
 export interface DeviceInfo {
   id: string;
@@ -67,4 +81,58 @@ export interface LauncherProps {
   busy?: boolean | undefined;
   busyLabel?: string | undefined;
   defaults?: LauncherDefaults | undefined;
+  /** When set, "Browse…" opens the S06 source picker over these sources. */
+  pickerSources?: ReadonlyArray<PickerSource> | undefined;
+
+  /**
+   * Project shelf (right column). When omitted the shelf has no data, so the
+   * window opens straight onto the New recording setup.
+   */
+  projects?: ReadonlyArray<LauncherProject> | undefined;
+  projectsStatus?: "loading" | "ready" | "error" | undefined;
+  /** Trashed projects; the Trash nav item only appears when provided. */
+  trashedProjects?: ReadonlyArray<LauncherProject> | undefined;
+  onOpenProject?: ((id: string) => void) | undefined;
+  /**
+   * An item picked from a project card's "⋯" menu; the button is hidden when
+   * omitted. Shelf cards offer rename / duplicate / reveal / trash; Trash cards
+   * offer restore / delete forever.
+   */
+  onProjectMenu?: ((id: string, action: LauncherProjectAction) => void) | undefined;
+  /** Adds "Reveal in Finder" (per `platform`) to the card menu. */
+  canRevealProjects?: boolean | undefined;
+  /** Picks platform wording (Finder / Explorer); defaults to macOS wording off. */
+  platform?: "darwin" | "win32" | "linux" | undefined;
+  /**
+   * macOS `hiddenInset` title bar (`?titleBar=inset`): a 40px draggable top
+   * strip that clears the traffic lights and hosts the notices. Off by default.
+   */
+  insetTitleBar?: boolean | undefined;
+  /** "Open project…" — shows a file dialog. Hidden when omitted. */
+  onOpenProjectFile?: (() => void) | undefined;
+  onOpenHelp?: (() => void) | undefined;
+  /** App version shown in the sidebar footer. */
+  version?: string | undefined;
+  /** Disable "New recording" (e.g. Screen Recording permission revoked). */
+  newRecordingDisabled?: boolean | undefined;
 }
+
+/** A project card on the launcher shelf (same shape as the S05 browser's summary). */
+export interface LauncherProject {
+  id: string;
+  name: string;
+  thumbnailUrl?: string | undefined;
+  /** ISO 8601 timestamp of last modification. */
+  modifiedAt: string;
+  durationMs: number;
+  /** On-disk size, when known. */
+  sizeBytes?: number | undefined;
+}
+
+export type LauncherProjectAction =
+  | "rename"
+  | "duplicate"
+  | "reveal"
+  | "trash"
+  | "restore"
+  | "deleteForever";

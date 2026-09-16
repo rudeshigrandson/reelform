@@ -7,10 +7,14 @@ import {
   LAUNCHER_SIZE,
   type Rect,
   SETTINGS_SIZE,
+  TRAFFIC_LIGHT_POSITION,
   buildWindowOptions,
   centerIn,
   clampIntoArea,
   defaultHudPosition,
+  hudExpansionLayout,
+  hudResizeRect,
+  usesInsetTitleBar,
 } from "./windowOptions";
 
 const rectArb = fc.record({
@@ -30,7 +34,9 @@ describe("buildWindowOptions", () => {
         fc.option(rectArb, { nil: undefined }),
         (kind, preloadPath, displayBounds, workArea) => {
           const o = buildWindowOptions(kind, { preloadPath, displayBounds, workArea });
-          expect(o.webPreferences).toEqual({
+          // Throttling is the only allowed extra (launcher; see windowOptions.throttling.test.ts).
+          const { backgroundThrottling: _throttling, ...hardened } = o.webPreferences;
+          expect(hardened).toEqual({
             preload: preloadPath,
             contextIsolation: true,
             nodeIntegration: false,
@@ -41,6 +47,26 @@ describe("buildWindowOptions", () => {
         },
       ),
     );
+  });
+
+  it("macOS only: launcher and settings get an inset title bar, other kinds and OSes stay framed", () => {
+    for (const kind of WINDOW_KINDS) {
+      const mac = buildWindowOptions(kind, { preloadPath: "/p.cjs", platform: "darwin" });
+      if (kind === "launcher" || kind === "settings") {
+        expect(mac.titleBarStyle).toBe("hiddenInset");
+        expect(mac.trafficLightPosition).toEqual(TRAFFIC_LIGHT_POSITION);
+        expect(mac.frame).toBeUndefined();
+      } else {
+        expect(mac.titleBarStyle).toBeUndefined();
+      }
+      expect(usesInsetTitleBar(kind, "darwin")).toBe(kind === "launcher" || kind === "settings");
+      for (const platform of ["win32", "linux", undefined]) {
+        const o = buildWindowOptions(kind, { preloadPath: "/p.cjs", platform });
+        expect(o.titleBarStyle).toBeUndefined();
+        expect(o.trafficLightPosition).toBeUndefined();
+        expect(usesInsetTitleBar(kind, platform)).toBe(false);
+      }
+    }
   });
 
   it("uses the spec sizes for launcher, editor and settings", () => {
@@ -67,7 +93,13 @@ describe("buildWindowOptions", () => {
   });
 
   it("makes overlay kinds transparent, frameless, always-on-top and off the taskbar", () => {
-    for (const kind of ["hud", "region-overlay", "countdown", "webcam-bubble"] as const) {
+    for (const kind of [
+      "hud",
+      "region-overlay",
+      "countdown",
+      "webcam-bubble",
+      "source-outline",
+    ] as const) {
       const o = buildWindowOptions(kind, { preloadPath: "/p" });
       expect(o).toMatchObject({
         transparent: true,
@@ -84,10 +116,10 @@ describe("buildWindowOptions", () => {
     }
   });
 
-  it("HUD is 560x64 and placed at the given position or bottom-center of the work area", () => {
+  it("HUD is 620x64 and placed at the given position or bottom-center of the work area", () => {
     const workArea = { x: 0, y: 25, width: 1440, height: 875 };
     const hud = buildWindowOptions("hud", { preloadPath: "/p", workArea });
-    expect(hud).toMatchObject({ width: 560, height: 64, ...defaultHudPosition(workArea) });
+    expect(hud).toMatchObject({ width: 620, height: 64, ...defaultHudPosition(workArea) });
     const placed = buildWindowOptions("hud", {
       preloadPath: "/p",
       workArea,
@@ -150,6 +182,95 @@ describe("clampIntoArea / defaultHudPosition", () => {
   });
 });
 
+describe("hudExpansionLayout", () => {
+  const workArea = { x: 0, y: 25, width: 1440, height: 875 };
+
+  it("keeps the pill at the same screen position and inside the window for any request", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 0, max: 1440 - 560 }),
+        fc.integer({ min: 25, max: 900 - 64 }),
+        fc.integer({ min: 1, max: 4000 }),
+        fc.integer({ min: 1, max: 4000 }),
+        (x, y, width, height) => {
+          const pill = { x, y, width: 560, height: 64 };
+          const l = hudExpansionLayout(pill, { width, height }, workArea);
+          expect(l.bounds.x + l.pillOffset.x).toBe(x);
+          expect(l.bounds.y + l.pillOffset.y).toBe(y);
+          expect(l.pillOffset.x).toBeGreaterThanOrEqual(0);
+          expect(l.pillOffset.y).toBeGreaterThanOrEqual(0);
+          expect(l.pillOffset.x + 560).toBeLessThanOrEqual(l.bounds.width);
+          expect(l.pillOffset.y + 64).toBeLessThanOrEqual(l.bounds.height);
+          expect(l.bounds.width).toBeGreaterThanOrEqual(560);
+          expect(l.bounds.width).toBeLessThanOrEqual(workArea.width);
+          expect(l.bounds.height).toBeLessThanOrEqual(workArea.height);
+        },
+      ),
+    );
+  });
+
+  it("centres above a bottom-centre pill; opens below near the top; clamps at the edge", () => {
+    const pill = { ...defaultHudPosition(workArea), width: 560, height: 64 };
+    const above = hudExpansionLayout(pill, { width: 720, height: 492 }, workArea);
+    expect(above.placement).toBe("above");
+    expect(above.pillOffset).toEqual({ x: 80, y: 428 });
+    const top = hudExpansionLayout(
+      { x: 440, y: 30, width: 560, height: 64 },
+      { width: 720, height: 492 },
+      workArea,
+    );
+    expect(top.placement).toBe("below");
+    expect(top.pillOffset.y).toBe(0);
+    const left = hudExpansionLayout(
+      { x: 0, y: 800, width: 560, height: 64 },
+      { width: 720, height: 300 },
+      workArea,
+    );
+    expect(left.bounds.x).toBe(0);
+    expect(left.pillOffset.x).toBe(0);
+  });
+
+  it("never shrinks below the pill and ignores non-finite requests", () => {
+    const pill = { x: 100, y: 500, width: 560, height: 64 };
+    const l = hudExpansionLayout(pill, { width: Number.NaN, height: 10 }, workArea);
+    expect(l.bounds).toEqual(pill);
+  });
+});
+
+describe("source outline and HUD resize", () => {
+  it("source outline covers its display, never takes focus", () => {
+    const b = { x: 1440, y: 0, width: 1920, height: 1080 };
+    expect(
+      buildWindowOptions("source-outline", { preloadPath: "/p", displayBounds: b }),
+    ).toMatchObject({ ...b, focusable: false, movable: false, enableLargerThanScreen: true });
+  });
+
+  it("hudResizeRect keeps the centre or top-left and clamps into the work area", () => {
+    const area = { x: 0, y: 25, width: 1440, height: 875 };
+    const pill = { x: 440, y: 836, width: 560, height: 64 };
+    expect(hudResizeRect(pill, { width: 300, height: 48 }, "center", area)).toEqual({
+      x: 570,
+      y: 844,
+      width: 300,
+      height: 48,
+    });
+    expect(hudResizeRect(pill, { width: 36, height: 36 }, "top-left", area)).toEqual({
+      x: 440,
+      y: 836,
+      width: 36,
+      height: 36,
+    });
+    const corner = { x: 1404, y: 864, width: 36, height: 36 };
+    expect(hudResizeRect(corner, { width: 560, height: 64 }, "center", area)).toEqual({
+      x: 880,
+      y: 836,
+      width: 560,
+      height: 64,
+    });
+    expect(hudResizeRect(pill, { width: Number.NaN, height: -3 }, "center", area)).toEqual(pill);
+  });
+});
+
 describe("windowKinds", () => {
   it("keys singletons by kind, editors by project, overlays by display", () => {
     expect(windowKey({ kind: "launcher", projectId: "x" })).toBe("launcher");
@@ -161,6 +282,9 @@ describe("windowKinds", () => {
 
   it("content-protects HUD and webcam bubble but never the main windows", () => {
     expect(CONTENT_PROTECTED.hud).toBe(true);
+    expect(CONTENT_PROTECTED["source-outline"]).toBe(true);
+    expect(INSTANCE_POLICY["source-outline"]).toBe("per-display");
+    expect(windowKey({ kind: "source-outline", displayId: "2" })).toBe("source-outline:2");
     expect(CONTENT_PROTECTED["webcam-bubble"]).toBe(true);
     expect(
       CONTENT_PROTECTED.launcher || CONTENT_PROTECTED.editor || CONTENT_PROTECTED.settings,

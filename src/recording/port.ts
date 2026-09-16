@@ -88,6 +88,11 @@ export interface RecordingPort {
   writeChunk(req: WriteChunkRequest): Promise<void>;
   /** `recording:endTrack` — all chunks for a track have been written. */
   endTrack(req: EndTrackRequest): Promise<void>;
+  /**
+   * `recording:setMicMuted` — native backends mute the helper's mic (or main
+   * silences the range after stop). The Electron backend mutes in the renderer.
+   */
+  setMicMuted?(sessionId: string, muted: boolean): Promise<void>;
   /** Subscribe to `recording:event` (main→renderer). Returns an unsubscribe. */
   subscribe(listener: (event: RecordingEvent) => void): () => void;
 }

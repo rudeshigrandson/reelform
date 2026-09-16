@@ -1,4 +1,7 @@
-import { Button, Tag } from "@design/components";
+import { Button } from "@design/components";
+import type { CSSProperties, ReactNode } from "react";
+import { StepBody, StepFooter, StepTitle, ghostLink, primaryPill, secondaryPill } from "../Shell";
+import { type OnboardingKey, type OnboardingTranslate, useOnboardingT } from "../i18n";
 import { canLeavePermissions, hasPendingOptional, permissionRows } from "../machine";
 import type {
   OsPermissionKind,
@@ -15,109 +18,256 @@ export interface PermissionsProps {
   onRequest: (kind: OsPermissionKind) => void;
   onOpenSettings: (kind: OsPermissionKind) => void;
   onContinue: () => void;
+  /** Back control rendered in the footer. */
+  back?: ReactNode;
 }
 
-const COPY: Record<OsPermissionKind, { label: string; description: string }> = {
-  screen: { label: "Screen Recording", description: "Capture your displays and windows." },
-  microphone: { label: "Microphone", description: "Record voice-over while you capture." },
-  camera: { label: "Camera", description: "Add a webcam bubble to recordings." },
-  accessibility: {
-    label: "Accessibility",
-    description: "Track the cursor and detect clicks for auto-zoom.",
+const COPY: Record<OsPermissionKind, { label: OnboardingKey; description: OnboardingKey }> = {
+  screen: {
+    label: "onboarding.permission.screen",
+    description: "onboarding.permission.screen.description",
   },
-  notifications: { label: "Notifications", description: "Know when exports finish." },
+  microphone: {
+    label: "onboarding.permission.microphone",
+    description: "onboarding.permission.microphone.description",
+  },
+  camera: {
+    label: "onboarding.permission.camera",
+    description: "onboarding.permission.camera.description",
+  },
+  accessibility: {
+    label: "onboarding.permission.accessibility",
+    description: "onboarding.permission.accessibility.description",
+  },
+  notifications: {
+    label: "onboarding.permission.notifications",
+    description: "onboarding.permission.notifications.description",
+  },
 };
 
-const STATUS_LABEL: Record<OsPermissionStatus, string> = {
-  granted: "Granted",
-  denied: "Denied",
-  "not-determined": "Not determined",
-  restricted: "Restricted",
-  "not-applicable": "Not needed",
+/** Kinds whose title carries "· optional" (the rest say so in their copy). */
+const OPTIONAL_MARK: ReadonlySet<OsPermissionKind> = new Set(["notifications"]);
+
+const STATUS_LABEL: Record<OsPermissionStatus, OnboardingKey> = {
+  granted: "onboarding.status.granted",
+  denied: "onboarding.status.denied",
+  "not-determined": "onboarding.status.notDetermined",
+  restricted: "onboarding.status.restricted",
+  "not-applicable": "onboarding.status.notApplicable",
 };
 
-function settingsName(platform: PermissionsSnapshot["platform"]): string {
-  return platform === "win32" ? "Settings" : "System Settings";
+const recordMix = (pct: number, other = "transparent") =>
+  `color-mix(in srgb, var(--record) ${pct}%, ${other})`;
+
+function settingsName(platform: PermissionsSnapshot["platform"], t: OnboardingTranslate): string {
+  return t(
+    platform === "win32"
+      ? "onboarding.permissions.settingsName.win32"
+      : "onboarding.permissions.settingsName.other",
+  );
+}
+
+function Glyph({ kind, blocked }: { kind: OsPermissionKind; blocked: boolean }) {
+  let inner: ReactNode;
+  if (blocked) {
+    inner = <span style={{ color: recordMix(70, "var(--text-1)"), fontWeight: 700 }}>!</span>;
+  } else if (kind === "screen") {
+    inner = (
+      <div
+        style={{
+          width: "16px",
+          height: "11px",
+          boxSizing: "border-box",
+          border: "2px solid var(--accent-hover)",
+          borderRadius: "2px",
+        }}
+      />
+    );
+  } else if (kind === "microphone") {
+    inner = (
+      <div
+        style={{
+          width: "8px",
+          height: "14px",
+          borderRadius: "var(--radius-full)",
+          background: "var(--text-2)",
+        }}
+      />
+    );
+  } else if (kind === "camera") {
+    inner = (
+      <div
+        style={{ width: "16px", height: "11px", borderRadius: "3px", background: "var(--text-2)" }}
+      />
+    );
+  } else if (kind === "accessibility") {
+    inner = (
+      <div
+        style={{
+          width: "14px",
+          height: "14px",
+          boxSizing: "border-box",
+          borderRadius: "var(--radius-full)",
+          border: "2px solid var(--text-2)",
+        }}
+      />
+    );
+  } else {
+    inner = <span style={{ color: "var(--text-2)", fontSize: "13px" }}>◔</span>;
+  }
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        width: "34px",
+        height: "34px",
+        flex: "none",
+        borderRadius: "10px",
+        background: blocked ? recordMix(20) : "var(--bg-panel-raised)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {inner}
+    </div>
+  );
+}
+
+const smallPill: CSSProperties = { fontSize: "12px", padding: "7px 14px" };
+
+function StatusPill({ status, t }: { status: OsPermissionStatus; t: OnboardingTranslate }) {
+  const granted = status === "granted";
+  return (
+    <span
+      style={{
+        flex: "none",
+        padding: "4px 10px",
+        borderRadius: "var(--radius-full)",
+        fontSize: "11px",
+        fontWeight: granted ? 600 : 400,
+        background: granted
+          ? "color-mix(in srgb, var(--success) 18%, transparent)"
+          : "var(--bg-panel-raised)",
+        color: granted ? "var(--success)" : "var(--text-3)",
+      }}
+    >
+      {t(STATUS_LABEL[status])}
+    </span>
+  );
 }
 
 function Row({
   entry,
   platform,
+  primary,
   requesting,
   onRequest,
   onOpenSettings,
 }: {
   entry: PermissionEntry;
   platform: PermissionsSnapshot["platform"];
+  primary: boolean;
   requesting: boolean;
   onRequest: () => void;
   onOpenSettings: () => void;
 }) {
-  const { label, description } = COPY[entry.kind];
+  const t = useOnboardingT();
+  const label = t(COPY[entry.kind].label);
   const granted = entry.status === "granted";
   const blocked = entry.status === "denied" || entry.status === "restricted";
-  const settings = settingsName(platform);
+  const settings = settingsName(platform, t);
+
+  const description = blocked
+    ? entry.status === "restricted"
+      ? t("onboarding.permissions.restricted", { permission: label })
+      : t(
+          platform === "darwin"
+            ? "onboarding.permissions.denied.darwin"
+            : "onboarding.permissions.denied.other",
+          { settings, permission: label },
+        )
+    : entry.kind === "screen" && platform === "darwin"
+      ? t("onboarding.permissions.restartNote")
+      : t(COPY[entry.kind].description);
+
+  const openSettings = (
+    <Button
+      variant="secondary"
+      onClick={onOpenSettings}
+      style={{ ...secondaryPill, ...smallPill }}
+      aria-label={t("onboarding.permissions.openSettingsLabel", { settings, permission: label })}
+    >
+      {t("onboarding.permissions.openSettings", { settings })}
+    </Button>
+  );
+
+  let action: ReactNode;
+  if (granted) action = <StatusPill status={entry.status} t={t} />;
+  else if (!blocked && entry.canRequest) {
+    action = (
+      <Button
+        variant={primary ? "primary" : "secondary"}
+        onClick={onRequest}
+        disabled={requesting}
+        style={primary ? { ...primaryPill, ...smallPill } : { ...secondaryPill, ...smallPill }}
+        aria-label={t("onboarding.permissions.allowLabel", { permission: label })}
+      >
+        {requesting ? t("onboarding.permissions.waiting") : t("onboarding.permissions.allow")}
+      </Button>
+    );
+  } else if (entry.canOpenSettings) action = openSettings;
+  else action = <StatusPill status={entry.status} t={t} />;
+
   return (
     <li
       aria-label={label}
       style={{
         display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-1)",
-        padding: "var(--space-3)",
-        background: "var(--bg-panel-raised)",
-        border: "1px solid var(--border)",
+        alignItems: "center",
+        gap: "14px",
+        padding: "10px 16px",
         borderRadius: "var(--radius-md)",
+        background: blocked ? recordMix(10) : "var(--bg-panel)",
+        border: `1px solid ${blocked ? recordMix(45) : "var(--border)"}`,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
-        <div style={{ flex: 1, textAlign: "left" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-            <span style={{ fontWeight: 600 }}>{label}</span>
-            {entry.required ? <Tag variant="accent">Required</Tag> : null}
-          </div>
-          <div style={{ fontSize: "13px", color: "var(--text-2)" }}>{description}</div>
+      <Glyph kind={entry.kind} blocked={blocked} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: "13px", fontWeight: 600 }}>
+          {label}
+          {entry.required ? (
+            <span style={{ color: "var(--accent-hover)" }}>
+              {" · "}
+              {t("onboarding.permissions.required")}
+            </span>
+          ) : OPTIONAL_MARK.has(entry.kind) ? (
+            <span style={{ color: "var(--text-3)" }}>
+              {" · "}
+              {t("onboarding.permissions.optional")}
+            </span>
+          ) : null}
         </div>
-        <Tag variant={granted ? "accent-2" : blocked ? "outline" : "neutral"}>
-          {granted ? "✓ " : ""}
-          {STATUS_LABEL[entry.status]}
-        </Tag>
-        {granted ? null : blocked || !entry.canRequest ? (
-          entry.canOpenSettings ? (
-            <Button
-              variant="secondary"
-              onClick={onOpenSettings}
-              aria-label={`Open ${settings} for ${label}`}
-            >
-              Open {settings}
-            </Button>
-          ) : null
-        ) : (
-          <Button
-            variant="secondary"
-            onClick={onRequest}
-            disabled={requesting}
-            aria-label={`Allow ${label}`}
-          >
-            {requesting ? "Waiting…" : "Allow…"}
-          </Button>
-        )}
+        <div
+          style={{
+            fontSize: "11px",
+            color: blocked ? recordMix(35, "var(--text-1)") : "var(--text-3)",
+          }}
+        >
+          {description}
+        </div>
       </div>
-      {blocked ? (
-        <p style={{ margin: 0, fontSize: "12px", color: "var(--warning)", textAlign: "left" }}>
-          {entry.status === "restricted"
-            ? `${label} is restricted by a device policy.`
-            : `Access was denied. Turn on Reelform under ${settings} › Privacy${platform === "darwin" ? " & Security" : ""} › ${label}.`}
-        </p>
-      ) : null}
-      {entry.kind === "screen" && platform === "darwin" && !granted ? (
-        <p style={{ margin: 0, fontSize: "12px", color: "var(--text-3)", textAlign: "left" }}>
-          macOS will ask you to restart Reelform after granting.
-        </p>
-      ) : null}
+      {action}
     </li>
   );
 }
+
+const infoText: CSSProperties = {
+  display: "block",
+  margin: 0,
+  fontSize: "13px",
+  color: "var(--text-3)",
+};
 
 /** S02 — permission rows; statuses arrive by polling every 2s. */
 export function Permissions({
@@ -128,85 +278,94 @@ export function Permissions({
   onRequest,
   onOpenSettings,
   onContinue,
+  back,
 }: PermissionsProps) {
+  const t = useOnboardingT();
   const rows = permissionRows(snapshot);
   const canContinue = canLeavePermissions({ snapshot, unavailable });
   const skippable = canContinue && hasPendingOptional(snapshot);
+  const primaryKind = rows.find((r) => r.status === "not-determined" && r.canRequest)?.kind;
 
   return (
     <section
       aria-labelledby="onboarding-permissions-title"
-      style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}
+      style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
     >
-      <h2
-        id="onboarding-permissions-title"
-        style={{ fontSize: "22px", fontWeight: 600, margin: 0 }}
-      >
-        Reelform needs a few permissions
-      </h2>
+      <StepBody padding="4px 40px 12px" gap="10px">
+        <StepTitle
+          id="onboarding-permissions-title"
+          title={t("onboarding.permissions.title")}
+          subtitle={t("onboarding.permissions.subtitle")}
+        />
 
-      {snapshot?.platform === "win32" ? (
-        <p style={{ margin: 0, color: "var(--text-2)", fontSize: "13px" }}>
-          Screen capture needs no permission on Windows. Microphone and camera access are controlled
-          in Settings › Privacy.
-        </p>
-      ) : null}
-
-      {statusError ? (
-        <p role="alert" style={{ margin: 0, color: "var(--danger)", fontSize: "13px" }}>
-          Couldn't check permissions ({statusError}). Retrying…
-        </p>
-      ) : null}
-
-      {unavailable ? (
-        <output style={{ display: "block", margin: 0, color: "var(--text-3)" }}>
-          Permissions are managed by the desktop app.
-        </output>
-      ) : snapshot === null ? (
-        statusError ? null : (
-          <output style={{ display: "block", margin: 0, color: "var(--text-3)" }}>
-            Checking permissions…
-          </output>
-        )
-      ) : rows.length === 0 ? (
-        <output style={{ display: "block", margin: 0, color: "var(--text-3)" }}>
-          No permissions are needed on this system.
-        </output>
-      ) : (
-        <ul
-          aria-label="Permissions"
-          style={{
-            listStyle: "none",
-            margin: 0,
-            padding: 0,
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--space-2)",
-          }}
-        >
-          {rows.map((entry) => (
-            <Row
-              key={entry.kind}
-              entry={entry}
-              platform={snapshot.platform}
-              requesting={requesting === entry.kind}
-              onRequest={() => onRequest(entry.kind)}
-              onOpenSettings={() => onOpenSettings(entry.kind)}
-            />
-          ))}
-        </ul>
-      )}
-
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-2)" }}>
-        {skippable ? (
-          <Button variant="ghost" onClick={onContinue}>
-            Skip for now
-          </Button>
+        {snapshot?.platform === "win32" ? (
+          <p style={{ margin: 0, color: "var(--text-2)", fontSize: "12px" }}>
+            {t("onboarding.permissions.windowsNote")}
+          </p>
         ) : null}
-        <Button variant="primary" disabled={!canContinue} onClick={onContinue}>
-          Continue
+
+        {statusError ? (
+          <p role="alert" style={{ margin: 0, color: "var(--danger)", fontSize: "13px" }}>
+            {t("onboarding.permissions.statusError", { error: statusError })}
+          </p>
+        ) : null}
+
+        {unavailable ? (
+          <output style={infoText}>{t("onboarding.permissions.unavailable")}</output>
+        ) : snapshot === null ? (
+          statusError ? null : (
+            <output style={infoText}>{t("onboarding.permissions.checking")}</output>
+          )
+        ) : rows.length === 0 ? (
+          <output style={infoText}>{t("onboarding.permissions.noneNeeded")}</output>
+        ) : (
+          <ul
+            aria-label={t("onboarding.permissions.listLabel")}
+            style={{
+              listStyle: "none",
+              margin: 0,
+              padding: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: "6px",
+            }}
+          >
+            {rows.map((entry) => (
+              <Row
+                key={entry.kind}
+                entry={entry}
+                platform={snapshot.platform}
+                primary={entry.kind === primaryKind}
+                requesting={requesting === entry.kind}
+                onRequest={() => onRequest(entry.kind)}
+                onOpenSettings={() => onOpenSettings(entry.kind)}
+              />
+            ))}
+          </ul>
+        )}
+      </StepBody>
+
+      <StepFooter
+        step="permissions"
+        leading={
+          <>
+            {back}
+            {skippable ? (
+              <Button
+                variant="ghost"
+                onClick={onContinue}
+                style={{ ...ghostLink, fontSize: "13px", padding: "6px 4px" }}
+              >
+                {t("onboarding.permissions.skip")}
+              </Button>
+            ) : null}
+          </>
+        }
+      >
+        <Button variant="primary" disabled={!canContinue} onClick={onContinue} style={primaryPill}>
+          {t("onboarding.permissions.continue")}
         </Button>
-      </div>
+      </StepFooter>
     </section>
   );
 }

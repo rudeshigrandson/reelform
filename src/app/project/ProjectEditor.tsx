@@ -10,23 +10,37 @@ import {
   useState,
 } from "react";
 import { EditorWindow, type EditorWindowProps } from "../../editor/EditorWindow";
+import type { SuggestedZoom } from "../../editor/autozoom";
 import { type IntervalTimer, bindBlurAutosave } from "../../editor/persistence";
+import { usePlaybackStore } from "../../editor/playback/store";
 import type { CreatePreviewStage } from "../../editor/preview";
-import { createEditorHistory, useHistoryState } from "../../editor/state";
+import { createDocumentUpdate, createEditorHistory, useHistoryState } from "../../editor/state";
+import { useOptionalShortcut } from "../../shortcuts/ShortcutsProvider";
 import { invoke as appInvoke } from "../ipc";
+import { useAppSettings } from "../settings/store";
+import { AutoZoomSuggestionsToast } from "./AutoZoomSuggestionsToast";
+import { EditorErrorBoundary } from "./EditorErrorBoundary";
+import {
+  type AutoZoomOnOpenPrefs,
+  autoZoomPrefsFromSettings,
+  runAutoZoomOnOpen,
+} from "./autoZoomOnOpen";
 import {
   type ProjectInvoke,
   type ProjectMediaPort,
   type RecoveryInfo,
   bindCursorTrack,
   browserMediaPort,
+  defaultProjectStores,
   openProject,
   releaseMediaRoots,
+  renameOpenProject,
   restoreProjectBackup,
   toIpcErrorShape,
 } from "./openProject";
 import { type ProjectSaver, createProjectSaver } from "./projectSaver";
 import { useProjectSession } from "./session";
+import { bindSourceReplaced } from "./sourceReplaced";
 
 /**
  * The editor route (`?window=editor&projectId=…`): opens the project, owns its
@@ -46,6 +60,11 @@ export interface ProjectEditorProps {
   onExport: () => void;
   /** Settings `undoHistorySize` (read once when the window opens). */
   undoHistorySize?: number | undefined;
+  /**
+   * Settings `autoZoomOnNewRecording` + `autoZoomSensitivity` (SPEC §6.1). Read
+   * when a project finishes opening; defaults to the window's settings mirror.
+   */
+  autoZoomOnOpen?: AutoZoomOnOpenPrefs | undefined;
   invoke?: ProjectInvoke | undefined;
   media?: ProjectMediaPort | undefined;
   windowPort?: EditorWindowPort | undefined;
@@ -57,7 +76,14 @@ export interface ProjectEditorProps {
   timer?: IntervalTimer | undefined;
   /** Blur / beforeunload / ⌘S source. Defaults to `window`. */
   eventTarget?: Window | undefined;
+  /** `project:resolve` retry back-off while main reports PROJECT_NOT_FOUND (tests). */
+  resolveRetryDelaysMs?: readonly number[] | undefined;
+  /** After this long in "Opening project…", offer Try again / Back. */
+  slowOpenMs?: number | undefined;
 }
+
+/** When opening counts as slow enough to offer Try again (SPEC §6.1 boot). */
+export const SLOW_OPEN_MS = 15_000;
 
 type Phase =
   | { kind: "loading" }
@@ -90,19 +116,8 @@ const headingStyle: CSSProperties = {
   color: "var(--text-1)",
 };
 
-const toastStyle: CSSProperties = {
-  position: "fixed",
-  right: "var(--space-4)",
-  bottom: "var(--space-4)",
-  zIndex: 10,
-  padding: "var(--space-2) var(--space-3)",
-  borderRadius: "var(--radius-md)",
-  background: "var(--bg-panel-raised)",
-  border: "1px solid var(--border)",
-  color: "var(--text-1)",
-  fontSize: "12px",
-  boxShadow: "var(--shadow-md)",
-};
+/** Editor feedback (S28 toast sheet): `saved` is the quiet pill, the rest are toast cards. */
+type ToastTone = "info" | "saved" | "error";
 
 const defaultWindowPort = (invoke: ProjectInvoke): EditorWindowPort => ({
   back: async () => {
@@ -123,6 +138,7 @@ export function ProjectEditor({
   projectId,
   onExport,
   undoHistorySize,
+  autoZoomOnOpen,
   invoke = appInvoke as ProjectInvoke,
   media = browserMediaPort,
   windowPort,
@@ -131,6 +147,8 @@ export function ProjectEditor({
   createInspectorHost,
   timer,
   eventTarget,
+  resolveRetryDelaysMs,
+  slowOpenMs = SLOW_OPEN_MS,
 }: ProjectEditorProps): ReactElement {
   const port = useMemo(() => windowPort ?? defaultWindowPort(invoke), [windowPort, invoke]);
   const target = eventTarget ?? (typeof window === "undefined" ? undefined : window);
@@ -144,10 +162,22 @@ export function ProjectEditor({
   const [leave, setLeave] = useState<LeaveIntent | null>(null);
   const [leaveError, setLeaveError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<{ text: string; tone: "info" | "error" } | null>(null);
+  const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
+  const [zoomSuggestions, setZoomSuggestions] = useState<readonly SuggestedZoom[]>([]);
+  const documentUpdate = useMemo(() => createDocumentUpdate(history), [history]);
+  // Read at open time, not a dependency: a settings change must not re-open the project.
+  const autoZoomRef = useRef(autoZoomOnOpen);
+  autoZoomRef.current = autoZoomOnOpen;
+  // Same: a new array identity must not re-open the project.
+  const retryDelaysRef = useRef(resolveRetryDelaysMs);
+  retryDelaysRef.current = resolveRetryDelaysMs;
+  const [slow, setSlow] = useState(false);
 
   const saverRef = useRef<ProjectSaver | null>(null);
+  /** Media roots of the open project (swapped when a rename moves the folder). */
+  const rootIdsRef = useRef<string[]>([]);
   const allowCloseRef = useRef(false);
+  const autosaveIntervalSec = useAppSettings((s) => s.settings.autosaveIntervalSec);
   const projectName = useProjectSession((s) => s.meta?.name ?? "Untitled");
   const sourceDurationMs = useProjectSession((s) => s.meta?.sources.video.durationMs);
   const ready = phase.kind === "ready";
@@ -157,12 +187,16 @@ export function ProjectEditor({
   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the Try again trigger.
   useEffect(() => {
     const controller = new AbortController();
-    let rootIds: string[] = [];
     let unbindCursor: (() => void) | null = null;
-    let unbindBlur: (() => void) | null = null;
     setPhase({ kind: "loading" });
     setRecovery(null);
-    void openProject(projectId, { invoke, media, signal: controller.signal }).then((res) => {
+    setZoomSuggestions([]);
+    void openProject(projectId, {
+      invoke,
+      media,
+      signal: controller.signal,
+      resolveRetryDelaysMs: retryDelaysRef.current,
+    }).then((res) => {
       if (controller.signal.aborted) {
         if (res.status === "ready") void releaseMediaRoots(res.mediaRootIds, invoke);
         return;
@@ -172,26 +206,68 @@ export function ProjectEditor({
         setPhase({ kind: res.status, error: res.error });
         return;
       }
-      rootIds = res.mediaRootIds;
+      rootIdsRef.current = res.mediaRootIds;
       history.clear();
-      const saver = createProjectSaver({ invoke, history, timer });
-      saverRef.current = saver;
       unbindCursor = bindCursorTrack();
-      if (target) unbindBlur = bindBlurAutosave(target, saver);
+      try {
+        const auto = runAutoZoomOnOpen({
+          stores: defaultProjectStores(),
+          documentUpdate: createDocumentUpdate(history),
+          prefs:
+            autoZoomRef.current ?? autoZoomPrefsFromSettings(useAppSettings.getState().settings),
+        });
+        if (auto.status === "applied") setZoomSuggestions(auto.suggestions);
+      } catch {
+        // Suggestions are a convenience: an engine failure never blocks opening.
+      }
       setRecovery(res.recovery);
       setPhase({ kind: "ready", path: res.path });
     });
     return () => {
       controller.abort();
       unbindCursor?.();
-      unbindBlur?.();
+      // Switching project while ready: the old saver must not autosave the next load.
+      // The save lifecycle effect creates a fresh one once the new project is ready.
       saverRef.current?.dispose();
       saverRef.current = null;
+      const rootIds = rootIdsRef.current;
+      rootIdsRef.current = [];
       if (rootIds.length > 0) void releaseMediaRoots(rootIds, invoke);
     };
-  }, [projectId, attempt, invoke, media, history, timer, target]);
+  }, [projectId, attempt, invoke, media, history]);
 
-  const showToast = useCallback((text: string, tone: "info" | "error" = "info") => {
+  // A load that hangs must not look like a dead window: offer a way out.
+  useEffect(() => {
+    setSlow(false);
+    if (phase.kind !== "loading") return;
+    const id = setTimeout(() => setSlow(true), slowOpenMs);
+    return () => clearTimeout(id);
+  }, [phase, slowOpenMs]);
+
+  // Save lifecycle while a project is open; re-created when the autosave interval
+  // setting changes (SPEC §4, settings `autosaveIntervalSec`).
+  useEffect(() => {
+    if (!ready) return;
+    const intervalMs =
+      Number.isFinite(autosaveIntervalSec) && autosaveIntervalSec > 0
+        ? autosaveIntervalSec * 1000
+        : undefined;
+    const saver = createProjectSaver({ invoke, history, timer, intervalMs });
+    // Unsaved edits made under the previous saver still need their backup.
+    if (history.isDirty()) saver.autosave.markDirty();
+    saverRef.current = saver;
+    const unbindBlur = target ? bindBlurAutosave(target, saver) : null;
+    return () => {
+      unbindBlur?.();
+      saver.dispose();
+      if (saverRef.current === saver) saverRef.current = null;
+    };
+  }, [ready, invoke, history, timer, target, autosaveIntervalSec]);
+
+  // Main swapped a source file (background H.264 relink): follow it without an undo step.
+  useEffect(() => (ready ? bindSourceReplaced() : undefined), [ready]);
+
+  const showToast = useCallback((text: string, tone: ToastTone = "info") => {
     setToast({ text, tone });
   }, []);
   useEffect(() => {
@@ -233,17 +309,38 @@ export function ProjectEditor({
   );
 
   // ⌘S / Ctrl+S manual save; "Saved" toast only for manual saves (guide §5).
+  // Registry id `editor.save` (user overrides apply) inside a shortcuts provider;
+  // the fixed ⌘S/Ctrl+S listener only runs standalone.
+  const saveShortcut = () => void saveNow().then((ok) => ok && showToast("Saved", "saved"));
+  const hasShortcuts = useOptionalShortcut("editor.save", saveShortcut, { enabled: ready });
   useEffect(() => {
-    if (!target || !ready) return;
+    if (!target || !ready || hasShortcuts) return;
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
       if (e.key.toLowerCase() !== "s" && e.code !== "KeyS") return;
       e.preventDefault();
-      void saveNow().then((ok) => ok && showToast("Saved"));
+      void saveNow().then((ok) => ok && showToast("Saved", "saved"));
     };
     target.addEventListener("keydown", onKey);
     return () => target.removeEventListener("keydown", onKey);
-  }, [target, ready, saveNow, showToast]);
+  }, [target, ready, hasShortcuts, saveNow, showToast]);
+
+  // Top-bar rename (S12): same outcome as the launcher rename, plus the open
+  // session follows the renamed folder.
+  const onRename = useCallback(
+    (name: string): Promise<boolean> =>
+      renameOpenProject(name, { invoke, mediaRootIds: rootIdsRef.current })
+        .then((res) => {
+          rootIdsRef.current = res.mediaRootIds;
+          setPhase((p) => (p.kind === "ready" ? { kind: "ready", path: res.path } : p));
+          return true;
+        })
+        .catch((err: unknown) => {
+          showToast(`Couldn't rename — ${toIpcErrorShape(err).message}`, "error");
+          return false;
+        }),
+    [invoke, showToast],
+  );
 
   // Closing the window with unsaved changes → cancel and ask (S12 state 12).
   useEffect(() => {
@@ -314,24 +411,44 @@ export function ProjectEditor({
     proceed(intent);
   };
 
+  const retry = () => setAttempt((n) => n + 1);
+
   if (phase.kind === "loading") {
     return (
-      <output style={centerStyle} aria-live="polite">
-        Opening project…
-      </output>
+      <div style={centerStyle}>
+        <output aria-live="polite">Opening project…</output>
+        {slow && (
+          <>
+            <p style={{ margin: 0, maxWidth: "44ch" }}>This is taking longer than usual.</p>
+            <div style={{ display: "flex", gap: "var(--space-2)" }}>
+              <Button variant="secondary" onClick={() => void port.back()}>
+                Back to projects
+              </Button>
+              <Button variant="primary" onClick={retry}>
+                Try again
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
     );
   }
 
   if (phase.kind === "not-found") {
     return (
-      <div style={centerStyle}>
+      <div style={centerStyle} role="alert">
         <h1 style={headingStyle}>Project not found</h1>
         <p style={{ margin: 0, maxWidth: "44ch" }}>
           It may have been moved, renamed outside Reelform, or moved to the trash.
         </p>
-        <Button variant="primary" onClick={() => void port.back()}>
-          Back to projects
-        </Button>
+        <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          <Button variant="secondary" onClick={() => void port.back()}>
+            Back to projects
+          </Button>
+          <Button variant="primary" onClick={retry}>
+            Try again
+          </Button>
+        </div>
       </div>
     );
   }
@@ -348,7 +465,7 @@ export function ProjectEditor({
           <Button variant="secondary" onClick={() => void port.back()}>
             Back to projects
           </Button>
-          <Button variant="primary" onClick={() => setAttempt((n) => n + 1)}>
+          <Button variant="primary" onClick={retry}>
             Try again
           </Button>
         </div>
@@ -358,17 +475,21 @@ export function ProjectEditor({
 
   return (
     <>
-      <EditorWindow
-        projectName={projectName}
-        onExport={onExport}
-        createStage={createStage}
-        history={history}
-        dirty={dirty}
-        onBack={() => requestLeave("back")}
-        onLocateMedia={onLocateMedia}
-        sourceDurationMs={sourceDurationMs}
-        createInspectorHost={createInspectorHost}
-      />
+      {/* Dialogs stay outside: Back from the error screen can still ask to save. */}
+      <EditorErrorBoundary onBack={() => requestLeave("back")}>
+        <EditorWindow
+          projectName={projectName}
+          onExport={onExport}
+          createStage={createStage}
+          history={history}
+          dirty={dirty}
+          onBack={() => requestLeave("back")}
+          onRename={onRename}
+          onLocateMedia={onLocateMedia}
+          sourceDurationMs={sourceDurationMs}
+          createInspectorHost={createInspectorHost}
+        />
+      </EditorErrorBoundary>
 
       <Dialog
         open={recovery !== null}
@@ -429,9 +550,35 @@ export function ProjectEditor({
         )}
       </Dialog>
 
+      <AutoZoomSuggestionsToast
+        suggestions={zoomSuggestions}
+        documentUpdate={documentUpdate}
+        seek={(ms) => usePlaybackStore.getState().seek(ms)}
+        onClose={() => setZoomSuggestions([])}
+      />
+
       {toast && (
-        <div role={toast.tone === "error" ? "alert" : "status"} style={toastStyle}>
-          {toast.text}
+        <div className="toast-stack">
+          {toast.tone === "saved" ? (
+            <output className="toast-pill">{toast.text}</output>
+          ) : (
+            <div
+              role={toast.tone === "error" ? "alert" : "status"}
+              className={toast.tone === "error" ? "toast toast-danger" : "toast"}
+            >
+              <span
+                aria-hidden="true"
+                className={
+                  toast.tone === "error"
+                    ? "toast-icon toast-icon-danger"
+                    : "toast-icon toast-icon-success"
+                }
+              >
+                {toast.tone === "error" ? "!" : "✓"}
+              </span>
+              <span style={{ flex: 1, fontWeight: 600 }}>{toast.text}</span>
+            </div>
+          )}
         </div>
       )}
     </>

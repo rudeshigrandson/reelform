@@ -61,9 +61,29 @@ export class DecoderClosedError extends Error {
   override name = "DecoderClosedError";
 }
 
+/**
+ * Decoder windows when a webcam track is decoded alongside the screen track.
+ * Peak held frames = screen window + webcam window + screen clone + webcam
+ * clone + rendered output = 6 + 3 + 3 = 12 (§10.8).
+ */
+export const WEBCAM_DECODER_WINDOW = 3;
+export const SCREEN_DECODER_WINDOW_WITH_WEBCAM = MAX_HELD_FRAMES - 3 - WEBCAM_DECODER_WINDOW;
+/** Smallest workable window: the frame before and the frame after a target. */
+export const MIN_DECODER_WINDOW = 2;
+
+/** Screen-decoder window for an export (smaller when a webcam decoder shares the budget). */
+export function screenDecoderWindow(withWebcam: boolean): number {
+  return withWebcam ? SCREEN_DECODER_WINDOW_WITH_WEBCAM : MAX_HELD_FRAMES - 2;
+}
+
 export interface StreamingDecoderOptions {
   source: VideoPacketSource;
   createDecoder: CreateVideoDecoder;
+  /**
+   * Decoded frames this decoder may hold (window + decode queue). Defaults to
+   * `MAX_HELD_FRAMES − 2`; clamped to [`MIN_DECODER_WINDOW`, that default].
+   */
+  maxWindow?: number | undefined;
 }
 
 export class StreamingDecoder implements FrameSource {
@@ -79,12 +99,19 @@ export class StreamingDecoder implements FrameSource {
   private closed = false;
   private busy = false;
   private readonly changes = new Pulse();
-  private readonly maxWindow = MAX_HELD_FRAMES - 2;
+  private readonly maxWindow: number;
 
   /** Diagnostics for tests. */
   readonly stats = { seeks: 0, packetsDecoded: 0, framesDiscarded: 0 };
 
-  constructor(private readonly opts: StreamingDecoderOptions) {}
+  constructor(private readonly opts: StreamingDecoderOptions) {
+    const full = MAX_HELD_FRAMES - 2;
+    const w = opts.maxWindow;
+    this.maxWindow =
+      w !== undefined && Number.isFinite(w)
+        ? Math.min(full, Math.max(MIN_DECODER_WINDOW, Math.floor(w)))
+        : full;
+  }
 
   /** Frames currently held by the decoder window. */
   get heldFrames(): number {

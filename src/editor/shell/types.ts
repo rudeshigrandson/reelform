@@ -25,6 +25,19 @@ export const INSPECTOR_TABS: readonly InspectorTab[] = [
 
 export type PreviewQuality = "auto" | "full" | "half";
 
+/**
+ * Editor chrome geometry in px (design S12: "Top bar 48, inspector 320, playback
+ * bar 44, timeline 260"; S12/14 narrow: 44 / 48px rail / 40 / 180). Floating
+ * editor-level toasts position against the canvas well with these.
+ */
+export const SHELL_LAYOUT = {
+  wide: { topBar: 48, inspector: 320, playback: 44, timeline: 260 },
+  narrow: { topBar: 44, inspector: 48, playback: 40, timeline: 180 },
+} as const;
+
+/** Inspector icon rail width and the narrow popover panel width. */
+export const INSPECTOR_RAIL_PX = 48;
+
 /** Timeline track lanes shown in the shell (structure-only placeholders). */
 export const TIMELINE_LANES: readonly string[] = [
   "Video",
@@ -65,9 +78,13 @@ export interface EditorShellProps {
   isPlaying: boolean;
   previewQuality: PreviewQuality;
   onExport: () => void;
-  onTogglePlay?: () => void;
-  onQualityChange?: (quality: PreviewQuality) => void;
-  onRename?: (name: string) => void;
+  onTogglePlay?: (() => void) | undefined;
+  onQualityChange?: ((quality: PreviewQuality) => void) | undefined;
+  /**
+   * Name committed on blur / Enter (Escape reverts); omitted → read-only. May
+   * resolve `false` (or reject) when the rename failed, reverting the field.
+   */
+  onRename?: ((name: string) => unknown) | undefined;
   /** Renders the body of the active inspector tab; placeholder text when omitted. */
   renderInspector?: ((tab: InspectorTab) => ReactNode) | undefined;
   /** Renders the preview canvas; placeholder box when omitted. */

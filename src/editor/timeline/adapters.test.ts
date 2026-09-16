@@ -36,16 +36,29 @@ describe("adapters", () => {
     expect(formatMultiplier(Number.NaN)).toBe("1×");
   });
 
-  it("zoom items carry level labels and ghost only for auto suggestions", () => {
-    const items = zoomToItems([zoom({}), zoom({ id: "a", source: "auto", level: 2 })]);
+  it("zoom items carry level labels and ghost only for pending auto suggestions", () => {
+    const regions = [
+      zoom({}),
+      zoom({ id: "a", source: "auto", level: 2 }),
+      zoom({ id: "kept", source: "auto", level: 3 }),
+    ];
+    const items = zoomToItems(regions, new Set(["a", "z"]));
     expect(items[0]).toMatchObject({
       id: "z",
       startMs: 2000,
       endMs: 4500,
       label: "1.8×",
+      // Manual regions never draw as ghosts, even if an id is stale in the set.
       ghost: false,
     });
     expect(items[1]).toMatchObject({ label: "2×", ghost: true });
+    // A kept suggestion is still `source: "auto"` but no longer pending.
+    expect(items[2]).toMatchObject({ label: "3×", ghost: false });
+  });
+
+  it("zoom items are solid when nothing is pending", () => {
+    const items = zoomToItems([zoom({ id: "a", source: "auto" })]);
+    expect(items[0]?.ghost).toBe(false);
   });
 
   it("speed items show the rate", () => {
@@ -88,9 +101,23 @@ describe("adapters", () => {
       { id: "c2", sourceStartMs: 5000, sourceEndMs: 6000, timelineStartMs: 2000 },
     ]);
     expect(items).toEqual([
-      { id: "c1", startMs: 0, endMs: 2000, label: "Clip 1" },
-      { id: "c2", startMs: 2000, endMs: 3000, label: "Clip 2" },
+      { id: "c1", startMs: 0, endMs: 2000, label: "Clip 1", sourceStartMs: 1000 },
+      { id: "c2", startMs: 2000, endMs: 3000, label: "Clip 2", sourceStartMs: 5000 },
     ]);
+  });
+
+  it("caption items expose word boundaries for snapping", () => {
+    const c = {
+      id: "c",
+      startMs: 0,
+      endMs: 900,
+      text: "Hi there",
+      words: [
+        { t0: 0, t1: 300, text: "Hi" },
+        { t0: 350, t1: 900, text: "there" },
+      ],
+    } as Caption;
+    expect(captionsToItems([c])[0]?.wordBoundaries).toEqual([0, 300, 350, 900]);
   });
 
   it("makeTrack applies per-kind overlap rules", () => {

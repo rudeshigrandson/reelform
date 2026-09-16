@@ -17,7 +17,10 @@ export {
   type ProjectHandlers,
   ProjectListEntry,
   projectContracts,
+  projectEvents,
+  projectMediaContracts,
   RecoveryInfo,
+  TrimClip,
   TrashedProjectEntry,
 } from "./contracts";
 export {
@@ -29,6 +32,7 @@ export {
 } from "./errors";
 export type { FsLike } from "./fsTypes";
 export {
+  applySourceReplacement,
   checkRelink,
   createProjectHandlers,
   documentDurationMs,
@@ -39,6 +43,7 @@ export {
   type ProjectDeps,
   RELINK_DURATION_TOLERANCE_MS,
   type RelinkMismatch,
+  type SourceReplacement,
   stampDocument,
   type ValidationResult,
 } from "./handlers";
@@ -63,3 +68,41 @@ export {
   uniqueName,
 } from "./paths";
 export { createJsonRecentsStore, MAX_RECENTS, type RecentsStore, touchRecents } from "./recents";
+export { createFolderSizeCache, type FolderSizeCache } from "./librarySize";
+export {
+  createThumbnailUrlResolver,
+  projectRootId,
+  type ThumbnailUrlDeps,
+  type ThumbnailUrlResolver,
+} from "./thumbnailUrls";
+export {
+  createFilmstripService,
+  DEFAULT_THUMB_HEIGHT,
+  DEFAULT_THUMB_INTERVAL_MS,
+  type FilmstripItem,
+  type FilmstripService,
+  THUMBS_INDEX,
+  THUMBS_REL_DIR,
+} from "./filmstrip";
+export { type FfmpegDeps, requireFfmpeg, resolveVideoSource } from "./mediaTools";
+export {
+  createProxyService,
+  type EnsureProxyResult,
+  needsProxy,
+  PROXY_REL_PATH,
+  type ProxyProgressEvent,
+  type ProxyService,
+} from "./proxy";
+export {
+  type ClipLike,
+  estimateTrimOffsetMs,
+  purgeTrimTrash,
+  restoreTrimmedSource,
+  rewriteClips,
+  TRIM_MANIFEST,
+  TRIM_TRASH_DIR,
+  trimSource,
+  type TrimDeps,
+  type TrimRequest,
+  type TrimResponse,
+} from "./trimSource";

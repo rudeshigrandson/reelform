@@ -25,6 +25,10 @@ describe("parseWindowRoute", () => {
     expect(parseWindowRoute("?window=webcam-bubble&projectId=x")).toEqual({
       kind: "webcam-bubble",
     });
+    expect(parseWindowRoute("?window=source-outline&displayId=2")).toEqual({
+      kind: "source-outline",
+      displayId: "2",
+    });
   });
 
   it("falls back to launcher for missing, unknown or invalid input", () => {
@@ -37,6 +41,7 @@ describe("parseWindowRoute", () => {
       "?window=editor",
       "?window=editor&projectId=%20%20",
       "?window=region-overlay",
+      "?window=source-outline",
       `?window=editor&projectId=${"x".repeat(300)}`,
     ]) {
       expect(parseWindowRoute(s)).toEqual({ kind: "launcher" });
@@ -63,7 +68,12 @@ describe("parseWindowRoute", () => {
         const route = parseWindowRoute(new URL(t.url).search);
         expect(route.kind).toBe(kind);
         if (route.kind === "editor") expect(route.projectId).toBe(projectId);
-        if (route.kind === "region-overlay" || route.kind === "hud" || route.kind === "countdown") {
+        if (
+          route.kind === "region-overlay" ||
+          route.kind === "source-outline" ||
+          route.kind === "hud" ||
+          route.kind === "countdown"
+        ) {
           expect(route.displayId).toBe(displayId);
         }
       }),
@@ -73,6 +83,7 @@ describe("parseWindowRoute", () => {
   it("marks overlay kinds transparent", () => {
     expect(isTransparentKind("hud")).toBe(true);
     expect(isTransparentKind("webcam-bubble")).toBe(true);
+    expect(isTransparentKind("source-outline")).toBe(true);
     expect(isTransparentKind("editor")).toBe(false);
   });
 });

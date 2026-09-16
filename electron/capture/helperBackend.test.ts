@@ -1,8 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { STOP_TIMEOUT_MS, expectedNativePaths, mapHelperEvent, parsePtsNs } from "./helperBackend";
+import {
+  MIC_MUTE_CAP,
+  STOP_TIMEOUT_MS,
+  expectedNativePaths,
+  helperStartMessage,
+  mapHelperEvent,
+  parsePtsNs,
+} from "./helperBackend";
 import { HelperProcess } from "./helperProcess";
 import { type NativeBackendDeps, createSckBackend } from "./sckBackend";
-import { type FakeChild, type HelperScript, fakeHelperEnv, flush, scriptHelper } from "./testUtils";
+import {
+  type FakeChild,
+  FakeTimers,
+  type HelperScript,
+  fakeHelperEnv,
+  flush,
+  scriptHelper,
+} from "./testUtils";
 import type { CaptureEvent, StartOptions } from "./types";
 import { createWgcBackend } from "./wgcBackend";
 
@@ -307,5 +321,180 @@ describe("start / session", () => {
       { verify: async () => ({ ok: false, reason: "reelform-sck binary missing" }) },
     );
     await expect(s.backend.start(opts, s.sink)).rejects.toThrow("reelform-sck binary missing");
+  });
+});
+
+describe("start message (mic label, Windows bounds)", () => {
+  it("forwards micLabel / micEndpointId and adds display bounds when resolved", async () => {
+    const s = setup(
+      {},
+      {
+        resolveSourceBounds: (src) =>
+          src.kind === "display" ? { x: 0, y: 0, width: 3840, height: 2160 } : null,
+      },
+    );
+    await s.backend.start(
+      {
+        ...opts,
+        audio: { system: false, mic: "hashed", micLabel: "Shure MV7", micEndpointId: "{0.0.1}" },
+      },
+      s.sink,
+    );
+    const start = s.env.children[0]?.written.find((m) => m.t === "start");
+    expect(start?.audio).toEqual({
+      system: false,
+      mic: "hashed",
+      micLabel: "Shure MV7",
+      micEndpointId: "{0.0.1}",
+    });
+    expect(start?.source).toEqual({
+      kind: "display",
+      id: "1",
+      bounds: { x: 0, y: 0, width: 3840, height: 2160 },
+    });
+  });
+
+  it("window sources and unresolved displays are sent unchanged", () => {
+    expect(
+      helperStartMessage(
+        { ...opts, source: { kind: "window", id: "9" } },
+        { x: 0, y: 0, width: 1, height: 1 },
+      ).source,
+    ).toEqual({ kind: "window", id: "9" });
+    const msg = helperStartMessage(opts);
+    expect(msg.source).toEqual({ kind: "display", id: "1" });
+    expect(msg.audio).toEqual({ system: true, mic: "mic-1" });
+  });
+});
+
+function webcamSetup(script: HelperScript = {}, graceMs = 1000) {
+  const files = new Map<string, number[]>();
+  const closed: string[] = [];
+  let clock = 1_700_000_000_000;
+  const graceTimers = new FakeTimers();
+  const s = setup(script, {
+    timers: graceTimers,
+    openWriter: async (path) => {
+      files.set(path, []);
+      return {
+        write: async (b) => {
+          files.get(path)?.push(...b);
+        },
+        close: async () => {
+          closed.push(path);
+        },
+      };
+    },
+    nowEpochMs: () => clock,
+    endTrackGraceMs: graceMs,
+  });
+  return {
+    ...s,
+    files,
+    closed,
+    graceTimers,
+    setClock: (ms: number) => {
+      clock = ms;
+    },
+  };
+}
+
+describe("renderer webcam track", () => {
+  it("writes webcam chunks, ends the track and reports its offset from the helper start", async () => {
+    const s = webcamSetup();
+    // Helper `started` arrives at epoch 1_700_000_000_000.
+    const session = await s.backend.start(opts, s.sink);
+    await session.writeChunk?.("webcam", new Uint8Array([1, 2]), 0, {
+      timeOriginMs: 1_700_000_000_000,
+      recorderStartMs: 120,
+    });
+    await session.writeChunk?.("webcam", new Uint8Array([3]), 1);
+    expect(await session.endTrack?.("webcam", 2)).toEqual({ chunkCount: 2 });
+    const res = await session.close();
+    expect(s.files.get("/rec/s1/webcam.webm")).toEqual([1, 2, 3]);
+    expect(s.closed).toEqual(["/rec/s1/webcam.webm"]);
+    expect(res.paths.webcam).toBe("/rec/s1/webcam.webm");
+    expect(res.paths.screen).toBe("/rec/s1/screen.mp4");
+    expect(res.trackOffsetsMs).toEqual({ webcam: 120 });
+  });
+
+  it("refuses non-webcam tracks and keeps the seq contract", async () => {
+    const s = webcamSetup();
+    const session = await s.backend.start(opts, s.sink);
+    await expect(session.writeChunk?.("screen", new Uint8Array([1]), 0)).rejects.toMatchObject({
+      code: "WRONG_TRACK",
+    });
+    await expect(session.writeChunk?.("webcam", new Uint8Array([1]), 1)).rejects.toMatchObject({
+      code: "CHUNK_GAP",
+    });
+    await expect(session.endTrack?.("mic", 0)).rejects.toMatchObject({ code: "WRONG_TRACK" });
+  });
+
+  it("without a writer the backend refuses webcam chunks", async () => {
+    const s = setup();
+    const session = await s.backend.start(opts, s.sink);
+    await expect(session.writeChunk?.("webcam", new Uint8Array([1]), 0)).rejects.toMatchObject({
+      code: "WRONG_TRACK",
+    });
+    expect((await session.close()).trackOffsetsMs).toBeUndefined();
+  });
+
+  it("close waits for the renderer's final webcam flush after a helper crash, then reports it incomplete past the grace", async () => {
+    const s = webcamSetup({}, 1000);
+    const session = await s.backend.start(opts, s.sink);
+    await session.writeChunk?.("webcam", new Uint8Array([7]), 0);
+    s.env.children[0]?.exit(null, "SIGSEGV");
+    expect(s.events.at(-1)).toMatchObject({ type: "interrupted", reason: "helperCrash" });
+    const closing = session.close();
+    await flush();
+    // Still accepting the flush while waiting.
+    await session.writeChunk?.("webcam", new Uint8Array([8]), 1);
+    s.graceTimers.advance(1000);
+    const res = await closing;
+    expect(s.files.get("/rec/s1/webcam.webm")).toEqual([7, 8]);
+    expect(res.incompleteTracks).toEqual(["webcam"]);
+    expect(res.paths).toMatchObject({
+      screen: "/rec/s1/screen.mp4",
+      webcam: "/rec/s1/webcam.webm",
+    });
+  });
+
+  it("discard closes the webcam file and refuses later chunks", async () => {
+    const s = webcamSetup();
+    const session = await s.backend.start(opts, s.sink);
+    await session.writeChunk?.("webcam", new Uint8Array([1]), 0);
+    await session.discard();
+    expect(s.closed).toEqual(["/rec/s1/webcam.webm"]);
+    await expect(session.writeChunk?.("webcam", new Uint8Array([2]), 1)).rejects.toMatchObject({
+      code: "SESSION_CLOSED",
+    });
+  });
+});
+
+describe("setMicMuted", () => {
+  it("sends setMicMuted when the helper advertises micMute", async () => {
+    const s = setup({ caps: ["capture", MIC_MUTE_CAP] });
+    const child = () => s.env.children[0] as FakeChild;
+    const session = await s.backend.start(opts, s.sink);
+    const base = child().onWrite;
+    child().onWrite = (m, c) => {
+      if (m.t === "setMicMuted") c.reply({ t: "ok", id: m.id });
+      else base?.(m, c);
+    };
+    expect(await session.setMicMuted?.(true)).toBe(true);
+    expect(child().written.find((m) => m.t === "setMicMuted")).toMatchObject({ muted: true });
+  });
+
+  it("reports unsupported (false) without sending when the helper lacks the cap", async () => {
+    const s = setup();
+    const session = await s.backend.start(opts, s.sink);
+    expect(await session.setMicMuted?.(true)).toBe(false);
+    expect(s.env.children[0]?.written.some((m) => m.t === "setMicMuted")).toBe(false);
+  });
+
+  it("is a no-op success when no mic is recorded", async () => {
+    const s = setup();
+    const session = await s.backend.start({ ...opts, audio: { system: true } }, s.sink);
+    expect(await session.setMicMuted?.(true)).toBe(true);
   });
 });

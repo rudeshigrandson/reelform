@@ -23,6 +23,11 @@ export interface MediaDeps {
   /** Resolved lazily so a missing binary only fails the calls that need it. */
   resolveBinaries(): FfmpegPaths | null;
   runner: RunnerDeps;
+  /**
+   * Policy for `media:registerRoot` (§2/§13): receives the canonical directory;
+   * false → MEDIA_ROOT_FORBIDDEN. Omitted = any existing directory.
+   */
+  isRootAllowed?: ((realDir: string) => Promise<boolean>) | undefined;
 }
 
 export type MediaHandlers = {
@@ -61,6 +66,17 @@ export function createMediaHandlers(deps: MediaDeps): MediaHandlers {
       }
       if (!isDirectory)
         throw new MediaError("MEDIA_ROOT_NOT_DIRECTORY", "Media root is not a directory");
+      if (deps.isRootAllowed) {
+        let allowed = false;
+        try {
+          allowed = await deps.isRootAllowed(realPath);
+        } catch {
+          allowed = false;
+        }
+        if (!allowed) {
+          throw new MediaError("MEDIA_ROOT_FORBIDDEN", "That folder can't be served as media");
+        }
+      }
 
       // Re-registering the same folder reuses its id so existing URLs stay valid.
       let id = rootId ?? deps.registry.list().find((r) => r.realPath === realPath)?.id;

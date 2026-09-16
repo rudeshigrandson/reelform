@@ -1,12 +1,11 @@
 import type { SceneState } from "../../editor/preview/scene";
 import type { ExportConfig } from "../route";
 import {
-  type AudioBufferLike,
+  type AudioBlockSource,
   type AudioEncoderLike,
   type AudioPlan,
   chooseAudioPlan,
   encodeAudioBuffer,
-  encodeWav,
 } from "./audio";
 import { ExportCancelledError, Pulse, throwIfAborted } from "./cancel";
 import {
@@ -19,6 +18,8 @@ import type { FrameRenderer } from "./frameRenderer";
 import type { CreateExportMuxer, ExportMuxer, ExportSink } from "./muxer";
 import { type EncoderKind, type ExportProgress, ProgressTracker } from "./progress";
 import type { FrameSource } from "./streamingDecoder";
+import { TransitionFeed } from "./transitionFeed";
+import { WEBCAM_UNAVAILABLE_NOTICE, WebcamFeed, withoutWebcam } from "./webcamFeed";
 
 /**
  * WebCodecs export engine (ENGINEERING_SPEC §10.1 routes 1 & 3, §10.3, §10.7).
@@ -62,16 +63,35 @@ export interface ExportJob {
   timeline: Omit<FramePlanInput, "fps">;
   /** Scene at a timeline time (see `createSceneEvaluator`). */
   sceneAt(timelineMs: number): SceneState;
-  /** Already-rendered timeline audio, or null for a silent export. */
-  audio?: AudioBufferLike | null | undefined;
+  /**
+   * Lazily rendered timeline audio (one 30 s block in memory at a time), or
+   * null for a silent export.
+   */
+  audio?: AudioBlockSource | null | undefined;
   /** False when `selectRoute` chose `software-fallback`. */
   preferHardware: boolean;
+  /**
+   * Webcam track to composite into the bubble (§6.4, §9.4); null/omitted when
+   * the project has none or it is disabled. The scene decides visibility.
+   */
+  webcam?: { syncOffsetMs: number } | null | undefined;
 }
 
 export interface ExportEngineDeps {
   webcodecs: WebCodecsApi;
   /** Opens a fresh decoder for the source (called at most once per attempt). */
   openFrameSource(): Promise<FrameSource>;
+  /**
+   * Opens the webcam decoder (lazily, at most once per attempt). Its window
+   * plus the screen decoder's must fit the §10.8 budget
+   * (`WEBCAM_DECODER_WINDOW` + `SCREEN_DECODER_WINDOW_WITH_WEBCAM`).
+   */
+  openWebcamSource?: (() => Promise<FrameSource>) | undefined;
+  /**
+   * Opens a second screen decoder for cross-dissolve incoming frames (lazily,
+   * at most once per attempt; `TRANSITION_DECODER_WINDOW`). Omitted → cuts.
+   */
+  openNextFrameSource?: (() => Promise<FrameSource>) | undefined;
   renderer: FrameRenderer;
   createMuxer: CreateExportMuxer;
   sink: ExportSink;
@@ -82,6 +102,8 @@ export interface ExportEngineDeps {
 export interface RunExportOptions {
   signal?: AbortSignal | undefined;
   onProgress?: ((progress: ExportProgress) => void) | undefined;
+  /** Non-fatal problems (e.g. `WEBCAM_UNAVAILABLE_NOTICE`), each reported once. */
+  onWarning?: ((message: string) => void) | undefined;
 }
 
 export interface ExportResult {
@@ -90,8 +112,11 @@ export interface ExportResult {
   attempts: number;
   framesEncoded: number;
   audio: AudioPlan["kind"] | "none";
-  /** PCM WAV to be muxed as AAC by the ffmpeg finalize step; null otherwise. */
-  pcmWav: Uint8Array | null;
+  /**
+   * No audio encoder: the timeline audio to stream to a PCM WAV and mux as AAC
+   * in the ffmpeg finalize step (`streamWav`); null otherwise.
+   */
+  pcmAudio: AudioBlockSource | null;
 }
 
 /** A video encoder failure; hardware failures trigger the software restart. */
@@ -119,14 +144,25 @@ export async function runExport(
   const plan = createFramePlan({ ...job.timeline, fps: job.config.fps });
   if (plan.totalFrames === 0) throw new ExportConfigError("export range is empty");
   throwIfAborted(options.signal);
+  // One feed across attempts: an unreadable webcam is not retried on restart.
+  const webcam = job.webcam
+    ? new WebcamFeed({
+        open: deps.openWebcamSource ?? null,
+        syncOffsetMs: job.webcam.syncOffsetMs,
+        renderer: deps.renderer,
+        onUnavailable: () => options.onWarning?.(WEBCAM_UNAVAILABLE_NOTICE),
+      })
+    : null;
   try {
-    return await attemptExport(job, deps, plan, options, job.preferHardware, 1);
+    return await attemptExport(job, deps, plan, options, job.preferHardware, 1, webcam);
   } catch (e) {
     if (options.signal?.aborted) throw new ExportCancelledError();
     if (e instanceof EncoderFailure && e.encoder === "hardware") {
-      return attemptExport(job, deps, plan, options, false, 2);
+      return attemptExport(job, deps, plan, options, false, 2, webcam);
     }
     throw e;
+  } finally {
+    webcam?.release();
   }
 }
 
@@ -137,6 +173,7 @@ async function attemptExport(
   options: RunExportOptions,
   allowHardware: boolean,
   attempt: number,
+  webcam: WebcamFeed | null,
 ): Promise<ExportResult> {
   const { webcodecs: wc, sink, renderer } = deps;
   const { signal } = options;
@@ -152,6 +189,9 @@ async function attemptExport(
 
   let encoderKind: EncoderKind = allowHardware ? "hardware" : "software";
   let frames: FrameSource | null = null;
+  const transition = deps.openNextFrameSource
+    ? new TransitionFeed({ open: deps.openNextFrameSource, renderer })
+    : null;
   let encoder: VideoEncoderLike | null = null;
   let muxer: ExportMuxer | null = null;
   let sinkOpen = false;
@@ -172,6 +212,8 @@ async function attemptExport(
   const closeFrames = (): void => {
     frames?.close();
     frames = null;
+    webcam?.release();
+    transition?.release();
   };
   const onAbort = (): void => {
     closeFrames();
@@ -254,19 +296,17 @@ async function attemptExport(
     // queues every packet in memory until each track has produced one, so
     // encoding audio last would buffer the whole encoded video in RAM
     // (§10.8 memory bound). Encoded audio is small (192 kbps).
-    let pcmWav: Uint8Array | null = null;
-    if (audioIn && audioPlan) {
+    // The PCM fallback is streamed to disk after the video (it never reaches
+    // the muxer, so it can't make mediabunny buffer video packets).
+    const pcmAudio = audioIn && audioPlan?.kind === "pcm-wav" ? audioIn : null;
+    if (audioIn && audioPlan && audioPlan.kind !== "pcm-wav") {
       progress.setPhase("encoding-audio");
-      if (audioPlan.kind === "pcm-wav") {
-        pcmWav = encodeWav(audioIn);
-      } else {
-        await encodeAudioBuffer(audioIn, audioPlan.config, {
-          createEncoder: (init) => wc.createAudioEncoder(init),
-          createAudioData: (init) => wc.createAudioData(init),
-          onChunk: (chunk, meta) => enqueueMux((m) => m.addAudioChunk(chunk, meta)),
-          signal,
-        });
-      }
+      await encodeAudioBuffer(audioIn, audioPlan.config, {
+        createEncoder: (init) => wc.createAudioEncoder(init),
+        createAudioData: (init) => wc.createAudioData(init),
+        onChunk: (chunk, meta) => enqueueMux((m) => m.addAudioChunk(chunk, meta)),
+        signal,
+      });
       check();
     }
 
@@ -298,19 +338,32 @@ async function attemptExport(
         check();
       }
       const pf = plan.frameAt(i);
-      const state = job.sceneAt(pf.timelineMs);
+      const scene = job.sceneAt(pf.timelineMs);
       let source: VideoFrame | null = null;
+      let cam: VideoFrame | null = null;
       let rendered: VideoFrame | ImageBitmap;
       try {
-        if (pf.sourceMs !== null && state.video.visible) {
+        if (pf.sourceMs !== null && scene.video.visible) {
           frames ??= await deps.openFrameSource();
           check();
           source = await frames.frameAt(pf.sourceMs);
         }
         check();
+        let state = withoutWebcam(scene);
+        if (webcam) {
+          const prepared = await webcam.prepare(scene, pf.sourceMs, () => signal?.aborted === true);
+          state = prepared.state;
+          cam = prepared.frame;
+          check();
+        }
+        if (transition) {
+          await transition.prepare(scene, () => signal?.aborted === true);
+          check();
+        }
         rendered = await renderer.render(state, source);
       } finally {
         source?.close();
+        cam?.close();
       }
       let out: VideoFrame;
       try {
@@ -359,7 +412,7 @@ async function attemptExport(
       attempts: attempt,
       framesEncoded,
       audio: audioPlan?.kind ?? "none",
-      pcmWav,
+      pcmAudio,
     };
   } catch (e) {
     closeFrames();

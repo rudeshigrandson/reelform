@@ -1,3 +1,5 @@
+import type { RecordOptions } from "../../launcher/types";
+
 /**
  * Cross-window recording bus. The launcher window hosts the capture session
  * (MediaRecorders, finalize, project creation); the HUD, countdown, region
@@ -32,6 +34,8 @@ export interface SessionSnapshot {
   sourceLabel: string;
   displayId: string | null;
   webcamDeviceId: string | null;
+  /** What was started, so the HUD can Restart with the same setup (optional). */
+  setup?: RecordOptions | undefined;
 }
 
 export type RecordingBusMessage =
@@ -51,7 +55,26 @@ export type RecordingBusMessage =
       pixelRegion: RegionRect;
       scaleFactor: number;
     }
-  | { type: "regionCancelled"; displayId: string };
+  | { type: "regionCancelled"; displayId: string }
+  /** The pre-record HUD asks the launcher-hosted flow to start (region → selection first). */
+  | { type: "startRequest"; setup: RecordOptions }
+  /** The recording pill's Mute mic toggle (guide S10); the flow mutes the mic track. */
+  | { type: "hud:setMicMuted"; muted: boolean }
+  /**
+   * The recording pill's Restart: the flow discards the live session and starts
+   * again with the same setup, keeping the HUD window open.
+   */
+  | { type: "hud:restart" }
+  /**
+   * Outline of the selected window source for the source-outline overlay of
+   * `displayId` (SPEC §5.7). `bounds` is display-local DIP; null hides it.
+   */
+  | {
+      type: "hud:sourceOutline";
+      displayId: string;
+      bounds: RegionRect | null;
+      label?: string | undefined;
+    };
 
 export interface RecordingBus {
   post(message: RecordingBusMessage): void;
@@ -78,6 +101,27 @@ const SNAPSHOT_PHASES: readonly string[] = [
   "finalizing",
 ];
 
+const MODES: readonly string[] = ["screen", "window", "region"];
+const isBool = (v: unknown): v is boolean => typeof v === "boolean";
+const isOptStr = (v: unknown): boolean => v === undefined || isStr(v);
+
+function isRecordOptions(v: unknown): v is RecordOptions {
+  return (
+    isObj(v) &&
+    isStr(v.sourceId) &&
+    isStr(v.mode) &&
+    MODES.includes(v.mode) &&
+    isBool(v.mic) &&
+    isOptStr(v.micDeviceId) &&
+    isBool(v.systemAudio) &&
+    isBool(v.webcam) &&
+    isOptStr(v.webcamDeviceId) &&
+    (v.fps === 30 || v.fps === 60) &&
+    (v.countdown === 0 || v.countdown === 3 || v.countdown === 5 || v.countdown === 10) &&
+    isBool(v.hideCursor)
+  );
+}
+
 function isSnapshot(v: unknown): v is SessionSnapshot {
   return (
     isObj(v) &&
@@ -88,7 +132,8 @@ function isSnapshot(v: unknown): v is SessionSnapshot {
     isNumOrNull(v.countdownTotal) &&
     isStr(v.sourceLabel) &&
     isStrOrNull(v.displayId) &&
-    isStrOrNull(v.webcamDeviceId)
+    isStrOrNull(v.webcamDeviceId) &&
+    (v.setup === undefined || isRecordOptions(v.setup))
   );
 }
 
@@ -96,6 +141,7 @@ export function isRecordingBusMessage(v: unknown): v is RecordingBusMessage {
   if (!isObj(v) || !isStr(v.type)) return false;
   switch (v.type) {
     case "snapshotRequest":
+    case "hud:restart":
       return true;
     case "snapshot":
       return v.snapshot === null || isSnapshot(v.snapshot);
@@ -113,6 +159,16 @@ export function isRecordingBusMessage(v: unknown): v is RecordingBusMessage {
       );
     case "regionCancelled":
       return isStr(v.displayId);
+    case "startRequest":
+      return isRecordOptions(v.setup);
+    case "hud:setMicMuted":
+      return isBool(v.muted);
+    case "hud:sourceOutline":
+      return (
+        isStr(v.displayId) &&
+        (v.bounds === null || (isRect(v.bounds) && v.bounds.width >= 0 && v.bounds.height >= 0)) &&
+        isOptStr(v.label)
+      );
     default:
       return false;
   }

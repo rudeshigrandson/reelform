@@ -8,7 +8,12 @@ import {
   buildTrimSourceArgs,
   buildWavFilterGraph,
   extractedDurationMs,
+  filmstripArgs,
+  muxAudioArgs,
+  proxyArgs,
   sec,
+  thumbnailArgs,
+  trimCopyArgs,
   trimWindow,
   usedSourceRange,
 } from "./args";
@@ -237,5 +242,94 @@ describe("thumbnail args", () => {
     expect(argAfter(buildThumbnailArgs({ input: "x", atMs: 0, format: "jpg" }), "-c:v")).toBe(
       "mjpeg",
     );
+  });
+});
+
+describe("mux / proxy / filmstrip / thumbnail file", () => {
+  it("muxAudioArgs copies video and encodes AAC faststart for mp4", () => {
+    const a = muxAudioArgs({
+      video: "/e/v.mp4",
+      wav: "/e/a.wav",
+      output: "/e/t.mp4",
+      container: "mp4",
+    });
+    expect(a.slice(a.indexOf("-i"))).toEqual([
+      "-i",
+      "/e/v.mp4",
+      "-i",
+      "/e/a.wav",
+      "-map",
+      "0:v",
+      "-map",
+      "1:a",
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      "-ar",
+      "48000",
+      "-movflags",
+      "+faststart",
+      "-f",
+      "mp4",
+      "/e/t.mp4",
+    ]);
+  });
+
+  it("muxAudioArgs uses libopus and no faststart for webm", () => {
+    const a = muxAudioArgs({
+      video: "/v.webm",
+      wav: "/a.wav",
+      output: "/t.webm",
+      container: "webm",
+    });
+    expect(argAfter(a, "-c:a")).toBe("libopus");
+    expect(a).not.toContain("-movflags");
+    expect(argAfter(a, "-f")).toBe("webm");
+  });
+
+  it("proxyArgs scales to 1080p x264 veryfast crf 23 without audio", () => {
+    const a = proxyArgs({ input: "/p/in.mov", output: "/p/cache/proxy.partial.mp4" });
+    expect(argAfter(a, "-vf")).toBe("scale=-2:1080");
+    expect(argAfter(a, "-c:v")).toBe("libx264");
+    expect(argAfter(a, "-preset")).toBe("veryfast");
+    expect(argAfter(a, "-crf")).toBe("23");
+    expect(a).toContain("-an");
+    expect(a.at(-1)).toBe("/p/cache/proxy.partial.mp4");
+  });
+
+  it("filmstripArgs samples every interval at an even height into a numbered pattern", () => {
+    const a = filmstripArgs({
+      input: "/in.mp4",
+      outputDir: "/c/thumbs",
+      intervalMs: 2000,
+      height: 160,
+    });
+    expect(argAfter(a, "-vf")).toBe("fps=1/2,scale=-2:160");
+    expect(a.at(-1)).toBe("/c/thumbs/%06d.jpg");
+    expect(
+      argAfter(filmstripArgs({ input: "/i", outputDir: "/o", intervalMs: 500, height: 91 }), "-vf"),
+    ).toBe("fps=1/0.5,scale=-2:92");
+    expect(() =>
+      filmstripArgs({ input: "/i", outputDir: "/o", intervalMs: 0, height: 160 }),
+    ).toThrow();
+    expect(() =>
+      filmstripArgs({ input: "/i", outputDir: "/o", intervalMs: 1000, height: Number.NaN }),
+    ).toThrow();
+  });
+
+  it("thumbnailArgs writes one frame to a file; trimCopyArgs is the trim builder", () => {
+    const a = thumbnailArgs({
+      input: "/in.mp4",
+      output: "/p/thumbnail.jpg",
+      atMs: 1500,
+      width: 641,
+    });
+    expect(argAfter(a, "-ss")).toBe("1.5");
+    expect(argAfter(a, "-vf")).toBe("scale=642:-2");
+    expect(a.at(-1)).toBe("/p/thumbnail.jpg");
+    expect(trimCopyArgs).toBe(buildTrimSourceArgs);
   });
 });

@@ -1,12 +1,22 @@
-import { type HelperMessage, type HelperProcess, START_TIMEOUT_MS } from "./helperProcess";
+import { ChunkError, ChunkTracks, type TrackWriter } from "./chunkTracks";
+import { electronFirstFrameEpochNs } from "./electronBackend";
+import {
+  type HelperMessage,
+  type HelperProcess,
+  START_TIMEOUT_MS,
+  type Timers,
+} from "./helperProcess";
 import type { VerifyResult } from "./manifest";
 import {
   type Availability,
   type BackendId,
   type CaptureBackend,
+  type ChunkTiming,
   type EventSink,
   type InterruptReason,
+  type Rect,
   type Session,
+  type SourceRef,
   Sources,
   type StartOptions,
   type StopResult,
@@ -17,7 +27,8 @@ import {
  * Generic native backend over a helper process (§5.3/§5.4/§5.5). Maps the
  * helper protocol onto {@link Session}:
  *
- *   main → helper  `start` `pause` `resume` `stop` `discard` `listSources` (each with `id`)
+ *   main → helper  `start` `pause` `resume` `stop` `discard` `listSources` (each with `id`),
+ *                  `setMicMuted{muted}` (only when the helper advertises `micMute`)
  *   helper → main  `ready{id}` (reply to start), `started{firstFramePtsNs}`,
  *                  `stats{fps,droppedFrames,fileBytes,micRms?}`, `interrupted{reason}`,
  *                  `deviceLost{device}`, `stopped{id?,durationMs,paths}`,
@@ -29,11 +40,21 @@ import {
  *
  * `firstFramePtsNs` may be a JSON number or a decimal string (host-clock ns can
  * exceed 2^53 on long-uptime machines).
+ *
+ * Webcam (§5.7): the helpers never open the camera. The renderer records it with
+ * a MediaRecorder and streams chunks here (`writeChunk`/`endTrack`, webcam
+ * track only) into `<outDir>/webcam.webm`. The first webcam chunk carries its
+ * recorder timing; its offset from the helper's `started` (both on the epoch
+ * clock) is reported as `trackOffsetsMs.webcam`.
  */
 
 /** Finalizing writers can take a while on long recordings. */
 export const STOP_TIMEOUT_MS = 60_000;
 export const CAPTURE_CAP = "capture";
+/** Helper capability for a live `setMicMuted` command. */
+export const MIC_MUTE_CAP = "micMute";
+/** Tracks a native session accepts from the renderer. */
+export const RENDERER_TRACKS: readonly Track[] = ["webcam"];
 
 export interface HelperBackendConfig {
   id: Exclude<BackendId, "electron">;
@@ -49,6 +70,18 @@ export interface HelperBackendConfig {
   join(...parts: string[]): string;
   /** Capability the helper must advertise in `pong.caps`. */
   requiredCap?: string | undefined;
+  /** Opens the renderer-recorded webcam file. Without it webcam chunks are refused. */
+  openWriter?: ((path: string) => Promise<TrackWriter>) | undefined;
+  /** Grace period timers for the renderer's final webcam flush on close. */
+  timers?: Timers | undefined;
+  endTrackGraceMs?: number | undefined;
+  /** Epoch ms clock (same clock as renderer `performance.timeOrigin + now()`). */
+  nowEpochMs?: (() => number) | undefined;
+  /**
+   * Extra `source.bounds` sent to the helper (Windows: the display's bounds in
+   * virtual-desktop physical px, since Electron display ids are not HMONITORs).
+   */
+  resolveSourceBounds?: ((source: SourceRef) => Rect | null) | undefined;
 }
 
 const INTERRUPT_REASONS: readonly InterruptReason[] = [
@@ -125,24 +158,81 @@ export function expectedNativePaths(
   return out;
 }
 
+/** The `start` command body sent to a helper. */
+export function helperStartMessage(
+  opts: StartOptions,
+  bounds: Rect | null = null,
+): { t: "start"; [key: string]: unknown } {
+  const audio: Record<string, unknown> = { system: opts.audio.system };
+  if (opts.audio.mic !== undefined) audio.mic = opts.audio.mic;
+  if (opts.audio.micLabel) audio.micLabel = opts.audio.micLabel;
+  if (opts.audio.micEndpointId) audio.micEndpointId = opts.audio.micEndpointId;
+  return {
+    t: "start",
+    sessionId: opts.sessionId,
+    outDir: opts.outDir,
+    source: bounds && opts.source.kind === "display" ? { ...opts.source, bounds } : opts.source,
+    region: opts.region,
+    audio,
+    fps: opts.fps,
+    hideCursor: opts.hideCursor,
+  };
+}
+
+const wantsMic = (opts: StartOptions): boolean =>
+  opts.audio.mic !== undefined || !!opts.audio.micLabel || !!opts.audio.micEndpointId;
+
 class HelperSession implements Session {
   private stopResult: StopResult | null = null;
   private stopping: Promise<void> | null = null;
   /** Set once the helper has reported a clean end (stopped / discarded). */
   private finished = false;
+  private caps: readonly string[] = [];
+  private readonly chunks: ChunkTracks | null;
+  private startedEpochMs: number | null = null;
+  private webcamEpochMs: number | null = null;
+  private closing: Promise<StopResult> | null = null;
 
   constructor(
     readonly backend: BackendId,
     private readonly helper: HelperProcess,
     private readonly opts: StartOptions,
-    private readonly join: (...p: string[]) => string,
-  ) {}
+    private readonly cfg: HelperBackendConfig,
+    sink: EventSink,
+  ) {
+    const openWriter = cfg.openWriter;
+    this.chunks = openWriter
+      ? new ChunkTracks({
+          pathFor: (track) => cfg.join(opts.outDir, `${track}.webm`),
+          openWriter,
+          // The screen recording is unaffected; only a full disk interrupts.
+          onWriteError: (err, track) => {
+            const code = (err as { code?: unknown } | null)?.code;
+            if (code === "ENOSPC") {
+              sink({ type: "interrupted", reason: "diskLow", detail: `${track}: disk full` });
+            }
+          },
+          timers: cfg.timers,
+          endTrackGraceMs: cfg.endTrackGraceMs,
+        })
+      : null;
+  }
+
+  setCaps(caps: readonly string[]): void {
+    this.caps = caps;
+  }
+
+  markStarted(): void {
+    if (this.startedEpochMs === null && this.cfg.nowEpochMs) {
+      this.startedEpochMs = this.cfg.nowEpochMs();
+    }
+  }
 
   markStopped(msg: HelperMessage): void {
     this.finished = true;
     this.stopResult = {
       durationMs: typeof msg.durationMs === "number" ? msg.durationMs : null,
-      paths: { ...expectedNativePaths(this.opts, this.join), ...parsePaths(msg.paths) },
+      paths: { ...expectedNativePaths(this.opts, this.cfg.join), ...parsePaths(msg.paths) },
     };
   }
 
@@ -157,6 +247,40 @@ class HelperSession implements Session {
   async resume(): Promise<void> {
     await this.helper.request({ t: "resume" });
   }
+
+  async setMicMuted(muted: boolean): Promise<boolean> {
+    if (!wantsMic(this.opts)) return true;
+    if (!this.caps.includes(MIC_MUTE_CAP)) return false;
+    await this.helper.request({ t: "setMicMuted", muted });
+    return true;
+  }
+
+  private rendererChunks(track: Track): ChunkTracks {
+    if (!this.chunks || !RENDERER_TRACKS.includes(track)) {
+      throw new ChunkError(
+        "WRONG_TRACK",
+        `backend ${this.backend} does not accept ${track} chunks`,
+      );
+    }
+    return this.chunks;
+  }
+
+  writeChunk = async (
+    track: Track,
+    chunk: Uint8Array,
+    seq: number,
+    timing?: ChunkTiming | undefined,
+  ): Promise<void> => {
+    const chunks = this.rendererChunks(track);
+    await chunks.write(track, chunk, seq, () => {
+      if (timing && seq === 0 && this.webcamEpochMs === null) {
+        this.webcamEpochMs = Number(electronFirstFrameEpochNs(timing, this.opts.fps) / 1000n) / 1000;
+      }
+    });
+  };
+
+  endTrack = async (track: Track, chunkCount: number): Promise<{ chunkCount: number }> =>
+    this.rendererChunks(track).end(track, chunkCount);
 
   stop(): Promise<void> {
     if (this.stopResult) return Promise.resolve();
@@ -175,7 +299,10 @@ class HelperSession implements Session {
         this.finished = true;
         this.helper.disarmWatchdog();
         await this.helper.kill();
-        this.stopResult ??= { durationMs: null, paths: expectedNativePaths(this.opts, this.join) };
+        this.stopResult ??= {
+          durationMs: null,
+          paths: expectedNativePaths(this.opts, this.cfg.join),
+        };
       }
     })();
     return this.stopping;
@@ -191,14 +318,26 @@ class HelperSession implements Session {
     } finally {
       this.helper.disarmWatchdog();
       await this.helper.kill();
+      await this.chunks?.close(false);
       this.stopResult ??= { durationMs: null, paths: {} };
     }
   }
 
-  async close(): Promise<StopResult> {
-    await this.stop();
-    // stop() always assigns a result in its finally block.
-    return this.stopResult ?? { durationMs: null, paths: {} };
+  close(): Promise<StopResult> {
+    this.closing ??= (async () => {
+      await this.stop();
+      // stop() always assigns a result in its finally block.
+      const base = this.stopResult ?? { durationMs: null, paths: {} };
+      if (!this.chunks) return base;
+      const rendered = await this.chunks.close(true);
+      const res: StopResult = { ...base, paths: { ...base.paths, ...rendered.paths } };
+      if (rendered.incompleteTracks) res.incompleteTracks = rendered.incompleteTracks;
+      if (rendered.paths.webcam && this.webcamEpochMs !== null && this.startedEpochMs !== null) {
+        res.trackOffsetsMs = { webcam: Math.round(this.webcamEpochMs - this.startedEpochMs) };
+      }
+      return res;
+    })();
+    return this.closing;
   }
 }
 
@@ -266,13 +405,14 @@ export function createHelperBackend(cfg: HelperBackendConfig): CaptureBackend {
 
     async start(opts: StartOptions, sink: EventSink): Promise<Session> {
       const helper = cfg.createHelper(await verifiedPath());
-      const session = new HelperSession(cfg.id, helper, opts, cfg.join);
+      const session = new HelperSession(cfg.id, helper, opts, cfg, sink);
       helper.onEvent((msg) => {
         if (msg.t === "stopped") {
           session.markStopped(msg);
           return;
         }
         const ev = mapHelperEvent(msg);
+        if (ev?.type === "started") session.markStarted();
         if (ev) sink(ev);
       });
       helper.onExit((info) => {
@@ -281,20 +421,10 @@ export function createHelperBackend(cfg: HelperBackendConfig): CaptureBackend {
         sink({ type: "interrupted", reason: "helperCrash", detail });
       });
       try {
-        await helper.start();
-        const res = await helper.request(
-          {
-            t: "start",
-            sessionId: opts.sessionId,
-            outDir: opts.outDir,
-            source: opts.source,
-            region: opts.region,
-            audio: opts.audio,
-            fps: opts.fps,
-            hideCursor: opts.hideCursor,
-          },
-          START_TIMEOUT_MS,
-        );
+        const pong = await helper.start();
+        session.setCaps(pong.caps);
+        const bounds = cfg.resolveSourceBounds?.(opts.source) ?? null;
+        const res = await helper.request(helperStartMessage(opts, bounds), START_TIMEOUT_MS);
         if (res.t !== "ready") throw new Error(`unexpected helper reply "${res.t}" to start`);
       } catch (err) {
         await helper.kill();

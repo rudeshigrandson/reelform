@@ -1,5 +1,7 @@
 import { createAnnotation } from "./inspector/annotations/annotations";
+import type { Annotation } from "./inspector/annotations/types";
 import { addCaptionAt } from "./inspector/captions/logic";
+import type { Caption } from "./inspector/captions/types";
 import { normalizeSpeedRegion } from "./inspector/effects/logic";
 import type { SpeedRegionEdit } from "./inspector/effects/types";
 import { MIN_ZOOM_REGION_MS, type ZoomRegion } from "./inspector/zoom/types";
@@ -7,13 +9,17 @@ import type { Clip } from "./model/schema";
 import type { EditorData } from "./store";
 import {
   MIN_ITEM_MS,
+  TRACK_ALLOWS_OVERLAP,
   type TimeSpan,
+  type TimelineMedia,
   type TimelineTrack,
   type TrackKind,
   annotationsToItems,
   captionsToItems,
   clipsToItems,
   makeTrack,
+  nudge,
+  overlaps,
   spanLimits,
   speedToItems,
   zoomToItems,
@@ -56,10 +62,18 @@ const DEFAULT_ADD_ZOOM_LEVEL = 2;
 const DEFAULT_ADD_SPEED_RATE = 2;
 const DEFAULT_SPEED_RAMP_MS = 300;
 
-export function buildTracks(d: TimelineDoc): TimelineTrack[] {
+export interface TrackExtras {
+  /** Auto-zoom suggestions awaiting a decision (drawn as ghosts). */
+  pendingSuggestionIds?: ReadonlySet<string> | undefined;
+  /** Filmstrip thumbnails + waveform peaks for the video track. */
+  videoMedia?: TimelineMedia | undefined;
+}
+
+export function buildTracks(d: TimelineDoc, extras: TrackExtras = {}): TimelineTrack[] {
+  const video = makeTrack("video", clipsToItems(d.clips));
   return [
-    makeTrack("video", clipsToItems(d.clips)),
-    makeTrack("zoom", zoomToItems(d.zoomRegions)),
+    extras.videoMedia ? { ...video, media: extras.videoMedia } : video,
+    makeTrack("zoom", zoomToItems(d.zoomRegions, extras.pendingSuggestionIds)),
     makeTrack("speed", speedToItems(d.speedRegions)),
     makeTrack("annotations", annotationsToItems(d.annotations)),
     makeTrack("captions", captionsToItems(d.captions)),
@@ -154,17 +168,20 @@ export function addAtPlayhead(
   kind: TrackKind,
   playheadMs: number,
   makeId: (prefix: string) => string,
+  focusAt?: FocusResolver | undefined,
 ): AddResult | null {
   switch (kind) {
     case "zoom": {
       const span = spanAtPlayhead(d.durationMs, playheadMs, MIN_ZOOM_REGION_MS);
       if (!span || overlapsAny(d.zoomRegions, span.startMs, span.endMs)) return null;
       const short = span.endMs - span.startMs < 2000;
+      // §9.3: a manual zoom points where the cursor was, centre without telemetry.
+      const at = focusAt?.(span.startMs) ?? null;
       const region: ZoomRegion = {
         id: makeId("zoom"),
         ...span,
         level: DEFAULT_ADD_ZOOM_LEVEL,
-        focus: { mode: "fixed", x: 0.5, y: 0.5 },
+        focus: { mode: "fixed", x: at ? clamp01(at.x) : 0.5, y: at ? clamp01(at.y) : 0.5 },
         // §8 easing: 600/700ms, or 400/500 for regions under 2s.
         easeInMs: short ? 400 : 600,
         easeOutMs: short ? 500 : 700,
@@ -210,6 +227,271 @@ export function addAtPlayhead(
     case "video":
       return null;
   }
+}
+
+// ── Selection operations (SPEC §6.7 shortcuts, §6.8 multi-select summary) ───
+
+/** Normalised cursor position (0..1) for a timeline time; null when unknown. */
+export type FocusResolver = (tMs: number) => { x: number; y: number } | null;
+
+/** Linear interpolation of timeline-ms cursor samples (sorted by `tMs`). */
+export function focusFromSamples(
+  samples: ReadonlyArray<{ tMs: number; x: number; y: number }>,
+  tMs: number,
+): { x: number; y: number } | null {
+  const first = samples[0];
+  const last = samples[samples.length - 1];
+  if (!first || !last || !Number.isFinite(tMs)) return null;
+  if (tMs <= first.tMs) return { x: clamp01(first.x), y: clamp01(first.y) };
+  if (tMs >= last.tMs) return { x: clamp01(last.x), y: clamp01(last.y) };
+  let lo = 0;
+  let hi = samples.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if ((samples[mid] as { tMs: number }).tMs <= tMs) lo = mid;
+    else hi = mid;
+  }
+  const a = samples[lo] as { tMs: number; x: number; y: number };
+  const b = samples[hi] as { tMs: number; x: number; y: number };
+  const f = b.tMs > a.tMs ? (tMs - a.tMs) / (b.tMs - a.tMs) : 0;
+  return { x: clamp01(a.x + (b.x - a.x) * f), y: clamp01(a.y + (b.y - a.y) * f) };
+}
+
+type RegionKind = Exclude<TrackKind, "video">;
+const REGION_KINDS: readonly RegionKind[] = ["zoom", "speed", "annotations", "captions"];
+const ID_PREFIX: Readonly<Record<RegionKind, string>> = {
+  zoom: "zoom",
+  speed: "speed",
+  annotations: "ann",
+  captions: "caption",
+};
+
+type RegionLists = {
+  zoom: ZoomRegion[];
+  speed: SpeedRegionEdit[];
+  annotations: Annotation[];
+  captions: Caption[];
+};
+
+function regionList<K extends RegionKind>(d: TimelineDoc, kind: K): RegionLists[K] {
+  const lists: RegionLists = {
+    zoom: d.zoomRegions,
+    speed: d.speedRegions,
+    annotations: d.annotations,
+    captions: d.captions,
+  };
+  return lists[kind];
+}
+
+function regionPatch(kind: RegionKind, list: readonly TimeSpan[]): Partial<EditorData> {
+  switch (kind) {
+    case "zoom":
+      return { zoomRegions: list as ZoomRegion[] };
+    case "speed":
+      return { speedRegions: list as SpeedRegionEdit[] };
+    case "annotations":
+      return { annotations: list as Annotation[] };
+    case "captions":
+      return { captions: list as Caption[] };
+  }
+}
+
+/** Same item, moved so it starts at `startMs` (length kept; caption words follow). */
+function placeAt<T extends TimeSpan>(kind: RegionKind, item: T, startMs: number): T {
+  const delta = startMs - item.startMs;
+  if (delta === 0) return item;
+  const moved = { ...item, startMs, endMs: item.endMs + delta };
+  if (kind === "captions") {
+    const c = moved as unknown as Caption;
+    return {
+      ...c,
+      words: c.words.map((w) => ({ ...w, t0: w.t0 + delta, t1: w.t1 + delta })),
+    } as unknown as T;
+  }
+  // Editing a suggestion makes it the user's (§8), as a timeline drag does.
+  if (kind === "zoom") return { ...moved, source: "manual" } as T;
+  if (kind === "speed")
+    return normalizeSpeedRegion(moved as unknown as SpeedRegionEdit) as unknown as T;
+  return moved;
+}
+
+/** Selected region items (clips excluded: they have no free position). */
+function selectedRegions(d: TimelineDoc, ids: ReadonlySet<string>): TimeSpan[] {
+  return REGION_KINDS.flatMap((k) => (regionList(d, k) as TimeSpan[]).filter((i) => ids.has(i.id)));
+}
+
+/** Selected item count per track (for the multi-select summary). */
+export function countSelection(
+  d: TimelineDoc,
+  ids: ReadonlySet<string>,
+): Record<TrackKind, number> {
+  const count = (list: readonly { id: string }[]) => list.filter((i) => ids.has(i.id)).length;
+  return {
+    video: count(d.clips),
+    zoom: count(d.zoomRegions),
+    speed: count(d.speedRegions),
+    annotations: count(d.annotations),
+    captions: count(d.captions),
+  };
+}
+
+/** Track kind holding `id`, or null. */
+export function trackKindOf(tracks: readonly TimelineTrack[], id: string): TrackKind | null {
+  return tracks.find((t) => t.items.some((i) => i.id === id))?.kind ?? null;
+}
+
+/** ⌘A: every item on one track. */
+export function selectAllOnTrack(
+  tracks: readonly TimelineTrack[],
+  kind: TrackKind,
+): ReadonlySet<string> {
+  return new Set(tracks.find((t) => t.kind === kind)?.items.map((i) => i.id) ?? []);
+}
+
+/**
+ * ←/→ nudge: shift every selected region by `deltaMs`, clamped so the whole
+ * selection stays inside the timeline. Null when nothing selected can move or a
+ * no-overlap track (zoom/speed) would collide with an unselected neighbour.
+ */
+export function nudgeSelection(
+  d: TimelineDoc,
+  ids: ReadonlySet<string>,
+  deltaMs: number,
+): Partial<EditorData> | null {
+  const selected = selectedRegions(d, ids);
+  if (selected.length === 0 || !Number.isFinite(deltaMs)) return null;
+  const minStart = Math.min(...selected.map((i) => i.startMs));
+  const maxEnd = Math.max(...selected.map((i) => i.endMs));
+  const delta = Math.min(Math.max(deltaMs, -minStart), Math.max(0, d.durationMs - maxEnd));
+  if (delta === 0) return null;
+  let patch: Partial<EditorData> = {};
+  for (const kind of REGION_KINDS) {
+    const list = regionList(d, kind) as TimeSpan[];
+    if (!list.some((i) => ids.has(i.id))) continue;
+    // `nudge` moves by whole frames; at 1000 fps a frame is exactly 1 ms.
+    const next = list.map((i) =>
+      ids.has(i.id) ? placeAt(kind, i, nudge(i, delta, 1000, d.durationMs).startMs) : i,
+    );
+    if (!TRACK_ALLOWS_OVERLAP[kind]) {
+      const still = next.filter((i) => !ids.has(i.id));
+      if (next.some((i) => ids.has(i.id) && overlaps(still, i))) return null;
+    }
+    patch = { ...patch, ...regionPatch(kind, next) };
+  }
+  return patch;
+}
+
+export interface MultiAddResult {
+  patch: Partial<EditorData>;
+  ids: string[];
+}
+
+/**
+ * ⌘D / summary Duplicate: copy the selected regions right after the selection
+ * (offset = selection span), keeping their relative layout. Copies that would
+ * run past the end or collide on a no-overlap track are skipped; null when none fit.
+ */
+export function duplicateSelection(
+  d: TimelineDoc,
+  ids: ReadonlySet<string>,
+  makeId: (prefix: string) => string,
+): MultiAddResult | null {
+  const selected = selectedRegions(d, ids);
+  if (selected.length === 0) return null;
+  const offset =
+    Math.max(...selected.map((i) => i.endMs)) - Math.min(...selected.map((i) => i.startMs));
+  let patch: Partial<EditorData> = {};
+  const added: string[] = [];
+  for (const kind of REGION_KINDS) {
+    const list = regionList(d, kind) as TimeSpan[];
+    const next = [...list];
+    for (const item of list.filter((i) => ids.has(i.id))) {
+      if (item.endMs + offset > d.durationMs) continue;
+      const copy = { ...placeAt(kind, item, item.startMs + offset), id: makeId(ID_PREFIX[kind]) };
+      if (!TRACK_ALLOWS_OVERLAP[kind] && overlaps(next, copy)) continue;
+      next.push(copy);
+      added.push(copy.id);
+    }
+    if (next.length !== list.length) {
+      patch = {
+        ...patch,
+        ...regionPatch(
+          kind,
+          next.sort((a, b) => a.startMs - b.startMs),
+        ),
+      };
+    }
+  }
+  return added.length > 0 ? { patch, ids: added } : null;
+}
+
+/** Alt-drag drop: a copy of item `span.id` at the dropped span. Null when it can't go there. */
+export function duplicateItemAt(
+  d: TimelineDoc,
+  kind: TrackKind,
+  span: TimeSpan,
+  makeId: (prefix: string) => string,
+): AddResult | null {
+  if (kind === "video") return null;
+  const list = regionList(d, kind) as TimeSpan[];
+  const item = list.find((i) => i.id === span.id);
+  if (!item || span.startMs < 0 || span.startMs + (item.endMs - item.startMs) > d.durationMs) {
+    return null;
+  }
+  const copy = { ...placeAt(kind, item, span.startMs), id: makeId(ID_PREFIX[kind]) };
+  if (!TRACK_ALLOWS_OVERLAP[kind] && overlaps(list, copy)) return null;
+  const next = [...list, copy].sort((a, b) => a.startMs - b.startMs);
+  return { patch: regionPatch(kind, next), id: copy.id };
+}
+
+/**
+ * Summary "Align start": every selected region starts where the earliest one
+ * does. Null when fewer than two regions are selected, nothing moves, or a
+ * no-overlap track would end up with overlapping regions.
+ */
+export function alignSelectionStart(
+  d: TimelineDoc,
+  ids: ReadonlySet<string>,
+): Partial<EditorData> | null {
+  const selected = selectedRegions(d, ids);
+  if (selected.length < 2) return null;
+  const target = Math.min(...selected.map((i) => i.startMs));
+  let patch: Partial<EditorData> = {};
+  let changed = false;
+  for (const kind of REGION_KINDS) {
+    const list = regionList(d, kind) as TimeSpan[];
+    if (!list.some((i) => ids.has(i.id) && i.startMs !== target)) continue;
+    const next = list.map((i) => (ids.has(i.id) ? placeAt(kind, i, target) : i));
+    if (next.some((i) => i.endMs > d.durationMs)) return null;
+    if (!TRACK_ALLOWS_OVERLAP[kind] && next.some((i) => overlaps(next, i, i.id))) return null;
+    patch = { ...patch, ...regionPatch(kind, next) };
+    changed = true;
+  }
+  return changed ? patch : null;
+}
+
+export interface ItemChange {
+  kind: TrackKind;
+  span: TimeSpan;
+}
+
+/** A batch of timeline drops (group move, shift-drop neighbour trims) as one patch. */
+export function applyItemsChange(
+  d: TimelineDoc,
+  changes: readonly ItemChange[],
+  opts: ClipEditOptions = {},
+): Partial<EditorData> | null {
+  let doc = d;
+  let patch: Partial<EditorData> = {};
+  let changed = false;
+  for (const { kind, span } of changes) {
+    const p = applyItemChange(doc, kind, span, opts);
+    if (!p) continue;
+    doc = { ...doc, ...p };
+    patch = { ...patch, ...p };
+    changed = true;
+  }
+  return changed ? patch : null;
 }
 
 /** Delete every selected item across tracks; null when nothing matched. */

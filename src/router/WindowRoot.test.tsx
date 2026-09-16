@@ -6,6 +6,7 @@ const renderers: WindowRenderers = {
   editor: (r) => <div>Editor {r.projectId}</div>,
   hud: (r) => <div>HUD {r.displayId ?? "primary"}</div>,
   "region-overlay": (r) => <div>Overlay {r.displayId}</div>,
+  "source-outline": (r) => <div>Outline {r.displayId}</div>,
 };
 
 describe("WindowRoot", () => {
@@ -23,6 +24,12 @@ describe("WindowRoot", () => {
     window.history.replaceState(null, "", "/?window=region-overlay&displayId=3");
     render(<WindowRoot renderers={renderers} />);
     expect(screen.getByText("Overlay 3")).toBeInTheDocument();
+  });
+
+  it("renders the source outline for its display", () => {
+    render(<WindowRoot renderers={renderers} search="?window=source-outline&displayId=5" />);
+    expect(screen.getByText("Outline 5")).toBeInTheDocument();
+    expect(document.body.style.background).toBe("transparent");
   });
 
   it("falls back to launcher for unknown kinds and kinds without a renderer", () => {

@@ -1,6 +1,7 @@
 import { DEFAULT_MODEL_FOR_TIER, type ModelId } from "../../../../electron/captions/models";
 import type { ProjectMeta } from "../../persistence";
 import type { Caption, CaptionModel, GenerationStatus } from "../captions/types";
+import { ti } from "../i18n";
 import { absoluteSourcePath } from "./projectInfo";
 import { type MappedRange, wavToTimelineMs } from "./timeMap";
 import type { CaptionsProgressEvent, TranscribedCaption } from "./types";
@@ -64,19 +65,29 @@ export function statusFromProgress(
   return { kind: "transcribing", progress: e.progress, doneMs: e.doneMs, totalMs: e.totalMs };
 }
 
-export const NO_SPEECH_MESSAGE = "Couldn't transcribe — no speech detected";
-export const NO_AUDIO_MESSAGE = "This recording has no audio to transcribe.";
-export const NOTHING_TO_TRANSCRIBE_MESSAGE = "The timeline is empty — nothing to transcribe.";
+export const noSpeechMessage = (): string => ti("inspector.captions.error.noSpeech");
+export const noAudioMessage = (): string => ti("inspector.captions.error.noAudio");
+export const nothingToTranscribeMessage = (): string =>
+  ti("inspector.captions.error.emptyTimeline");
+
+/** True when a rejected captions call was cancelled by the user (not an error to show). */
+export function isCaptionsCancel(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === "cancelled" || code === "aborted";
+}
 
 /** Human message for a rejected captions call. */
 export function captionsErrorMessage(err: unknown, action: "download" | "transcribe"): string {
   const code = (err as { code?: unknown } | null)?.code;
-  if (code === "no-speech") return NO_SPEECH_MESSAGE;
-  if (code === "cancelled" || code === "aborted") return "Cancelled.";
-  const detail = err instanceof Error && err.message ? ` ${err.message}` : "";
-  return action === "download"
-    ? `Couldn't download the model.${detail}`
-    : `Couldn't transcribe.${detail}`;
+  if (code === "no-speech") return noSpeechMessage();
+  if (isCaptionsCancel(err)) return ti("inspector.captions.error.cancelled");
+  const detail = err instanceof Error && err.message ? err.message : "";
+  return ti(
+    action === "download"
+      ? "inspector.captions.error.download"
+      : "inspector.captions.error.transcribe",
+    { detail },
+  ).trim();
 }
 
 export function sidecarFileName(projectName: string, ext: "srt" | "vtt"): string {

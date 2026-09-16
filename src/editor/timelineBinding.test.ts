@@ -8,17 +8,26 @@ import {
   ADD_REGION_MS,
   type TimelineDoc,
   addAtPlayhead,
+  alignSelectionStart,
   applyItemChange,
+  applyItemsChange,
   buildTracks,
   clipsDurationMs,
+  countSelection,
   deleteSelection,
+  duplicateItemAt,
+  duplicateSelection,
+  focusFromSamples,
   itemChangeLabel,
   layoutClips,
+  nudgeSelection,
   removeTimelineRange,
   rippleDeleteClips,
   scaleToZoom,
+  selectAllOnTrack,
   selectionPatch,
   splitClipAt,
+  trackKindOf,
   trimClipToPlayhead,
   zoomToScale,
 } from "./timelineBinding";
@@ -72,6 +81,7 @@ describe("buildTracks", () => {
         speedRegions: [speed("s1", 3000, 5000, 0.5)],
         captions: [{ id: "c1", startMs: 0, endMs: 900, text: "Hello there", words: [] }],
       }),
+      { pendingSuggestionIds: new Set(["z1"]) },
     );
     expect(tracks.map((t) => t.kind)).toEqual([
       "video",
@@ -205,6 +215,195 @@ describe("addAtPlayhead", () => {
         },
       ),
     );
+  });
+});
+
+describe("buildTracks extras", () => {
+  it("attaches video media to the video track only; kept suggestions are solid", () => {
+    const media = { thumbs: [{ sourceMs: 0, url: "t0.jpg" }], sourceDurationMs: 10_000 };
+    const tracks = buildTracks(
+      doc({ zoomRegions: [zoom("z1", 0, 2000, { source: "auto", reason: "dwell" })] }),
+      { videoMedia: media },
+    );
+    expect(tracks[0]?.media).toBe(media);
+    expect(tracks[1]?.media).toBeUndefined();
+    expect(tracks[1]?.items[0]?.ghost).toBe(false);
+    expect(tracks[0]?.items[0]?.sourceStartMs).toBe(0);
+  });
+});
+
+describe("addAtPlayhead focus", () => {
+  it("uses the resolver's cursor position at the zoom start", () => {
+    const seen: number[] = [];
+    const res = addAtPlayhead(doc(), "zoom", 3000, makeId, (t) => {
+      seen.push(t);
+      return { x: 0.2, y: 1.4 };
+    });
+    expect(seen).toEqual([3000]);
+    expect(res?.patch.zoomRegions?.[0]?.focus).toEqual({ mode: "fixed", x: 0.2, y: 1 });
+  });
+
+  it("falls back to the centre when the resolver has nothing", () => {
+    const res = addAtPlayhead(doc(), "zoom", 3000, makeId, () => null);
+    expect(res?.patch.zoomRegions?.[0]?.focus).toEqual({ mode: "fixed", x: 0.5, y: 0.5 });
+  });
+});
+
+describe("focusFromSamples", () => {
+  const samples = [
+    { tMs: 0, x: 0, y: 0 },
+    { tMs: 1000, x: 1, y: 0.5 },
+    { tMs: 3000, x: 0.5, y: 0.5 },
+  ];
+
+  it("interpolates between samples and clamps outside them", () => {
+    expect(focusFromSamples(samples, 500)).toEqual({ x: 0.5, y: 0.25 });
+    expect(focusFromSamples(samples, 2000)).toEqual({ x: 0.75, y: 0.5 });
+    expect(focusFromSamples(samples, -10)).toEqual({ x: 0, y: 0 });
+    expect(focusFromSamples(samples, 9000)).toEqual({ x: 0.5, y: 0.5 });
+  });
+
+  it("returns null with no samples or a non-finite time", () => {
+    expect(focusFromSamples([], 10)).toBeNull();
+    expect(focusFromSamples(samples, Number.NaN)).toBeNull();
+  });
+});
+
+describe("selection ops", () => {
+  const caption = (id: string, startMs: number, endMs: number) => ({
+    id,
+    startMs,
+    endMs,
+    text: id,
+    words: [{ t0: startMs, t1: endMs, text: id }],
+  });
+
+  it("selectAllOnTrack / trackKindOf / countSelection", () => {
+    const d = doc({ zoomRegions: [zoom("z1", 0, 1000), zoom("z2", 2000, 3000)] });
+    const tracks = buildTracks(d);
+    expect([...selectAllOnTrack(tracks, "zoom")]).toEqual(["z1", "z2"]);
+    expect(selectAllOnTrack(tracks, "speed").size).toBe(0);
+    expect(trackKindOf(tracks, "z2")).toBe("zoom");
+    expect(trackKindOf(tracks, "nope")).toBeNull();
+    expect(countSelection(d, new Set(["z1", "k1"]))).toMatchObject({ zoom: 1, video: 1, speed: 0 });
+  });
+
+  describe("nudgeSelection", () => {
+    it("moves every selected region (caption words too) and leaves clips alone", () => {
+      const d = doc({
+        zoomRegions: [zoom("z1", 1000, 2000, { source: "auto", reason: "dwell" })],
+        captions: [caption("c1", 500, 900)],
+      });
+      const patch = nudgeSelection(d, new Set(["z1", "c1", "k1"]), 33);
+      expect(patch?.zoomRegions?.[0]).toMatchObject({
+        startMs: 1033,
+        endMs: 2033,
+        source: "manual",
+      });
+      expect(patch?.captions?.[0]).toMatchObject({ startMs: 533, endMs: 933 });
+      expect(patch?.captions?.[0]?.words[0]).toMatchObject({ t0: 533, t1: 933 });
+      expect(patch?.clips).toBeUndefined();
+    });
+
+    it("clamps the whole selection at the timeline edges, keeping spacing", () => {
+      const d = doc({ zoomRegions: [zoom("z1", 20, 1000), zoom("z2", 3000, 4000)] });
+      const patch = nudgeSelection(d, new Set(["z1", "z2"]), -100);
+      expect(patch?.zoomRegions?.map((r) => r.startMs)).toEqual([0, 2980]);
+      expect(
+        nudgeSelection(doc({ zoomRegions: [zoom("z1", 0, 1000)] }), new Set(["z1"]), -5),
+      ).toBeNull();
+    });
+
+    it("refuses to collide with an unselected zoom; null when nothing selected", () => {
+      const d = doc({ zoomRegions: [zoom("z1", 0, 1000), zoom("z2", 1010, 2000)] });
+      expect(nudgeSelection(d, new Set(["z1"]), 33)).toBeNull();
+      expect(nudgeSelection(d, new Set(["z1", "z2"]), 33)).not.toBeNull();
+      expect(nudgeSelection(d, new Set(), 33)).toBeNull();
+      expect(nudgeSelection(d, new Set(["k1"]), 33)).toBeNull();
+    });
+  });
+
+  describe("duplicateSelection", () => {
+    it("copies the selection after itself with fresh ids, keeping relative layout", () => {
+      const d = doc({
+        zoomRegions: [zoom("z1", 0, 1000)],
+        captions: [caption("c1", 500, 1500)],
+      });
+      const res = duplicateSelection(d, new Set(["z1", "c1"]), makeId);
+      expect(res?.ids).toHaveLength(2);
+      const copies = [...(res?.patch.zoomRegions ?? []), ...(res?.patch.captions ?? [])].filter(
+        (i) => res?.ids.includes(i.id),
+      );
+      expect(copies.map((c) => [c.startMs, c.endMs])).toEqual([
+        [1500, 2500],
+        [2000, 3000],
+      ]);
+      expect(res?.patch.captions?.[1]?.words[0]).toMatchObject({ t0: 2000, t1: 3000 });
+    });
+
+    it("skips copies that would overlap or run past the end; null when none fit", () => {
+      const d = doc({ zoomRegions: [zoom("z1", 0, 1000), zoom("z2", 1200, 2000)] });
+      expect(duplicateSelection(d, new Set(["z1"]), makeId)).toBeNull();
+      const end = doc({ speedRegions: [speed("s1", 8000, 10_000)] });
+      expect(duplicateSelection(end, new Set(["s1"]), makeId)).toBeNull();
+      expect(duplicateSelection(d, new Set(), makeId)).toBeNull();
+    });
+  });
+
+  describe("duplicateItemAt", () => {
+    it("adds a copy at the dropped span and keeps the original", () => {
+      const d = doc({ annotations: [], zoomRegions: [zoom("z1", 0, 1000)] });
+      const res = duplicateItemAt(d, "zoom", { id: "z1", startMs: 4000, endMs: 5000 }, makeId);
+      expect(res?.patch.zoomRegions?.map((r) => r.startMs)).toEqual([0, 4000]);
+      expect(res?.id).not.toBe("z1");
+    });
+
+    it("refuses on top of the original, off the timeline, on video or unknown ids", () => {
+      const d = doc({ zoomRegions: [zoom("z1", 0, 1000)] });
+      expect(
+        duplicateItemAt(d, "zoom", { id: "z1", startMs: 500, endMs: 1500 }, makeId),
+      ).toBeNull();
+      expect(
+        duplicateItemAt(d, "zoom", { id: "z1", startMs: 9500, endMs: 10_500 }, makeId),
+      ).toBeNull();
+      expect(duplicateItemAt(d, "video", { id: "k1", startMs: 0, endMs: 10 }, makeId)).toBeNull();
+      expect(duplicateItemAt(d, "zoom", { id: "x", startMs: 0, endMs: 10 }, makeId)).toBeNull();
+    });
+  });
+
+  describe("alignSelectionStart", () => {
+    it("moves every selected region to the earliest start", () => {
+      const d = doc({
+        zoomRegions: [zoom("z1", 1000, 2000)],
+        speedRegions: [speed("s1", 3000, 5000)],
+        captions: [caption("c1", 4000, 4500)],
+      });
+      const patch = alignSelectionStart(d, new Set(["z1", "s1", "c1"]));
+      expect(patch?.zoomRegions).toBeUndefined();
+      expect(patch?.speedRegions?.[0]).toMatchObject({ startMs: 1000, endMs: 3000 });
+      expect(patch?.captions?.[0]?.words[0]).toMatchObject({ t0: 1000, t1: 1500 });
+    });
+
+    it("refuses overlaps on a no-overlap track and needs two regions", () => {
+      const d = doc({ zoomRegions: [zoom("z1", 0, 1000), zoom("z2", 2000, 3000)] });
+      expect(alignSelectionStart(d, new Set(["z1", "z2"]))).toBeNull();
+      expect(alignSelectionStart(d, new Set(["z1"]))).toBeNull();
+    });
+  });
+
+  it("applyItemsChange folds several drops into one patch", () => {
+    const d = doc({ zoomRegions: [zoom("z1", 0, 1000), zoom("z2", 2000, 3000)] });
+    const patch = applyItemsChange(d, [
+      { kind: "zoom", span: { id: "z1", startMs: 0, endMs: 1500 } },
+      { kind: "zoom", span: { id: "z2", startMs: 2500, endMs: 3000 } },
+    ]);
+    expect(patch?.zoomRegions?.map((r) => [r.startMs, r.endMs])).toEqual([
+      [0, 1500],
+      [2500, 3000],
+    ]);
+    expect(
+      applyItemsChange(d, [{ kind: "zoom", span: { id: "x", startMs: 0, endMs: 1 } }]),
+    ).toBeNull();
   });
 });
 

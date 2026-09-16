@@ -1,0 +1,20 @@
+{
+  "timeline.region": "Timeline",
+  "timeline.waveform": "Audio waveform",
+  "timeline.addAtPlayhead": "Add {track} at playhead",
+  "timeline.trackGroup": "{track} track",
+  "timeline.itemName": "{noun} {label} {start}–{end}",
+  "timeline.clipLabel": "Clip {index}",
+
+  "timeline.track.video": "Video",
+  "timeline.track.zoom": "Zoom",
+  "timeline.track.speed": "Speed",
+  "timeline.track.annotations": "Annotations",
+  "timeline.track.captions": "Captions",
+
+  "timeline.item.video": "Clip",
+  "timeline.item.zoom": "Zoom",
+  "timeline.item.speed": "Speed",
+  "timeline.item.annotations": "Annotation",
+  "timeline.item.captions": "Caption"
+}

@@ -15,6 +15,7 @@ import {
   IPC_UNAVAILABLE,
   type IpcClient,
   type MainRecordingEvent,
+  createIpcHudWindowsPort,
   createIpcProjectPort,
   createIpcRecordingPort,
   createIpcSystemPort,
@@ -165,6 +166,40 @@ describe("createIpcRecordingPort", () => {
     off();
     ipc.emit("recording:event", { sessionId: "s", type: "resumed", recordedMs: 5 });
     expect(seen).toEqual([{ sessionId: "s", type: "paused", elapsedMs: 5 }]);
+  });
+
+  it("setMicMuted sends recording:setMicMuted with the session and state", async () => {
+    const ipc = fakeIpc({ "recording:setMicMuted": async () => ({ ok: true, applied: false }) });
+    const port = createIpcRecordingPort(ipc.client);
+    await port.setMicMuted?.("s1", true);
+    await port.setMicMuted?.("s1", false);
+    expect(ipc.calls).toEqual([
+      { channel: "recording:setMicMuted", payload: { sessionId: "s1", muted: true } },
+      { channel: "recording:setMicMuted", payload: { sessionId: "s1", muted: false } },
+    ]);
+  });
+
+  it("onTranscodeProgress delivers recording:transcodeProgress payloads until unsubscribed", () => {
+    const ipc = fakeIpc();
+    const port = createIpcRecordingPort(ipc.client);
+    const seen: unknown[] = [];
+    const off = port.onTranscodeProgress?.((p) => seen.push(p));
+    const done = {
+      sessionId: "s1",
+      progress: 1,
+      done: true,
+      outputPath: "/rec/s1/screen.h264.mp4",
+    };
+    ipc.emit("recording:transcodeProgress", done);
+    off?.();
+    ipc.emit("recording:transcodeProgress", {
+      ...done,
+      progress: 0.5,
+      done: false,
+      outputPath: null,
+    });
+    expect(seen).toEqual([done]);
+    expect(ipc.listeners.get("recording:transcodeProgress")?.size).toBe(0);
   });
 
   it("sends the chunk ArrayBuffer itself, with timing only when present", async () => {
@@ -318,6 +353,45 @@ describe("windows / project / system ports", () => {
     ]);
   });
 
+  it("HUD windows port prepares, commits and maps 'no HUD' to null", async () => {
+    const previous = { x: 440, y: 836, width: 560, height: 64 };
+    const target = { x: 570, y: 844, width: 300, height: 48 };
+    let hudOpen = true;
+    const ipc = fakeIpc({
+      "windows:setHudExpansion": async () =>
+        hudOpen
+          ? { ok: true, layout: null, commitId: 1, previous: target, target: previous }
+          : { ok: true, layout: null, commitId: null, previous: null, target: null },
+      "windows:setHudSize": async () => ({ ok: true, commitId: 2, previous, target }),
+      "windows:commitHudExpansion": async () => ({ ok: true, applied: true }),
+    });
+    const w = createIpcHudWindowsPort(ipc.client);
+    await expect(w.setHudExpansion(null)).resolves.toEqual({
+      commitId: 1,
+      previous: target,
+      target: previous,
+      layout: null,
+    });
+    await expect(w.setHudSize({ width: 300, height: 48, anchor: "center" })).resolves.toEqual({
+      commitId: 2,
+      previous,
+      target,
+    });
+    await expect(w.commitHudLayout(2)).resolves.toBe(true);
+    await w.openSourceOutline("d1");
+    await w.closeKind("source-outline");
+    hudOpen = false;
+    await expect(w.setHudExpansion({ width: 560, height: 104 })).resolves.toBeNull();
+    expect(ipc.calls.map((c) => [c.channel, c.payload])).toEqual([
+      ["windows:setHudExpansion", { size: null }],
+      ["windows:setHudSize", { width: 300, height: 48, anchor: "center" }],
+      ["windows:commitHudExpansion", { commitId: 2 }],
+      ["windows:openSourceOutline", { displayId: "d1" }],
+      ["windows:closeKind", { kind: "source-outline" }],
+      ["windows:setHudExpansion", { size: { width: 560, height: 104 } }],
+    ]);
+  });
+
   it("project + system ports map to project:create/save/trash and permissions:openSettings", async () => {
     const ipc = fakeIpc({
       "project:create": async () => ({
@@ -328,12 +402,52 @@ describe("windows / project / system ports", () => {
       }),
       "project:save": async () => ({ path: "/p.reelform", modifiedAt: "x", backupName: null }),
       "project:trash": async () => ({ trashed: true }),
+      "project:replaceSource": async () => ({
+        applied: true,
+        path: "media/screen.h264.mp4",
+        modifiedAt: "x",
+        removed: [],
+      }),
+      "project:relink": async () => ({
+        path: "media/screen.h264.mp4",
+        probe: { durationMs: 42_000, width: 3024, height: 1964 },
+      }),
+      "project:open": async () => ({
+        path: "/p.reelform",
+        document: { v: 1 },
+        modifiedAt: null,
+        recovery: null,
+      }),
     });
     const projects = createIpcProjectPort(ipc.client);
     await expect(projects.create({ name: "R", document: {} })).resolves.toMatchObject({
       path: "/p.reelform",
     });
     await projects.save({ path: "/p.reelform", document: {} });
+    await expect(
+      projects.relink?.({
+        path: "/p.reelform",
+        filePath: "/rec/s1/screen.h264.mp4",
+        expected: { durationMs: 42_000 },
+        mode: "copy",
+      }),
+    ).resolves.toEqual({
+      path: "media/screen.h264.mp4",
+      probe: { durationMs: 42_000, width: 3024, height: 1964 },
+    });
+    await expect(
+      projects.replaceSource?.({
+        path: "/p.reelform",
+        source: "video",
+        filePath: "/rec/s1/screen.h264.mp4",
+        replaces: "media/screen.mp4",
+        expected: { durationMs: 42_000 },
+        codec: "h264",
+      }),
+    ).resolves.toMatchObject({ applied: true, path: "media/screen.h264.mp4" });
+    await expect(projects.open?.({ path: "/p.reelform" })).resolves.toMatchObject({
+      document: { v: 1 },
+    });
     const reveal = vi.fn(async () => {});
     const system = createIpcSystemPort(reveal, ipc.client);
     await system.reveal("/p.reelform");
@@ -343,6 +457,9 @@ describe("windows / project / system ports", () => {
     expect(ipc.calls.map((c) => c.channel)).toEqual([
       "project:create",
       "project:save",
+      "project:relink",
+      "project:replaceSource",
+      "project:open",
       "project:trash",
       "permissions:openSettings",
     ]);

@@ -3,6 +3,7 @@ import type { ReactElement } from "react";
 import { useProjectSession } from "../../app/project/session";
 import type { Clip } from "../model/schema";
 import { usePlaybackStore } from "../playback";
+import type { CanvasEdit } from "../state/canvasGesture";
 import { type EditorData, type EditorState, useEditorStore } from "../store";
 import { PreviewCanvas } from "./PreviewCanvas";
 import { buildCursorMotion } from "./cursorEffects";
@@ -21,8 +22,12 @@ export interface EditorPreviewProps {
   createStage?: CreatePreviewStage | undefined;
   /** "Locate…" on the media-offline overlay. */
   onLocateMedia?: (() => void) | undefined;
-  /** Store writer for canvas edits; defaults to `useEditorStore`'s `update`. */
-  update?: ((patch: Partial<EditorData>) => void) | undefined;
+  /**
+   * Writer for canvas edits; defaults to `useEditorStore`'s `update`. `edit`
+   * names the gesture (label + coalesce key) and marks the pointer release, so a
+   * history-backed writer records one undo entry per gesture.
+   */
+  update?: ((patch: Partial<EditorData>, edit: CanvasEdit) => void) | undefined;
   /** Top-bar preview quality (Auto / Full / Half). */
   quality?: PreviewQuality | undefined;
   /** Timeline playhead drag in progress (fastSeek). */
@@ -47,6 +52,17 @@ export interface EditorPreviewProps {
 const selectStoreClips = (e: EditorState): readonly Clip[] | undefined =>
   (e as EditorState & { clips?: readonly Clip[] | undefined }).clips;
 
+/** Undo labels + per-gesture coalesce keys for canvas edits (SPEC §7). */
+export const CANVAS_EDITS = {
+  zoomFocus: (id: string) => ({ label: "Move zoom focus", coalesceKey: `canvas:zoomFocus:${id}` }),
+  annotation: (id: string) => ({
+    label: "Move annotation",
+    coalesceKey: `canvas:annotation:${id}`,
+  }),
+  crop: { label: "Crop", coalesceKey: "canvas:crop" },
+  webcam: { label: "Move webcam", coalesceKey: "canvas:webcam" },
+} as const;
+
 /**
  * The editor's preview, bound to its stores: document (editor store), transport
  * (playback store) and open project (project session). EditorWindow renders this;
@@ -70,6 +86,7 @@ export function EditorPreview({
 }: EditorPreviewProps): ReactElement {
   const frame = useEditorStore((e) => e.frame);
   const zoomRegions = useEditorStore((e) => e.zoomRegions);
+  const camera = useEditorStore((e) => e.zoom.camera);
   const cursor = useEditorStore((e) => e.cursor);
   const annotations = useEditorStore((e) => e.annotations);
   const selectedZoomId = useEditorStore((e) => e.selectedZoomId);
@@ -90,7 +107,10 @@ export function EditorPreview({
   const shuttleRate = usePlaybackStore((p) => p.shuttleRate);
   const fps = usePlaybackStore((p) => p.fps);
 
-  const videoUrl = useProjectSession((s) => s.videoUrl);
+  const originalUrl = useProjectSession((s) => s.videoUrl);
+  const proxyUrl = useProjectSession((s) => s.proxyUrl);
+  // Auto / Half play the low-res proxy once it exists; Full (and export) use the original.
+  const videoUrl = proxyUrl !== null && quality !== "full" ? proxyUrl : originalUrl;
   const webcamUrl = useProjectSession((s) => s.webcamUrl);
   const sourceSize = useProjectSession((s) => s.sourceSize);
   const cursorTrack = useProjectSession((s) => s.cursorTrack);
@@ -139,6 +159,7 @@ export function EditorPreview({
     <PreviewCanvas
       frame={frame}
       zoomRegions={zoomRegions}
+      camera={camera}
       cursor={cursor}
       cursorTrack={cursorTrack}
       currentMs={currentMs}
@@ -171,25 +192,34 @@ export function EditorPreview({
       cropMode={cropMode}
       onCropModeChange={setCropMode}
       onCropCommit={(crop) => {
-        update({ frame: { ...frame, crop } });
+        update({ frame: { ...frame, crop } }, { ...CANVAS_EDITS.crop, commit: true });
         onCropCommit?.(crop);
       }}
       onZoomFocusChange={(id, focus, commit) => {
-        update({
-          zoomRegions: zoomRegions.map((r) =>
-            r.id === id ? { ...r, focus: { mode: "fixed", x: focus.x, y: focus.y } } : r,
-          ),
-        });
+        update(
+          {
+            zoomRegions: zoomRegions.map((r) =>
+              r.id === id ? { ...r, focus: { mode: "fixed", x: focus.x, y: focus.y } } : r,
+            ),
+          },
+          { ...CANVAS_EDITS.zoomFocus(id), commit },
+        );
         onZoomFocusChange?.(id, focus, commit);
       }}
       onAnnotationBoxChange={(id, box, commit) => {
-        update({ annotations: annotations.map((a) => (a.id === id ? { ...a, ...box } : a)) });
+        update(
+          { annotations: annotations.map((a) => (a.id === id ? { ...a, ...box } : a)) },
+          { ...CANVAS_EDITS.annotation(id), commit },
+        );
         onAnnotationBoxChange?.(id, box, commit);
       }}
       onWebcamMove={(pos, commit) => {
-        update({
-          webcam: { ...webcam, anchor: pos.anchor, customX: pos.customX, customY: pos.customY },
-        });
+        update(
+          {
+            webcam: { ...webcam, anchor: pos.anchor, customX: pos.customX, customY: pos.customY },
+          },
+          { ...CANVAS_EDITS.webcam, commit },
+        );
         onWebcamMove?.(pos, commit);
       }}
     />

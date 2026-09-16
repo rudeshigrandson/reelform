@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_ZOOM_SETTINGS,
@@ -169,7 +169,8 @@ describe("ZoomInspector — region selected", () => {
 
   it("marks no anchor for a custom focus point", () => {
     setup({ selectedRegion: region({ focus: { mode: "fixed", x: 0.3, y: 0.7 } }) });
-    for (const r of screen.getAllByRole("radio").filter((el) => el.tagName === "BUTTON")) {
+    const focus = screen.getByRole("radiogroup", { name: "Focus" });
+    for (const r of within(focus).getAllByRole("radio")) {
       expect(r).toHaveAttribute("aria-checked", "false");
     }
     expect(screen.getByLabelText("Y")).toHaveValue(70);

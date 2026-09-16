@@ -4,6 +4,7 @@ import { join } from "node:path";
 import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { systemProjectFileContracts } from "./contracts";
+import { createPickedPathRegistry } from "./pickedPaths";
 import {
   ProjectFileError,
   createProjectFileHandlers,
@@ -11,7 +12,7 @@ import {
   resolveInProject,
   sanitizeFileName,
 } from "./projectFiles";
-import { createNodeProjectFileDeps } from "./projectFilesNode";
+import { createNodeProjectFileDeps, isInsideProjectFolder } from "./projectFilesNode";
 
 let dir: string;
 let project: string;
@@ -80,6 +81,102 @@ describe("system:readTextFile / system:writeTextFile", () => {
   });
 });
 
+describe("text I/O access policy (§13)", () => {
+  const enforced = (opts: { picked?: string[]; projectOnly?: boolean } = {}) => {
+    const pickedPaths = createPickedPathRegistry("linux");
+    for (const p of opts.picked ?? []) pickedPaths.add(p);
+    return createProjectFileHandlers(
+      createNodeProjectFileDeps({
+        platform: "darwin",
+        pickedPaths,
+        isProjectPath: opts.projectOnly === false ? undefined : isInsideProjectFolder,
+      }),
+    );
+  };
+
+  beforeEach(async () => {
+    await writeFile(join(project, "project.json"), "{}");
+  });
+
+  it("allows dialog-picked paths anywhere with a text extension", async () => {
+    const target = join(dir, "Desktop", "captions.srt");
+    const h2 = enforced({ picked: [target] });
+    await h2["system:writeTextFile"]({ path: target, contents: "1\n" });
+    expect(await h2["system:readTextFile"]({ path: target })).toEqual({ text: "1\n" });
+  });
+
+  it("allows paths inside a project folder, creating parents", async () => {
+    const target = join(project, "exports", "captions.vtt");
+    const h2 = enforced();
+    await h2["system:writeTextFile"]({ path: target, contents: "WEBVTT" });
+    expect(await h2["system:readTextFile"]({ path: target })).toEqual({ text: "WEBVTT" });
+  });
+
+  it("rejects unpicked paths outside projects without touching the disk", async () => {
+    const target = join(dir, "elsewhere", "notes.txt");
+    const h2 = enforced();
+    await expect(h2["system:writeTextFile"]({ path: target, contents: "x" })).rejects.toMatchObject(
+      { code: "PATH_OUTSIDE_PROJECT" },
+    );
+    await expect(readFile(target, "utf8")).rejects.toThrow();
+    await writeFile(join(dir, "secret.json"), "{}");
+    await expect(
+      h2["system:readTextFile"]({ path: join(dir, "secret.json") }),
+    ).rejects.toMatchObject({ code: "PATH_OUTSIDE_PROJECT" });
+  });
+
+  it("rejects non-text extensions even when picked or inside a project", async () => {
+    const picked = join(dir, "movie.mp4");
+    const h2 = enforced({ picked: [picked] });
+    await expect(h2["system:writeTextFile"]({ path: picked, contents: "x" })).rejects.toMatchObject(
+      {
+        code: "PATH_OUTSIDE_PROJECT",
+      },
+    );
+    await expect(
+      h2["system:readTextFile"]({ path: join(project, "media", "screen.mp4") }),
+    ).rejects.toMatchObject({ code: "PATH_OUTSIDE_PROJECT" });
+  });
+
+  it("a folder named .reelform without project.json is not a project", async () => {
+    const fake = join(dir, "Fake.reelform");
+    await mkdir(fake, { recursive: true });
+    await expect(
+      enforced()["system:writeTextFile"]({ path: join(fake, "a.txt"), contents: "x" }),
+    ).rejects.toMatchObject({ code: "PATH_OUTSIDE_PROJECT" });
+  });
+
+  it("a symlink out of a project does not count as inside it", async () => {
+    const outside = join(dir, "outside");
+    await mkdir(outside, { recursive: true });
+    const linked = await symlink(outside, join(project, "escape")).then(
+      () => true,
+      () => false,
+    );
+    if (!linked) return;
+    expect(await isInsideProjectFolder(join(project, "escape", "a.txt"))).toBe(false);
+    expect(await isInsideProjectFolder(join(project, "cache", "new", "a.txt"))).toBe(true);
+  });
+
+  it("picked-only mode (no project predicate) still enforces", async () => {
+    const h2 = enforced({ projectOnly: false });
+    await expect(h2["system:readTextFile"]({ path: join(project, "a.txt") })).rejects.toMatchObject(
+      { code: "PATH_OUTSIDE_PROJECT" },
+    );
+  });
+
+  it("picked-path registry normalizes and folds case on macOS/Windows", () => {
+    const mac = createPickedPathRegistry("darwin");
+    mac.add("/Users/Me/Desktop/../Desktop/A.srt");
+    expect(mac.has("/users/me/desktop/a.srt")).toBe(true);
+    const linux = createPickedPathRegistry("linux");
+    linux.add("/home/me/A.srt");
+    expect(linux.has("/home/me/a.srt")).toBe(false);
+    linux.add("bad\0path");
+    expect(linux.has("bad\0path")).toBe(false);
+  });
+});
+
 describe("system:copyIntoProject", () => {
   it("copies into media/imported/<kind> and uniquifies on collision", async () => {
     const src = join(dir, "My Music.mp3");
@@ -112,6 +209,47 @@ describe("system:copyIntoProject", () => {
         sourcePath: join(dir, "gone.mp4"),
       }),
     ).rejects.toMatchObject({ code: "SOURCE_NOT_FOUND" });
+  });
+});
+
+describe("system:storeFramePresetImage", () => {
+  const withAssets = () =>
+    createProjectFileHandlers(
+      createNodeProjectFileDeps({
+        platform: "darwin",
+        presetAssetsDir: join(dir, "frame-presets"),
+      }),
+    );
+
+  it("copies a project image into the app preset folder and uniquifies names", async () => {
+    await mkdir(join(project, "media/imported/image"), { recursive: true });
+    await writeFile(join(project, "media/imported/image/bg.png"), "png-bytes");
+    const req = { projectPath: project, relPath: "media/imported/image/bg.png" };
+    const first = await withAssets()["system:storeFramePresetImage"](req);
+    const second = await withAssets()["system:storeFramePresetImage"](req);
+    expect(first.path).toBe(join(dir, "frame-presets", "bg.png"));
+    expect(second.path).toBe(join(dir, "frame-presets", "bg (2).png"));
+    expect(await readFile(first.path, "utf8")).toBe("png-bytes");
+    expect(
+      systemProjectFileContracts["system:storeFramePresetImage"].response.parse(first),
+    ).toEqual(first);
+  });
+
+  it("rejects missing images, non-images, escapes and an unconfigured folder", async () => {
+    await writeFile(join(project, "media/notes.txt"), "x");
+    const store = withAssets()["system:storeFramePresetImage"];
+    await expect(store({ projectPath: project, relPath: "media/gone.png" })).rejects.toMatchObject({
+      code: "SOURCE_NOT_FOUND",
+    });
+    await expect(store({ projectPath: project, relPath: "media/notes.txt" })).rejects.toMatchObject(
+      { code: "INVALID_PATH" },
+    );
+    await expect(store({ projectPath: project, relPath: "../outside.png" })).rejects.toMatchObject({
+      code: "PATH_OUTSIDE_PROJECT",
+    });
+    await expect(
+      h()["system:storeFramePresetImage"]({ projectPath: project, relPath: "media/a.png" }),
+    ).rejects.toMatchObject({ code: "NOT_CONFIGURED" });
   });
 });
 

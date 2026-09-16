@@ -35,6 +35,10 @@ import { type RecordingError, type RecordingPort, type TrackKind, toRecordingErr
  * Electron capture backend, renderer side (ENGINEERING_SPEC §5.2): acquires the
  * desktop / mic / system / webcam streams, runs one MediaRecorder per track and
  * streams chunks to main through the RecordingPort.
+ *
+ * Without `desktop` it records only the devices it is given — the webcam next
+ * to a native helper that captures the screen (§5.7). The first chunk of the
+ * alignment track (screen, else webcam) carries the recorder timing.
  */
 
 export interface CaptureDeps {
@@ -58,7 +62,8 @@ export interface CaptureDeps {
 export interface CaptureOptions {
   sessionId: string;
   platform: Platform;
-  desktop: DesktopConstraintOptions;
+  /** Omit for a device-only capture (webcam recorded beside a native helper). */
+  desktop?: DesktopConstraintOptions | undefined;
   fps: CaptureFps;
   mic?: { deviceId?: string | undefined } | undefined;
   systemAudio: boolean;
@@ -98,10 +103,13 @@ export interface CaptureSession {
   resume(): void;
   stop(): Promise<StopResult>;
   discard(): Promise<void>;
+  /** Mute / unmute the mic track mid-recording (records silence; §5.7). No-op without a mic. */
+  setMicMuted?(muted: boolean): void;
 }
 
 export const SYSTEM_AUDIO_UNAVAILABLE = "system-audio-unavailable";
 export const NO_SUPPORTED_MIME = "no-supported-mime";
+export const NO_CAPTURE_TRACKS = "capture-no-tracks";
 const FALLBACK_SIZE = { width: 1920, height: 1080 };
 
 interface ActiveTrack {
@@ -133,19 +141,28 @@ export async function startCapture(
   const acquired: MediaStreamLike[] = [];
   const epoch = (): number => deps.timeOrigin + deps.now();
 
+  const desktop = opts.desktop;
+  if (!desktop && !opts.mic && !opts.webcam) {
+    throw { code: NO_CAPTURE_TRACKS, message: "Nothing to capture" };
+  }
   const videoMime = negotiateVideoMime(deps.isTypeSupported);
-  if (!videoMime) {
+  if (!videoMime && (desktop || opts.webcam)) {
     throw { code: NO_SUPPORTED_MIME, message: "MediaRecorder supports no video format" };
   }
   const audioMime = negotiateAudioMime(deps.isTypeSupported);
-  const desktopOpts: DesktopConstraintOptions = { ...opts.desktop, fps: opts.fps };
+  /** Track whose first chunk carries the recorder timing (§5.6). */
+  const timingTrack: TrackKind = desktop ? "screen" : "webcam";
 
   const streams: { kind: TrackKind; stream: MediaStreamLike; mimeType: string; bps: number }[] = [];
-  const pixel = opts.desktop.size
-    ? sourcePixelSize(opts.desktop.size, opts.desktop.scaleFactor)
-    : FALLBACK_SIZE;
 
-  try {
+  const acquireDesktop = async (
+    desktopBase: DesktopConstraintOptions,
+    videoMimeType: string,
+  ): Promise<void> => {
+    const desktopOpts: DesktopConstraintOptions = { ...desktopBase, fps: opts.fps };
+    const pixel = desktopBase.size
+      ? sourcePixelSize(desktopBase.size, desktopBase.scaleFactor)
+      : FALLBACK_SIZE;
     // Desktop video (+ loopback audio on win/linux).
     let videoStream: MediaStreamLike | null = null;
     if (opts.systemAudio) {
@@ -183,17 +200,22 @@ export async function startCapture(
     streams.unshift({
       kind: "screen",
       stream: videoStream,
-      mimeType: videoMime.mimeType,
+      mimeType: videoMimeType,
       bps: videoBitrate(pixel, opts.fps),
     });
+  };
 
+  try {
+    if (desktop && videoMime) {
+      await acquireDesktop(desktop, videoMime.mimeType);
+    }
     if (opts.mic) {
       if (!audioMime) throw { code: NO_SUPPORTED_MIME, message: "No supported audio format" };
       const mic = await deps.getUserMedia(buildMicConstraints(opts.mic.deviceId));
       acquired.push(mic);
       streams.push({ kind: "mic", stream: mic, mimeType: audioMime, bps: MIC_BITRATE });
     }
-    if (opts.webcam) {
+    if (opts.webcam && videoMime) {
       const cam = await deps.getUserMedia(
         buildWebcamConstraints(opts.webcam.deviceId, opts.webcam.quality),
       );
@@ -237,7 +259,7 @@ export async function startCapture(
         write: (req) => deps.port.writeChunk(req),
         onError: (err) => reportError(s.kind, err),
         firstChunkTiming:
-          s.kind === "screen"
+          s.kind === timingTrack
             ? () => ({
                 timeOriginMs: deps.timeOrigin,
                 recorderStartMs: recorderStartNow,
@@ -268,7 +290,7 @@ export async function startCapture(
           : { mimeType: s.mimeType, videoBitsPerSecond: s.bps },
         {
           onData: (blob) => {
-            if (s.kind === "screen" && timing.firstDataEpochMs === null && blob.size > 0) {
+            if (s.kind === timingTrack && timing.firstDataEpochMs === null && blob.size > 0) {
               firstDataNow = deps.now();
               timing.firstDataEpochMs = deps.timeOrigin + firstDataNow;
             }
@@ -348,6 +370,14 @@ export async function startCapture(
     );
   };
 
+  let micMuted = false;
+  const applyMicMuted = (): void => {
+    for (const t of active) {
+      if (t.kind !== "mic") continue;
+      for (const track of t.stream.getAudioTracks()) track.enabled = !micMuted;
+    }
+  };
+
   const closePausedRange = (): void => {
     const last = timing.pausedRanges[timing.pausedRanges.length - 1];
     if (last && last.endEpochMs === null) last.endEpochMs = epoch();
@@ -369,6 +399,11 @@ export async function startCapture(
       timing.pausedRanges.push({ startEpochMs: epoch(), endEpochMs: null });
       for (const t of active) if (t.recorder?.state === "recording") t.recorder.pause();
       meter?.setPaused(true);
+    },
+    setMicMuted: (muted: boolean) => {
+      if (state === "stopped" || state === "discarded") return;
+      micMuted = muted;
+      applyMicMuted();
     },
     resume: () => {
       if (state !== "paused") return;

@@ -3,9 +3,12 @@ import { type ReactElement, useEffect, useRef, useState } from "react";
 import { useEditorStore } from "../../editor/store";
 import { selectRoute } from "../../export/route";
 import { ExportDialog } from "../../export/ui/ExportDialog";
+import { formatTimecode } from "../../export/ui/controls";
 import type { ExportUiConfig } from "../../export/ui/types";
+import { useT } from "../../i18n";
 import { useProjectSession } from "../project/session";
-import { ExportOptions } from "./ExportOptions";
+import { useAppSettings } from "../settings/store";
+import { ExportAfterOptions, ExportMediaOptions, ExportOutputOptions } from "./ExportOptions";
 import { ExportDoneView, ExportProblemView, ExportProgressView, ExportToast } from "./ExportStatus";
 import {
   type EncoderCapabilities,
@@ -32,10 +35,12 @@ import {
   type ExportStoreSnapshot,
   createDefaultExportDeps,
 } from "./defaultDeps";
+import { ExportFlowError } from "./exportSink";
 import {
   type ExportFlowPhase,
   type ExportRunner,
   type ExportRunnerDeps,
+  FFMPEG_UNAVAILABLE,
   createExportRunner,
   progressPatchFor,
 } from "./runner";
@@ -86,6 +91,7 @@ function toUiConfig(c: ExportFlowConfig): ExportUiConfig {
 
 export function ExportController(props: ExportControllerProps): ReactElement | null {
   const { open, onClose, systemPort } = props;
+  const t = useT();
   const durationMs = useEditorStore((s) => s.durationMs);
   const captionCount = useEditorStore((s) => s.captions.length);
   const projectId = useProjectSession((s) => s.projectId);
@@ -98,7 +104,7 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
   const [caps, setCaps] = useState<EncoderCapabilities | null>(() => cache.peek());
   const [phase, setPhase] = useState<ExportFlowPhase>({ kind: "configuring" });
   const [config, setConfig] = useState<ExportFlowConfig>(() =>
-    defaultFlowConfig(projectName ?? "Export"),
+    defaultFlowConfig(projectName ?? t("exportFlow.defaultFileName")),
   );
   const [attempted, setAttempted] = useState(false);
   const [copyState, setCopyState] = useState<CopyState>("idle");
@@ -122,6 +128,25 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
       runGif: (a) => requireDeps().runGif(a),
       createSink: (t) => requireDeps().createSink(t),
       writeFile: (t, c, b) => requireDeps().writeFile(t, c, b),
+      streamFile: (t, c, w) => requireDeps().streamFile(t, c, w),
+      muxAudio: (r) => {
+        const mux = requireDeps().muxAudio;
+        if (!mux) {
+          return Promise.reject(
+            new ExportFlowError(FFMPEG_UNAVAILABLE, "ffmpeg is not available to mux audio"),
+          );
+        }
+        return mux(r);
+      },
+      deleteRawSource: async () => {
+        const removed = await requireDeps().deleteRawSource?.();
+        // The editor's video is in the OS trash now: show it offline instead of a broken preview.
+        const session = useProjectSession.getState();
+        const video = session.meta?.sources.video.path;
+        if (Array.isArray(removed) && video !== undefined && removed.includes(video)) {
+          session.setSession({ mediaOffline: true });
+        }
+      },
       get system() {
         return propsRef.current.systemPort;
       },
@@ -180,9 +205,14 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
     if (!range) return;
     const editor = useEditorStore.getState();
     const session = useProjectSession.getState();
+    const { gpuExport, autoDeleteRawAfterExport } = useAppSettings.getState().settings;
     let preferHardware = merged.hardwareAcceleration;
     let notice: string | null = null;
-    if (merged.format !== "gif" && caps) {
+    if (merged.format !== "gif" && gpuExport === "off") {
+      // Settings → Advanced → GPU export: off forces the software encoder.
+      if (preferHardware) notice = t("exportFlow.notice.gpuOff");
+      preferHardware = false;
+    } else if (merged.format !== "gif" && caps) {
       const route = selectRoute(
         toEngineConfig(merged),
         {
@@ -194,11 +224,12 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
           hasSpeeds: editor.speedRegions.length > 0,
         },
         hardwareCaps(caps),
+        { gpuExport },
       );
       // `native-static` (ffmpeg fast path) isn't bundled in this build; it runs on WebCodecs.
       if (route === "software-fallback" && preferHardware) {
         preferHardware = false;
-        notice = "Hardware encoder unavailable — using the software encoder";
+        notice = t("exportFlow.notice.hardwareUnavailable");
       }
     }
     buildDeps();
@@ -213,6 +244,7 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
       notice,
       captions: editor.captions,
       speeds: editor.speedRegions,
+      deleteRawAfterExport: autoDeleteRawAfterExport,
     });
   };
 
@@ -233,7 +265,9 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
   const patch = (p: Partial<ExportFlowConfig>): void => setConfig((c) => ({ ...c, ...p }));
 
   const pickFolder = async (): Promise<boolean> => {
-    const dir = await systemPort.pickFolder({ title: "Export to" }).catch(() => null);
+    const dir = await systemPort
+      .pickFolder({ title: t("exportFlow.pickFolderTitle") })
+      .catch(() => null);
     if (dir) patch({ destinationDir: dir });
     return dir !== null;
   };
@@ -305,10 +339,10 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
       <Dialog
         open={open}
         onClose={onClose}
-        title="Export"
+        title={t("exportFlow.title")}
         actions={
           <Button variant="primary" onClick={onClose}>
-            Close
+            {t("exportFlow.close")}
           </Button>
         }
       >
@@ -316,16 +350,24 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
           data-testid="export-empty"
           style={{ fontFamily: "var(--font-body)", color: "var(--text-2)" }}
         >
-          Open or record a project to export it.
+          {t("exportFlow.empty")}
         </div>
       </Dialog>
     );
   }
 
+  const range = resolveRange(config.range, rangeSources);
+  const rangeMs = range ? range.endMs - range.startMs : Math.max(0, durationMs);
+  const gifSize = gifDimensions(config.gif.sizePreset, sourceSize ?? PLACEHOLDER_SOURCE);
+  const doneDetails =
+    config.format === "gif"
+      ? [`${gifSize.height}p${config.gif.fps}`, formatTimecode(rangeMs)]
+      : [`${config.height}p${config.fps}`, formatTimecode(rangeMs)];
+
   switch (phase.kind) {
     case "running":
       return (
-        <Dialog open={open} onClose={onClose} title="Exporting">
+        <Dialog open={open} onClose={onClose}>
           <ExportProgressView
             phase={phase}
             onCancel={() => runner.cancel()}
@@ -335,10 +377,11 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
       );
     case "done":
       return (
-        <Dialog open={open} onClose={closeDialog} title="Export">
+        <Dialog open={open} onClose={closeDialog}>
           <ExportDoneView
             phase={phase}
             copyState={copyState}
+            details={doneDetails}
             onReveal={reveal}
             onCopy={() => void copy()}
             onExportAnother={backToSettings}
@@ -350,7 +393,7 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
     case "low-disk":
     case "codec-unsupported":
       return (
-        <Dialog open={open} onClose={closeDialog} title="Export">
+        <Dialog open={open} onClose={closeDialog} tone="danger">
           <ExportProblemView
             phase={phase}
             diagnosticsCopied={diagnosticsCopied}
@@ -377,14 +420,37 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
   }
 
   // ── Configuring ───────────────────────────────────────────────────────────
-  const range = resolveRange(config.range, rangeSources);
-  const rangeMs = range ? range.endMs - range.startMs : Math.max(0, durationMs);
-  const gifSize = gifDimensions(config.gif.sizePreset, sourceSize ?? PLACEHOLDER_SOURCE);
   const sizeEstimate = formatBytes(
     config.format === "gif"
-      ? roughGifBytes(gifSize.width, gifSize.height, config.gif.fps, config.gif.colors, rangeMs)
+      ? roughGifBytes(
+          gifSize.width,
+          gifSize.height,
+          config.gif.fps,
+          config.gif.colors,
+          rangeMs,
+          config.gif.palette,
+        )
       : estimateVideoBytes(config, rangeMs),
   );
+  const optionProps = {
+    config,
+    onChange: patch,
+    hasSelection: resolveRange("selection", rangeSources) !== null,
+    hasInOut: resolveRange("in-out", rangeSources) !== null,
+    hasCaptions: captionCount > 0,
+  };
+  const hardwareEncoder =
+    caps !== null &&
+    config.hardwareAcceleration &&
+    useAppSettings.getState().settings.gpuExport !== "off" &&
+    config.format !== "gif" &&
+    caps[config.codec].hardware;
+  const captionsNote =
+    captionCount === 0 || config.captions === "none"
+      ? null
+      : config.captions === "burn-in"
+        ? t("exportFlow.note.burnIn")
+        : t("exportFlow.note.sidecar", { ext: `.${config.captions}` });
   const shownIssues = issues
     .filter((i) => attempted || i.field === "codec" || i.field === "source")
     .map((i) => i.message);
@@ -410,42 +476,44 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
         })
       }
       unsupportedCodecs={unsupportedCodecs(caps)}
-      destinationPath={config.destinationDir ?? "Project exports folder"}
+      destinationPath={config.destinationDir ?? t("exportFlow.defaultDestination")}
       sizeEstimate={sizeEstimate}
       issues={shownIssues}
       exportDisabled={issues.length > 0}
-    >
-      {caps === null && config.format !== "gif" ? (
-        <output
-          style={{
-            display: "block",
-            fontFamily: "var(--font-body)",
-            color: "var(--text-3)",
-            marginBottom: "var(--space-3)",
-          }}
-        >
-          Checking encoders…
-        </output>
-      ) : null}
-      {phase.kind === "cancelled" ? (
-        <output
-          style={{
-            display: "block",
-            fontFamily: "var(--font-body)",
-            color: "var(--text-2)",
-            marginBottom: "var(--space-3)",
-          }}
-        >
-          Export cancelled
-        </output>
-      ) : null}
-      <ExportOptions
-        config={config}
-        onChange={patch}
-        hasSelection={resolveRange("selection", rangeSources) !== null}
-        hasInOut={resolveRange("in-out", rangeSources) !== null}
-        hasCaptions={captionCount > 0}
-      />
-    </ExportDialog>
+      encoderLabel={
+        caps === null ? (
+          <output>{t("exportFlow.checkingEncoders")}</output>
+        ) : hardwareEncoder ? (
+          t("exportFlow.progress.hardwareEncoder")
+        ) : (
+          t("exportFlow.progress.softwareEncoder")
+        )
+      }
+      encoderTone={hardwareEncoder ? "success" : "muted"}
+      note={captionsNote}
+      status={
+        phase.kind === "cancelled" ? (
+          <output
+            style={{
+              display: "block",
+              padding: "8px 12px",
+              borderRadius: "12px",
+              background: "var(--bg-panel-raised)",
+              color: "var(--text-2)",
+              fontSize: "12px",
+            }}
+          >
+            {t("exportFlow.cancelled")}
+          </output>
+        ) : null
+      }
+      mediaOptions={<ExportMediaOptions {...optionProps} />}
+      outputOptions={
+        <div data-testid="export-options" style={{ display: "contents" }}>
+          <ExportOutputOptions {...optionProps} />
+        </div>
+      }
+      afterOptions={<ExportAfterOptions {...optionProps} />}
+    />
   );
 }

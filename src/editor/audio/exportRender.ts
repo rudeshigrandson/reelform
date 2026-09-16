@@ -1,20 +1,37 @@
 import type { Clip } from "../model/schema";
-import { type AudioBufferLike, type BuildAudioGraphInput, buildAudioGraph } from "./graph";
+import type { DbEnvelope } from "./dsp";
+import {
+  type AudioBufferLike,
+  type BuildAudioGraphInput,
+  type ClickEvent,
+  type GraphAudioRegion,
+  buildAudioGraph,
+  prepareProcessor,
+} from "./graph";
 import {
   EXPORT_SAMPLE_RATE,
   type OfflineContextFactory,
   RENDER_BLOCK_MS,
+  type RenderedBlock,
   framesFor,
-  renderTimeline,
+  renderTimelineBlocks,
 } from "./render";
 import { type AudioSpeedRegion, SpeedMap } from "./speedMap";
 
 /**
- * Export mixdown (ENGINEERING_SPEC §10.5): the same graph the preview plays,
- * rendered offline in 30s blocks over the exported output window, returned as
- * a 48 kHz stereo `AudioBuffer`-shaped object of exactly
- * `framesFor(durationMs)` frames so it lines up with the video frame plan.
+ * Export mixdown (ENGINEERING_SPEC §10.5, §10.8): the same graph the preview
+ * plays, rendered offline in 30s blocks over the exported output window. The
+ * result is a LAZY 48 kHz stereo block source of exactly `framesFor(durationMs)`
+ * frames: nothing renders until `blocks()` is iterated, and only one block is
+ * held at a time, so a 60-minute export never allocates the whole timeline.
  */
+
+export interface ExportAudioSource {
+  readonly sampleRate: number;
+  readonly numberOfChannels: 2;
+  readonly length: number;
+  blocks(): AsyncIterable<RenderedBlock>;
+}
 
 export interface ExportAudioBuffer extends AudioBufferLike {
   readonly numberOfChannels: 2;
@@ -25,6 +42,15 @@ export interface RenderExportAudioInput {
   sources: BuildAudioGraphInput["sources"];
   clips?: readonly Clip[] | undefined;
   speeds?: readonly AudioSpeedRegion[] | undefined;
+  /** Extra regions with their §4 source offsets (defaults to `settings.regions`). */
+  regions?: readonly GraphAudioRegion[] | undefined;
+  /** Click-sound events on timeline ms. */
+  clickEvents?: readonly ClickEvent[] | undefined;
+  /** Mic RMS envelope over output time; drives ducking of extra regions. */
+  micEnvelope?: DbEnvelope | undefined;
+  duckThresholdDb?: number | undefined;
+  processors?: BuildAudioGraphInput["processors"];
+  loudnessLufs?: BuildAudioGraphInput["loudnessLufs"];
   /** Output ms (post speed) where the export starts. */
   outputStartMs: number;
   /** Output duration to render; use the video frame plan's duration. */
@@ -32,17 +58,20 @@ export interface RenderExportAudioInput {
   createContext: OfflineContextFactory;
   sampleRate?: number | undefined;
   blockMs?: number | undefined;
-  loudnessLufs?: BuildAudioGraphInput["loudnessLufs"];
   onProgress?: ((renderedFrames: number, totalFrames: number) => void) | undefined;
   signal?: AbortSignal | undefined;
 }
 
 /** True when there is anything audible to render. */
-export function hasExportAudio(sources: BuildAudioGraphInput["sources"]): boolean {
+export function hasExportAudio(
+  sources: BuildAudioGraphInput["sources"],
+  clickEvents: readonly ClickEvent[] = [],
+): boolean {
   return (
     sources.mic !== undefined ||
     sources.system !== undefined ||
-    Object.keys(sources.regions ?? {}).length > 0
+    Object.keys(sources.regions ?? {}).length > 0 ||
+    (sources.clickSound !== undefined && clickEvents.length > 0)
   );
 }
 
@@ -75,33 +104,57 @@ export function toExportAudioBuffer(
   };
 }
 
-/** Render the export mixdown; null when the project has no audio at all. */
-export async function renderExportAudio(
-  input: RenderExportAudioInput,
-): Promise<ExportAudioBuffer | null> {
-  if (!hasExportAudio(input.sources)) return null;
+/** Concatenate a block source into memory (tests / short previews only). */
+export async function collectExportAudio(source: ExportAudioSource): Promise<ExportAudioBuffer> {
+  const left = new Float32Array(source.length);
+  const right = new Float32Array(source.length);
+  for await (const block of source.blocks()) {
+    left.set(block.channels[0].subarray(0, source.length - block.frameOffset), block.frameOffset);
+    right.set(block.channels[1].subarray(0, source.length - block.frameOffset), block.frameOffset);
+  }
+  return toExportAudioBuffer([left, right], source.sampleRate);
+}
+
+/** Lazy export mixdown; null when the project has no audio at all. */
+export function renderExportAudio(input: RenderExportAudioInput): ExportAudioSource | null {
+  if (!hasExportAudio(input.sources, input.clickEvents)) return null;
   const sampleRate = input.sampleRate ?? EXPORT_SAMPLE_RATE;
-  if (framesFor(input.durationMs, sampleRate) === 0) return null;
+  const length = framesFor(input.durationMs, sampleRate);
+  if (length === 0) return null;
   const base = Math.max(0, input.outputStartMs);
-  const rendered = await renderTimeline({
-    durationMs: input.durationMs,
+  return {
     sampleRate,
-    blockMs: input.blockMs ?? RENDER_BLOCK_MS,
-    createContext: input.createContext,
-    onProgress: input.onProgress,
-    signal: input.signal,
-    build: (ctx, range) => {
-      buildAudioGraph({
-        ctx,
-        settings: input.settings,
-        sources: input.sources,
-        clips: input.clips,
-        speeds: input.speeds,
-        loudnessLufs: input.loudnessLufs,
-        startAtS: 0,
-        range: { startMs: base + range.startMs, endMs: base + range.endMs },
-      });
-    },
-  });
-  return toExportAudioBuffer(rendered.channels, rendered.sampleRate);
+    numberOfChannels: 2,
+    length,
+    blocks: () =>
+      renderTimelineBlocks({
+        durationMs: input.durationMs,
+        sampleRate,
+        blockMs: input.blockMs ?? RENDER_BLOCK_MS,
+        createContext: input.createContext,
+        onProgress: input.onProgress,
+        signal: input.signal,
+        // RNNoise loads its worklet into every fresh block context first.
+        prepareContext: input.processors?.noiseReduction
+          ? (ctx) => prepareProcessor(input.processors?.noiseReduction, ctx)
+          : undefined,
+        build: (ctx, range) => {
+          buildAudioGraph({
+            ctx,
+            settings: input.settings,
+            sources: input.sources,
+            clips: input.clips,
+            speeds: input.speeds,
+            regions: input.regions,
+            clickEvents: input.clickEvents,
+            micEnvelope: input.micEnvelope,
+            duckThresholdDb: input.duckThresholdDb,
+            processors: input.processors,
+            loudnessLufs: input.loudnessLufs,
+            startAtS: 0,
+            range: { startMs: base + range.startMs, endMs: base + range.endMs },
+          });
+        },
+      }),
+  };
 }

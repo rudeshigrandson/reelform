@@ -1,38 +1,40 @@
 import { Button } from "@design/components";
-import { PageHeading } from "../controls";
+import { useId } from "react";
+import { useT } from "../../i18n";
+import { Page } from "../controls";
 
-/** S24 Extensions — the platform ships in 1.2 (SPEC §12); 1.0 shows the empty state. */
+/**
+ * S24/07 Extensions — header actions over a list of extension cards. The
+ * platform ships in 1.2 (SPEC §12), so 1.0 lists a single empty-state card.
+ */
 export function ExtensionsPage() {
+  const t = useT();
+  const titleId = useId();
   return (
-    <div>
-      <PageHeading>Extensions</PageHeading>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          textAlign: "center",
-          gap: "var(--space-3)",
-          padding: "var(--space-8) var(--space-4)",
-          border: "1px dashed var(--border-strong)",
-          borderRadius: "var(--radius-md)",
-        }}
-      >
-        <div aria-hidden="true" style={{ fontSize: "48px", lineHeight: 1, color: "var(--text-3)" }}>
+    <Page
+      title={t("settings.section.extensions")}
+      actions={
+        <div className="rf-set-tools">
+          <Button variant="primary" className="rf-set-btn-sm" disabled>
+            {t("settings.extensions.browse")}
+          </Button>
+          <Button className="rf-set-btn-sm rf-set-btn-panel" disabled>
+            {t("settings.extensions.installFromFile")}
+          </Button>
+        </div>
+      }
+    >
+      <section aria-labelledby={titleId} className="rf-set-ext">
+        <div aria-hidden="true" className="rf-set-ext-icon">
           ⧉
         </div>
-        <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 600 }}>Extensions arrive in 1.2</h3>
-        <p style={{ margin: 0, fontSize: "13px", color: "var(--text-2)", maxWidth: "420px" }}>
-          Wallpapers, cursor packs, sounds and render extensions will be installable here. No
-          extensions are installed.
-        </p>
-        <div style={{ display: "flex", gap: "var(--space-2)" }}>
-          <Button variant="primary" disabled>
-            Browse marketplace
-          </Button>
-          <Button disabled>Install from file…</Button>
+        <div className="rf-set-row-text">
+          <h3 id={titleId} className="rf-set-ext-name">
+            {t("settings.extensions.emptyTitle")}
+          </h3>
+          <p className="rf-set-help">{t("settings.extensions.emptyBody")}</p>
         </div>
-      </div>
-    </div>
+      </section>
+    </Page>
   );
 }

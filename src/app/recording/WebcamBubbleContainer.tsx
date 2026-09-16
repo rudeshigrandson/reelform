@@ -1,6 +1,6 @@
-import { Button } from "@design/components";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { WebcamBubble } from "../../overlays/WebcamBubble";
+import type { CSSProperties, ReactNode } from "react";
+import { CameraPlaceholder, WebcamBubble } from "../../overlays/WebcamBubble";
 import type { BubbleShape } from "../../overlays/types";
 import type { RecordingBus } from "./bus";
 import type { WindowsPort } from "./port";
@@ -161,7 +161,56 @@ export function WebcamBubbleContainer({
       onFocus={() => setHover(true)}
       style={{ position: "fixed", inset: 0 }}
     >
-      <WebcamBubble size={px} shape={shape}>
+      <WebcamBubble
+        size={px}
+        shape={shape}
+        mirrored={mirror && status === "live"}
+        empty={status !== "live"}
+        controls={
+          hover ? (
+            <span data-testid="webcam-controls" style={{ display: "contents" }}>
+              <ControlButton
+                aria-pressed={mirror}
+                aria-label="Mirror"
+                active={mirror}
+                onClick={() => setMirror((m) => !m)}
+              >
+                ⇄
+              </ControlButton>
+              <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                {(Object.keys(BUBBLE_SIZES) as BubbleSize[]).map((s, i) => (
+                  <span key={s} style={{ display: "contents" }}>
+                    {i > 0 ? (
+                      <span aria-hidden="true" style={{ color: "var(--text-3)" }}>
+                        ·
+                      </span>
+                    ) : null}
+                    <ControlButton
+                      aria-pressed={s === size}
+                      aria-label={`Size ${s}`}
+                      active={s === size}
+                      onClick={() => setSize(s)}
+                    >
+                      {s}
+                    </ControlButton>
+                  </span>
+                ))}
+              </span>
+              <ControlButton
+                aria-label={shape === "circle" ? "Rounded square" : "Circle"}
+                onClick={() => setShape((v) => (v === "circle" ? "rounded" : "circle"))}
+              >
+                {shape === "circle" ? "▢" : "○"}
+              </ControlButton>
+              {windows ? (
+                <ControlButton aria-label="Hide preview" onClick={hide}>
+                  ✕
+                </ControlButton>
+              ) : null}
+            </span>
+          ) : undefined
+        }
+      >
         {status === "live" ? (
           <video
             ref={videoRef}
@@ -181,67 +230,52 @@ export function WebcamBubbleContainer({
           <span
             role={status === "starting" ? "status" : "alert"}
             data-testid="webcam-status"
-            style={{
-              padding: "var(--space-2)",
-              textAlign: "center",
-              fontFamily: "var(--font-body)",
-              fontSize: 12,
-              color: status === "denied" ? "var(--danger)" : "var(--text-2)",
-            }}
+            style={{ display: "contents" }}
           >
-            {STATUS_COPY[status]}
+            <CameraPlaceholder
+              label={STATUS_COPY[status]}
+              tone={status === "denied" ? "danger" : "muted"}
+            />
           </span>
         )}
       </WebcamBubble>
-      {hover ? (
-        <div
-          data-testid="webcam-controls"
-          style={{
-            position: "absolute",
-            left: 0,
-            top: px + 8,
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "var(--space-1)",
-            padding: "var(--space-1)",
-            borderRadius: "var(--radius-md)",
-            background: "var(--bg-panel-raised)",
-            border: "1px solid var(--border)",
-          }}
-        >
-          <Button
-            variant="ghost"
-            aria-pressed={mirror}
-            aria-label="Mirror"
-            onClick={() => setMirror((m) => !m)}
-          >
-            ⇋
-          </Button>
-          {(Object.keys(BUBBLE_SIZES) as BubbleSize[]).map((s) => (
-            <Button
-              key={s}
-              variant={s === size ? "secondary" : "ghost"}
-              aria-pressed={s === size}
-              aria-label={`Size ${s}`}
-              onClick={() => setSize(s)}
-            >
-              {s}
-            </Button>
-          ))}
-          <Button
-            variant="ghost"
-            aria-label={shape === "circle" ? "Rounded square" : "Circle"}
-            onClick={() => setShape((v) => (v === "circle" ? "rounded" : "circle"))}
-          >
-            {shape === "circle" ? "▢" : "◯"}
-          </Button>
-          {windows ? (
-            <Button variant="ghost" aria-label="Hide preview" onClick={hide}>
-              ✕
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
     </div>
+  );
+}
+
+const controlButton: CSSProperties = {
+  padding: "2px 3px",
+  margin: 0,
+  border: "none",
+  background: "transparent",
+  font: "inherit",
+  fontSize: 11,
+  lineHeight: 1,
+  cursor: "pointer",
+};
+
+function ControlButton({
+  active,
+  children,
+  ...rest
+}: {
+  active?: boolean;
+  children: ReactNode;
+  onClick: () => void;
+  "aria-label": string;
+  "aria-pressed"?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      {...rest}
+      style={{
+        ...controlButton,
+        color: active ? "var(--accent-hover)" : "var(--text-1)",
+        fontWeight: active ? 700 : 400,
+      }}
+    >
+      {children}
+    </button>
   );
 }

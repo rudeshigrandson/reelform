@@ -47,6 +47,20 @@ export interface ProjectSessionData {
   cursorTrack: SmoothedCursorTrack | null;
   /** Source file missing on disk (guide S12 state 13). */
   mediaOffline: boolean;
+  /**
+   * Low-res preview proxy (`project:ensureProxy`) as a media URL; null until it
+   * exists. The preview uses it for Auto / Half quality; export never does (§6.3).
+   */
+  proxyUrl: string | null;
+  /** Cached filmstrip thumbnails (`project:ensureThumbnails`), sorted by source ms. */
+  thumbnails: readonly SessionThumbnail[];
+  /** Peak |amplitude| 0..1 per bucket over the whole source (timeline waveform). */
+  waveformPeaks: Float32Array | null;
+}
+
+export interface SessionThumbnail {
+  sourceMs: number;
+  url: string;
 }
 
 export interface ProjectSessionState extends ProjectSessionData {
@@ -71,6 +85,9 @@ export function initialProjectSession(): ProjectSessionData {
     telemetry: null,
     cursorTrack: null,
     mediaOffline: false,
+    proxyUrl: null,
+    thumbnails: [],
+    waveformPeaks: null,
   };
 }
 

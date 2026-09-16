@@ -8,12 +8,7 @@
 export type CursorType = string;
 
 /** A cursor sample: [timeMs, x, y, cursorType]. x,y normalized 0..1. */
-export type TelemetryPoint = readonly [
-  tMs: number,
-  x: number,
-  y: number,
-  cursorType: CursorType,
-];
+export type TelemetryPoint = readonly [tMs: number, x: number, y: number, cursorType: CursorType];
 
 export type MouseButton = "left" | "middle" | "right";
 export type ClickPhase = "down" | "up";

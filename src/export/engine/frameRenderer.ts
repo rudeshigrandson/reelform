@@ -9,6 +9,17 @@ import { type SceneInput, type SceneState, evaluateScene } from "../../editor/pr
  */
 export interface FrameRenderer {
   render(state: SceneState, frame: VideoFrame | null): Promise<VideoFrame | ImageBitmap>;
+  /**
+   * Webcam frame drawn by the next `render` (null detaches it). Owned and
+   * closed by the caller. Renderers without it cannot draw the webcam bubble.
+   */
+  setWebcamFrame?(frame: VideoFrame | null): void;
+  /**
+   * Cross-dissolve: the incoming clip's first frame drawn over the video at
+   * `SceneState.transition.mix` by the next `render` (null detaches it). Owned
+   * and closed by the caller.
+   */
+  setNextVideoFrame?(frame: VideoFrame | null): void;
   destroy(): void;
 }
 

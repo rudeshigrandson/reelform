@@ -36,8 +36,9 @@ describe("App shell", () => {
     useAppStore.setState({ view: "projects" });
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Launcher" }));
-    // Launcher's primary record action appears
-    expect(screen.getByRole("button", { name: /record/i })).toBeInTheDocument();
+    // Launcher's primary record actions appear (sidebar "New recording" + setup "Record")
+    expect(screen.getByRole("button", { name: "New recording" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Record" })).toBeInTheDocument();
   });
 
   it("opens the export dialog from the editor", () => {

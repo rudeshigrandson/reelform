@@ -54,7 +54,8 @@ const SEMANTIC_TOKENS = [
 function blockAfter(css: string, selector: string, from = 0): { body: string; end: number } {
   const at = css.indexOf(selector, from);
   if (at < 0) throw new Error(`selector not found: ${selector}`);
-  const open = css.indexOf("{", at + selector.length);
+  // A selector written with its own "{" (":root {") opens at that brace, not the next block's.
+  const open = css.indexOf("{", at + selector.replace(/\{\s*$/, "").length);
   let depth = 0;
   for (let i = open; i < css.length; i++) {
     if (css[i] === "{") depth++;
@@ -127,6 +128,65 @@ describe("tokens.css themes", () => {
     expect(tokensCss).not.toMatch(/@import|https?:\/\//);
   });
 });
+
+describe("density and reduced motion (S24 Appearance)", () => {
+  const componentsNoComments = componentsCss.replace(/\/\*[\s\S]*?\*\//g, "");
+
+  it('compact density overrides spacing, control and row heights on :root[data-density="compact"]', () => {
+    const compact = declarations(blockAfter(tokensCss, ':root[data-density="compact"]').body);
+    for (const token of [
+      "--space-1",
+      "--space-2",
+      "--space-3",
+      "--space-4",
+      "--space-5",
+      "--space-6",
+      "--space-8",
+      "--control-height",
+      "--row-height",
+    ]) {
+      const value = compact.get(token);
+      expect(value, token).toBeTruthy();
+      // Defined in the comfortable block too, and compact is strictly smaller.
+      const comfortable = lightTokens.get(token);
+      expect(comfortable, `comfortable ${token}`).toBeTruthy();
+      expect(Number.parseFloat(value as string), token).toBeLessThan(
+        Number.parseFloat(comfortable as string),
+      );
+    }
+  });
+
+  it("blockAfter opens at a selector's own brace", () => {
+    const css = ":root { --a: 1; } :root[x] { --a: 2; } .b { c: d; } .b::after { e: f; }";
+    expect(blockAfter(css, ":root {").body.trim()).toBe("--a: 1;");
+    expect(blockAfter(css, ".b {").body.trim()).toBe("c: d;");
+    expect(blockAfter(css, ":root[x]").body.trim()).toBe("--a: 2;");
+  });
+
+  it("components size controls and rows from the density tokens", () => {
+    expect(blockAfter(componentsNoComments, ".input {").body).toContain("var(--control-height)");
+    expect(blockAfter(componentsNoComments, ".btn-icon {").body).toContain("var(--control-height)");
+    expect(blockAfter(componentsNoComments, ".table td {").body).toContain("var(--row-height)");
+  });
+
+  it('the in-app toggle collapses motion via :root[data-reduce-motion="true"] *', () => {
+    const body = blockAfter(componentsNoComments, ':root[data-reduce-motion="true"] *').body;
+    expect(body).toMatch(/animation-duration:\s*0?\.001ms\s*!important/);
+    expect(body).toMatch(/animation-iteration-count:\s*1\s*!important/);
+    expect(body).toMatch(/transition-duration:\s*0?\.001ms\s*!important/);
+  });
+
+  it("the OS setting is honoured via @media (prefers-reduced-motion: reduce)", () => {
+    const media = blockAfter(componentsNoComments, "@media (prefers-reduced-motion: reduce)").body;
+    const star = blockAfter(media, "*").body;
+    expect(star).toMatch(/animation-duration:\s*0?\.001ms\s*!important/);
+    expect(star).toMatch(/animation-iteration-count:\s*1\s*!important/);
+    expect(star).toMatch(/transition-duration:\s*0?\.001ms\s*!important/);
+  });
+});
+
+/** Theme-independent `:root {` block (spacing, radii, control heights). */
+const lightTokens = declarations(blockAfter(tokensCss, ":root {").body);
 
 function walk(dir: string, acc: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

@@ -1,5 +1,12 @@
 import fc from "fast-check";
-import { dispatchLaunchIntents, isProjectPath, parseDeepLink, parseLaunchArgs } from "./launchArgs";
+import {
+  createLaunchIntentQueue,
+  dispatchLaunchIntents,
+  isProjectPath,
+  parseDeepLink,
+  parseLaunchArgs,
+  parseOpenFile,
+} from "./launchArgs";
 
 describe("parseDeepLink", () => {
   it("parses reelform://open?path= with an absolute posix path", () => {
@@ -127,5 +134,40 @@ describe("dispatchLaunchIntents", () => {
       { focusApp: vi.fn(), openProjectFile: async (p) => void opened.push(p) },
     );
     expect(opened).toEqual(["/a.reelform", "/b.reelform"]);
+  });
+});
+
+describe("parseOpenFile", () => {
+  it("accepts absolute project paths only", () => {
+    expect(parseOpenFile("/Users/me/Demo.reelform", "darwin")).toEqual({
+      type: "open-project",
+      path: "/Users/me/Demo.reelform",
+    });
+    expect(parseOpenFile("/Users/me/../me/Demo.reelform/", "darwin")?.path).toBe(
+      "/Users/me/Demo.reelform/",
+    );
+    expect(parseOpenFile("C:\\p\\Demo.reelform", "win32")?.path).toBe("C:\\p\\Demo.reelform");
+    expect(parseOpenFile("Demo.reelform", "darwin")).toBeNull();
+    expect(parseOpenFile("/Users/me/movie.mp4", "darwin")).toBeNull();
+    expect(parseOpenFile("/a\u0000.reelform", "darwin")).toBeNull();
+    expect(parseOpenFile("", "darwin")).toBeNull();
+  });
+});
+
+describe("createLaunchIntentQueue", () => {
+  it("holds intents until start, dedupes, then dispatches directly", () => {
+    const q = createLaunchIntentQueue();
+    const a = { type: "open-project" as const, path: "/a.reelform" };
+    const b = { type: "open-project" as const, path: "/b.reelform" };
+    q.push(a);
+    q.push(a);
+    q.push(b);
+    expect(q.pending()).toEqual([a, b]);
+    const opened: string[] = [];
+    q.start((i) => opened.push(i.path));
+    expect(opened).toEqual(["/a.reelform", "/b.reelform"]);
+    expect(q.pending()).toEqual([]);
+    q.push(a);
+    expect(opened).toEqual(["/a.reelform", "/b.reelform", "/a.reelform"]);
   });
 });

@@ -1,9 +1,12 @@
 /**
  * Tray / menu-bar menu as pure data (DESIGN_GUIDE S04, ENGINEERING_SPEC §11):
- * New recording ⌘⇧R, Recent ▸, Open editor, Pause/Resume (only while
- * recording), Stop recording, Settings, Quit. Icon: template, red dot while
+ * New recording ⌘⇧R, Recent ▸, Open editor, "● Recording · 00:42.1" status and
+ * Pause/Resume (only while recording), Stop recording, Settings, Quit. Icon: template, red dot while
  * recording.
  */
+
+import { formatMessage } from "../../src/i18n/format";
+import type { MainMessageKey, MainTranslate } from "../i18n";
 
 export type TrayRecordingState = "idle" | "recording" | "paused";
 
@@ -19,6 +22,44 @@ export interface TrayState {
   startStopAccelerator?: string | undefined;
   /** Electron accelerator for pause (from settings); default ⌘⇧P / Ctrl+Shift+P. */
   pauseAccelerator?: string | undefined;
+  /** Recorded time for the status row while recording or paused. */
+  elapsedMs?: number | undefined;
+  /** Main-process translator for labels; English when omitted. */
+  t?: MainTranslate | undefined;
+}
+
+type TrayLabelKey = Extract<MainMessageKey, `main.tray.${string}`>;
+
+/** English labels used when no translator is supplied (mirrors `en.json`). */
+export const DEFAULT_TRAY_LABELS: Readonly<Record<TrayLabelKey, string>> = {
+  "main.tray.newRecording": "New recording",
+  "main.tray.recent": "Recent",
+  "main.tray.noRecent": "No recent projects",
+  "main.tray.untitled": "Untitled",
+  "main.tray.openEditor": "Open editor",
+  "main.tray.pause": "Pause",
+  "main.tray.resume": "Resume",
+  "main.tray.stopRecording": "Stop recording",
+  "main.tray.settings": "Settings…",
+  "main.tray.quit": "Quit Reelform",
+  "main.tray.statusRecording": "● Recording · {time}",
+  "main.tray.statusPaused": "Paused · {time}",
+  "main.tray.tooltip": "Reelform",
+  "main.tray.tooltipRecording": "Reelform — Recording",
+  "main.tray.tooltipPaused": "Reelform — Paused",
+};
+
+/** Label for `key` through `t`, or the English fallback. */
+function trayLabel(t: MainTranslate | undefined, key: TrayLabelKey, vars?: { time: string }) {
+  return t ? t(key, vars) : formatMessage(DEFAULT_TRAY_LABELS[key], vars);
+}
+
+/** Recorded time as `mm:ss.t` (tenths floored), e.g. 42 100 ms → "00:42.1". */
+export function formatTrayElapsed(ms: number): string {
+  const tenths = Math.floor(Math.max(0, Number.isFinite(ms) ? ms : 0) / 100);
+  const minutes = Math.floor(tenths / 600);
+  const seconds = Math.floor(tenths / 10) % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${tenths % 10}`;
 }
 
 export type TrayAction =
@@ -50,6 +91,7 @@ export const MAX_RECENT_ITEMS = 10;
 export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
   const active = state.recording !== "idle";
   const recent = state.recent.slice(0, MAX_RECENT_ITEMS);
+  const label = (key: TrayLabelKey): string => trayLabel(state.t, key);
 
   const recentItems: TrayMenuItem[] =
     recent.length === 0
@@ -57,7 +99,7 @@ export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
           {
             kind: "item",
             id: "recent-empty",
-            label: "No recent projects",
+            label: label("main.tray.noRecent"),
             enabled: false,
             action: { type: "open-editor" },
           },
@@ -65,7 +107,7 @@ export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
       : recent.map((p) => ({
           kind: "item" as const,
           id: `recent:${p.projectId}`,
-          label: p.name || "Untitled",
+          label: p.name || label("main.tray.untitled"),
           enabled: true,
           action: { type: "open-recent" as const, projectId: p.projectId },
         }));
@@ -74,16 +116,22 @@ export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
     {
       kind: "item",
       id: "new-recording",
-      label: "New recording",
+      label: label("main.tray.newRecording"),
       enabled: !active,
       accelerator: state.startStopAccelerator ?? DEFAULT_START_STOP_ACCELERATOR,
       action: { type: "new-recording" },
     },
-    { kind: "submenu", id: "recent", label: "Recent", enabled: true, items: recentItems },
+    {
+      kind: "submenu",
+      id: "recent",
+      label: label("main.tray.recent"),
+      enabled: true,
+      items: recentItems,
+    },
     {
       kind: "item",
       id: "open-editor",
-      label: "Open editor",
+      label: label("main.tray.openEditor"),
       enabled: true,
       action: { type: "open-editor" },
     },
@@ -94,8 +142,18 @@ export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
     const paused = state.recording === "paused";
     items.push({
       kind: "item",
+      id: "status",
+      label: trayLabel(state.t, paused ? "main.tray.statusPaused" : "main.tray.statusRecording", {
+        time: formatTrayElapsed(state.elapsedMs ?? 0),
+      }),
+      // Informational row; never clickable.
+      enabled: false,
+      action: { type: "open-editor" },
+    });
+    items.push({
+      kind: "item",
       id: paused ? "resume" : "pause",
-      label: paused ? "Resume" : "Pause",
+      label: label(paused ? "main.tray.resume" : "main.tray.pause"),
       enabled: true,
       accelerator: state.pauseAccelerator ?? DEFAULT_PAUSE_ACCELERATOR,
       action: paused ? { type: "resume" } : { type: "pause" },
@@ -106,7 +164,7 @@ export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
     {
       kind: "item",
       id: "stop-recording",
-      label: "Stop recording",
+      label: label("main.tray.stopRecording"),
       enabled: active,
       ...(active
         ? { accelerator: state.startStopAccelerator ?? DEFAULT_START_STOP_ACCELERATOR }
@@ -117,11 +175,17 @@ export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
     {
       kind: "item",
       id: "settings",
-      label: "Settings…",
+      label: label("main.tray.settings"),
       enabled: true,
       action: { type: "settings" },
     },
-    { kind: "item", id: "quit", label: "Quit Reelform", enabled: true, action: { type: "quit" } },
+    {
+      kind: "item",
+      id: "quit",
+      label: label("main.tray.quit"),
+      enabled: true,
+      action: { type: "quit" },
+    },
   );
   return items;
 }
@@ -134,14 +198,14 @@ export interface TrayIconState {
   tooltip: string;
 }
 
-export function trayIconState(recording: TrayRecordingState): TrayIconState {
+export function trayIconState(recording: TrayRecordingState, t?: MainTranslate): TrayIconState {
   switch (recording) {
     case "recording":
-      return { template: false, redDot: true, tooltip: "Reelform — Recording" };
+      return { template: false, redDot: true, tooltip: trayLabel(t, "main.tray.tooltipRecording") };
     case "paused":
-      return { template: false, redDot: true, tooltip: "Reelform — Paused" };
+      return { template: false, redDot: true, tooltip: trayLabel(t, "main.tray.tooltipPaused") };
     default:
-      return { template: true, redDot: false, tooltip: "Reelform" };
+      return { template: true, redDot: false, tooltip: trayLabel(t, "main.tray.tooltip") };
   }
 }
 

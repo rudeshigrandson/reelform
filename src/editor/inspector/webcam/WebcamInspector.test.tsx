@@ -41,7 +41,8 @@ describe("WebcamInspector — no webcam", () => {
 describe("WebcamInspector — source", () => {
   it("labels a recorded webcam with its duration; replace / remove fire", () => {
     const { props } = setup();
-    expect(screen.getByText("Recorded webcam (00:42)")).toBeInTheDocument();
+    expect(screen.getByText("Recorded webcam")).toBeInTheDocument();
+    expect(screen.getByText("00:42")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Replace" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     expect(props.onReplace).toHaveBeenCalledTimes(1);
@@ -292,5 +293,18 @@ describe("CropModal", () => {
     render(<CropModal {...base} onClose={onClose} />);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("is named by its title, focuses the panel, and closes on backdrop / ✕ but not panel click", () => {
+    const onClose = vi.fn();
+    render(<CropModal {...base} onClose={onClose} />);
+    const dialog = screen.getByRole("dialog", { name: "Crop / reframe" });
+    expect(dialog).toHaveFocus();
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(dialog.parentElement as HTMLElement);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 });

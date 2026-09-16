@@ -14,6 +14,8 @@ export interface BlobLike {
 
 export interface MediaStreamTrackLike {
   readonly kind: string;
+  /** `false` renders silence / black without ending the track (mic mute, §5.7). */
+  enabled?: boolean | undefined;
   stop(): void;
   /** Subscribe to the track ending (device unplugged, source closed). Returns an unsubscribe. */
   onEnded(listener: () => void): () => void;

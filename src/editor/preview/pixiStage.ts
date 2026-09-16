@@ -23,6 +23,8 @@ export interface PreviewStage {
   render(state: SceneState): void;
   resize(width: number, height: number): void;
   destroy(): void;
+  /** Attach the hidden <video> parked on the incoming clip's first frame (cross-dissolve). */
+  setNextVideo?: ((el: HTMLVideoElement | null) => void) | undefined;
   /** Attach the hidden webcam <video> (optional for fakes). */
   setWebcam?: ((el: HTMLVideoElement | null) => void) | undefined;
   /** A new video frame was presented (requestVideoFrameCallback): re-upload and redraw. */
@@ -123,8 +125,17 @@ export const createPixiStage: CreatePreviewStage = async (host, opts) => {
 
   let video: VideoTex | null = null;
   let webcam: VideoTex | null = null;
+  let nextVideo: VideoTex | null = null;
 
   return {
+    setNextVideo(el) {
+      if (destroyed) return;
+      graph.setNextVideoTexture(null);
+      releaseVideoTexture(nextVideo);
+      nextVideo = el ? makeVideoTexture(PIXI, el) : null;
+      graph.setNextVideoTexture(nextVideo?.texture ?? null);
+    },
+
     setVideo(el) {
       if (destroyed) return;
       graph.setVideoTexture(null);
@@ -145,6 +156,7 @@ export const createPixiStage: CreatePreviewStage = async (host, opts) => {
       if (destroyed) return;
       video?.source.update();
       webcam?.source.update();
+      nextVideo?.source.update();
       queueRedraw();
     },
 
@@ -172,10 +184,13 @@ export const createPixiStage: CreatePreviewStage = async (host, opts) => {
       destroyed = true;
       graph.setVideoTexture(null);
       graph.setWebcamTexture(null);
+      graph.setNextVideoTexture(null);
       releaseVideoTexture(video);
       releaseVideoTexture(webcam);
+      releaseVideoTexture(nextVideo);
       video = null;
       webcam = null;
+      nextVideo = null;
       graph.destroy();
       app.destroy({ removeView: true }, { children: true });
     },

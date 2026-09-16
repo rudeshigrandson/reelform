@@ -28,5 +28,7 @@ export function cameraAt(scale = 1): SceneState["camera"] {
     level: scale,
     regionId: null,
     focus: { x: 0.5, y: 0.5 },
+    tiltX: 0,
+    tiltY: 0,
   };
 }

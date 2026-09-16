@@ -9,11 +9,15 @@ export interface ProjectSummary {
   modifiedAt: string;
   durationMs: number;
   state?: ProjectState;
+  /** On-disk size, when known (list Size column, footer total). */
+  sizeBytes?: number;
 }
 
 export type CardAction = "rename" | "duplicate" | "delete";
 
 export type SortKey = "recent" | "name";
+
+export type ProjectLayout = "grid" | "list";
 
 export interface ProjectBrowserProps {
   projects: ReadonlyArray<ProjectSummary>;
@@ -21,6 +25,13 @@ export interface ProjectBrowserProps {
   onNew: () => void;
   onImport?: (() => void) | undefined;
   onCardAction: (id: string, action: CardAction) => void;
+  /** Header title; defaults to "Projects". */
+  title?: string | undefined;
+  /** Controlled Grid / List layout; internal (grid) when omitted. */
+  layout?: ProjectLayout | undefined;
+  onLayoutChange?: ((layout: ProjectLayout) => void) | undefined;
+  /** Shows a footer Cancel (modal browser). */
+  onCancel?: (() => void) | undefined;
 }
 
 /** Sample fixture for stories / manual testing. */

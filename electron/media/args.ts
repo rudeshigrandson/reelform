@@ -270,3 +270,147 @@ export function buildThumbnailArgs(o: ThumbnailOptions): string[] {
     "pipe:1",
   ];
 }
+
+/** Alias used by the project domain (§9.9 "trim source to used range"). */
+export const trimCopyArgs = buildTrimSourceArgs;
+
+// ---- PCM WAV fallback → AAC/Opus mux (§10.1, §10.5) ------------------------
+
+export interface MuxAudioOptions {
+  video: string;
+  wav: string;
+  output: string;
+  container: "mp4" | "webm";
+  audioBitrateKbps?: number | undefined;
+}
+
+/** Copy the video stream, encode the WAV as AAC (mp4) or Opus (webm), 48 kHz. */
+export function muxAudioArgs(o: MuxAudioOptions): string[] {
+  const bitrate = `${o.audioBitrateKbps ?? 192}k`;
+  const audio =
+    o.container === "mp4"
+      ? ["-c:a", "aac", "-b:a", bitrate, "-ar", "48000", "-movflags", "+faststart"]
+      : ["-c:a", "libopus", "-b:a", bitrate, "-ar", "48000"];
+  return [
+    ...PROGRESS_PREFIX,
+    "-i",
+    o.video,
+    "-i",
+    o.wav,
+    "-map",
+    "0:v",
+    "-map",
+    "1:a",
+    "-c:v",
+    "copy",
+    ...audio,
+    "-f",
+    o.container,
+    o.output,
+  ];
+}
+
+// ---- preview proxy (§6.3) --------------------------------------------------
+
+export const PROXY_HEIGHT = 1080;
+
+/** 1080p H.264 preview proxy, video only. */
+export function proxyArgs(o: { input: string; output: string }): string[] {
+  return [
+    ...PROGRESS_PREFIX,
+    "-i",
+    o.input,
+    "-map",
+    "0:v:0",
+    "-vf",
+    `scale=-2:${PROXY_HEIGHT}`,
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "23",
+    "-pix_fmt",
+    "yuv420p",
+    "-an",
+    "-movflags",
+    "+faststart",
+    "-f",
+    "mp4",
+    o.output,
+  ];
+}
+
+// ---- filmstrip (§6.7) ------------------------------------------------------
+
+export interface FilmstripOptions {
+  input: string;
+  /** Directory the numbered JPEGs are written into. */
+  outputDir: string;
+  intervalMs: number;
+  height: number;
+  /** Path joiner for the output pattern (inject `path.win32.join` in tests). */
+  join?: ((...parts: string[]) => string) | undefined;
+}
+
+export const FILMSTRIP_PATTERN = "%06d.jpg";
+
+/** One JPEG every `intervalMs` of source, `height` px tall, numbered from 1. */
+export function filmstripArgs(o: FilmstripOptions): string[] {
+  if (!(o.intervalMs > 0) || !Number.isFinite(o.intervalMs)) {
+    throw new MediaError("MEDIA_INVALID_ARGS", `invalid filmstrip interval ${o.intervalMs}`);
+  }
+  if (!(o.height >= 2) || !Number.isFinite(o.height)) {
+    throw new MediaError("MEDIA_INVALID_ARGS", `invalid filmstrip height ${o.height}`);
+  }
+  const height = Math.max(2, Math.round(o.height / 2) * 2);
+  const join = o.join ?? ((...parts: string[]) => parts.join("/"));
+  return [
+    ...PROGRESS_PREFIX,
+    "-i",
+    o.input,
+    "-map",
+    "0:v:0",
+    "-an",
+    "-vf",
+    `fps=1/${sec(o.intervalMs)},scale=-2:${height}`,
+    "-q:v",
+    "5",
+    "-start_number",
+    "1",
+    "-f",
+    "image2",
+    join(o.outputDir, FILMSTRIP_PATTERN),
+  ];
+}
+
+/** Single JPEG frame written to `output` (e.g. a project `thumbnail.jpg`). */
+export function thumbnailArgs(o: {
+  input: string;
+  output: string;
+  atMs: number;
+  width?: number | undefined;
+}): string[] {
+  const filters =
+    o.width !== undefined ? ["-vf", `scale=${Math.max(2, Math.round(o.width / 2) * 2)}:-2`] : [];
+  return [
+    "-hide_banner",
+    "-nostdin",
+    "-y",
+    "-v",
+    "error",
+    "-ss",
+    sec(o.atMs),
+    "-i",
+    o.input,
+    "-frames:v",
+    "1",
+    "-an",
+    ...filters,
+    "-q:v",
+    "3",
+    "-f",
+    "image2",
+    o.output,
+  ];
+}

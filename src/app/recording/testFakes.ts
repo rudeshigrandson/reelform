@@ -10,6 +10,8 @@ import type {
   TrackKind,
   WriteChunkRequest,
 } from "../../recording/port";
+import type { DeviceLike } from "./LauncherContainer";
+import type { HudTimers, MicLevelHandlers, PreRecordDeps } from "./PreRecordContainer";
 import type { CaptureHooks } from "./flow";
 import type {
   AppRecordingPort,
@@ -17,12 +19,26 @@ import type {
   CreateProjectRequest,
   CreateProjectResult,
   FinalizeResult,
+  HudExpansionPlan,
+  HudExpansionSize,
+  HudLayoutInfo,
+  HudRect,
+  HudSizeRequest,
+  HudWindowPlan,
+  HudWindowsPort,
+  OpenProjectRequest,
+  OpenProjectResult,
   ProjectPort,
+  RelinkProjectRequest,
+  RelinkProjectResult,
+  ReplaceSourceRequest,
+  ReplaceSourceResult,
   SaveProjectRequest,
   SourcesResult,
   StartRecordingRequest,
   StartRecordingResult,
   SystemPort,
+  TranscodeProgressEvent,
   WindowsPort,
 } from "./port";
 
@@ -100,6 +116,7 @@ export class FakeAppPort implements AppRecordingPort {
   writes: WriteChunkRequest[] = [];
   ended: EndTrackRequest[] = [];
   listeners = new Set<(e: RecordingEvent) => void>();
+  transcodeListeners = new Set<(p: TranscodeProgressEvent) => void>();
   sources: SourcesResult = SOURCES;
   sourcesError: Failure | null = null;
   startError: Failure | null = null;
@@ -155,6 +172,13 @@ export class FakeAppPort implements AppRecordingPort {
   emit(e: RecordingEvent): void {
     for (const l of [...this.listeners]) l(e);
   }
+  onTranscodeProgress(listener: (p: TranscodeProgressEvent) => void): () => void {
+    this.transcodeListeners.add(listener);
+    return () => this.transcodeListeners.delete(listener);
+  }
+  emitTranscode(p: TranscodeProgressEvent): void {
+    for (const l of [...this.transcodeListeners]) l(p);
+  }
 }
 
 export class FakeWindows implements WindowsPort {
@@ -197,6 +221,8 @@ export class FakeProjects implements ProjectPort {
   created: CreateProjectRequest[] = [];
   saved: SaveProjectRequest[] = [];
   createErrors: Failure[] = [];
+  relinked: RelinkProjectRequest[] = [];
+  relinkError: Failure | null = null;
   /** Override media names main returns (uniquified on collision). */
   renameMedia: ((name: string) => string) | null = null;
 
@@ -213,6 +239,36 @@ export class FakeProjects implements ProjectPort {
   }
   async save(req: SaveProjectRequest): Promise<void> {
     this.saved.push(req);
+  }
+  async open(req: OpenProjectRequest): Promise<OpenProjectResult> {
+    const doc =
+      this.saved.findLast((s) => s.path === req.path)?.document ??
+      this.created.findLast((c) => `/Projects/${c.name}.reelform` === req.path)?.document;
+    if (doc === undefined) throw { code: "PROJECT_NOT_FOUND", message: req.path };
+    return { path: req.path, document: doc, modifiedAt: null, recovery: null };
+  }
+  replaced: ReplaceSourceRequest[] = [];
+  replaceError: Failure | null = null;
+  async replaceSource(req: ReplaceSourceRequest): Promise<ReplaceSourceResult> {
+    this.replaced.push(req);
+    if (this.replaceError) throw this.replaceError;
+    const current = (await this.open({ path: req.path }).catch(() => null))?.document as
+      | { sources?: { video?: { path?: string } } }
+      | undefined;
+    if (current?.sources?.video?.path !== req.replaces) {
+      return { applied: false, path: null, modifiedAt: null, removed: [] };
+    }
+    const name = req.filePath.split(/[\\/]/).at(-1) ?? "video";
+    return { applied: true, path: `media/${name}`, modifiedAt: "x", removed: [] };
+  }
+  async relink(req: RelinkProjectRequest): Promise<RelinkProjectResult> {
+    this.relinked.push(req);
+    if (this.relinkError) throw this.relinkError;
+    const name = req.filePath.split(/[\\/]/).at(-1) ?? "video";
+    return {
+      path: req.mode === "reference" ? req.filePath : `media/${name}`,
+      probe: { durationMs: req.expected.durationMs, width: 3024, height: 1964 },
+    };
   }
 }
 
@@ -289,4 +345,177 @@ export function fakeCaptureFactory(log: string[]) {
       return s;
     },
   };
+}
+
+// ---- HUD pre-record -----------------------------------------------------------------
+
+export class FakeHudWindows implements HudWindowsPort {
+  /** Prepares and other requests, e.g. `expand:620x104`, `collapse`, `size:340x48:center`. */
+  calls: string[] = [];
+  /** Commit ids in the order the renderer committed them. */
+  commits: number[] = [];
+  /** Commit ids the renderer grew the window for first (`stage: "grow"`). */
+  grows: number[] = [];
+  /** Current window bounds (moves only on commit). */
+  bounds: HudRect = { x: 410, y: 836, width: 620, height: 64 };
+  /** The pill inside the window (screen coordinates). */
+  pill: HudRect = { x: 410, y: 836, width: 620, height: 64 };
+  /** False simulates "no HUD open" (every prepare resolves null). */
+  hudOpen = true;
+  private seq = 0;
+  private pending: { commitId: number; target: HudRect; pill: HudRect } | null = null;
+
+  /** Layout for a non-null expansion: grows upward, centred on the pill. */
+  layoutFor: (size: HudExpansionSize) => HudLayoutInfo = (size) => {
+    const pillOffset = { x: (size.width - this.pill.width) / 2, y: size.height - this.pill.height };
+    return {
+      bounds: { x: this.pill.x - pillOffset.x, y: this.pill.y - pillOffset.y, ...size },
+      placement: "above",
+      pillOffset,
+    };
+  };
+
+  private prepare(target: HudRect, pill: HudRect) {
+    const commitId = ++this.seq;
+    this.pending = { commitId, target, pill };
+    return { commitId, previous: { ...this.bounds }, target: { ...target } };
+  }
+
+  async setHudExpansion(size: HudExpansionSize | null): Promise<HudExpansionPlan | null> {
+    this.calls.push(size ? `expand:${size.width}x${size.height}` : "collapse");
+    if (!this.hudOpen) return null;
+    const layout = size ? this.layoutFor(size) : null;
+    return { ...this.prepare(layout ? layout.bounds : { ...this.pill }, { ...this.pill }), layout };
+  }
+  async setHudSize(req: HudSizeRequest): Promise<HudWindowPlan | null> {
+    this.calls.push(`size:${req.width}x${req.height}:${req.anchor}`);
+    if (!this.hudOpen) return null;
+    const p = this.pill;
+    const target =
+      req.anchor === "center"
+        ? {
+            x: p.x + (p.width - req.width) / 2,
+            y: p.y + (p.height - req.height) / 2,
+            width: req.width,
+            height: req.height,
+          }
+        : { x: p.x, y: p.y, width: req.width, height: req.height };
+    return this.prepare(target, { ...target });
+  }
+  async commitHudLayout(commitId: number, stage: "grow" | "final" = "final"): Promise<boolean> {
+    const p = this.pending;
+    if (stage === "grow") {
+      this.grows.push(commitId);
+      if (!p || p.commitId !== commitId) return false;
+      const b = this.bounds;
+      const x = Math.min(b.x, p.target.x);
+      const y = Math.min(b.y, p.target.y);
+      this.bounds = {
+        x,
+        y,
+        width: Math.max(b.x + b.width, p.target.x + p.target.width) - x,
+        height: Math.max(b.y + b.height, p.target.y + p.target.height) - y,
+      };
+      return true;
+    }
+    this.commits.push(commitId);
+    if (!p || p.commitId !== commitId) return false;
+    this.pending = null;
+    this.bounds = p.target;
+    this.pill = p.pill;
+    return true;
+  }
+  async openSourceOutline(displayId: string) {
+    this.calls.push(`openSourceOutline:${displayId}`);
+  }
+  async openWebcamBubble() {
+    this.calls.push("openWebcamBubble");
+  }
+  async closeKind(kind: ClosableWindowKind) {
+    this.calls.push(`closeKind:${kind}`);
+  }
+  async openSettings() {
+    this.calls.push("openSettings");
+  }
+}
+
+/** Manual interval + timeout timers: `tick()` fires intervals, `runTimeouts()` fires timeouts. */
+export function manualHudTimers(): HudTimers & {
+  intervals: Map<number, () => void>;
+  timeouts: Map<number, () => void>;
+  tick(): void;
+  runTimeouts(): void;
+} {
+  const intervals = new Map<number, () => void>();
+  const timeouts = new Map<number, () => void>();
+  let id = 0;
+  return {
+    intervals,
+    timeouts,
+    setInterval: (cb) => {
+      intervals.set(++id, cb);
+      return id;
+    },
+    clearInterval: (h) => {
+      intervals.delete(h as number);
+    },
+    setTimeout: (cb) => {
+      timeouts.set(++id, cb);
+      return id;
+    },
+    clearTimeout: (h) => {
+      timeouts.delete(h as number);
+    },
+    tick() {
+      for (const cb of [...intervals.values()]) cb();
+    },
+    runTimeouts() {
+      const due = [...timeouts.entries()];
+      timeouts.clear();
+      for (const [, cb] of due) cb();
+    },
+  };
+}
+
+export const HUD_DEVICES: DeviceLike[] = [
+  { deviceId: "mic-1", kind: "audioinput", label: "MacBook Pro Microphone" },
+  { deviceId: "mic-2", kind: "audioinput", label: "Shure MV7" },
+  { deviceId: "cam-1", kind: "videoinput", label: "FaceTime HD Camera" },
+];
+
+export function fakePreRecordDeps(overrides: Partial<PreRecordDeps> = {}) {
+  const log: string[] = [];
+  const state = {
+    sources: SOURCES as SourcesResult,
+    sourcesError: null as Failure | null,
+    devices: HUD_DEVICES,
+    micError: null as Failure | null,
+    levelHandlers: null as MicLevelHandlers | null,
+  };
+  const windows = new FakeHudWindows();
+  const timers = manualHudTimers();
+  const deps: PreRecordDeps = {
+    listSources: async () => {
+      log.push("listSources");
+      if (state.sourcesError) throw state.sourcesError;
+      return state.sources;
+    },
+    enumerateDevices: async () => {
+      log.push("enumerateDevices");
+      return state.devices;
+    },
+    openMicLevel: async (deviceId, handlers) => {
+      log.push(`mic.open:${deviceId}`);
+      if (state.micError) throw state.micError;
+      state.levelHandlers = handlers;
+      return () => log.push(`mic.stop:${deviceId}`);
+    },
+    windows,
+    platform: "darwin",
+    timers,
+    frames: async () => {},
+    onResize: () => () => {},
+    ...overrides,
+  };
+  return { deps, log, state, windows, timers };
 }

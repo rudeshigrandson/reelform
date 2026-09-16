@@ -1,24 +1,38 @@
 /**
- * Export dialog (ENGINEERING_SPEC §10) — presentational.
+ * Export dialog (ENGINEERING_SPEC §10, guide S22) — presentational.
  *
- * Rendered inside the library `Dialog` (title "Export"). Three visual states,
- * driven by the `phase` prop:
- *   - `idle`  → the configuration form (format / resolution / fps / codec /
- *               quality / destination) plus a live bitrate + size readout.
- *   - progress phases (`preparing`..`finalizing`) → a phase label, percent bar
- *               and a Cancel button.
- *   - `done`  → a success panel with Reveal / Copy / Close.
+ * Library `Dialog` (640px in the design). Three visual states, driven by the `phase` prop:
+ *   - `idle`  → two columns: preview + duration / estimated size / encoder on
+ *               the left; format track, resolution, frame rate, quality (with
+ *               bitrate), codec chips, media options, then range / captions /
+ *               filename / destination / after-export options on the right.
+ *               The estimate rides on the Export button.
+ *   - progress phases (`preparing`..`finalizing`) → phase label, bar, Cancel.
+ *   - `done`  → success card with Reveal / Copy / Close.
  *
  * The component is pure UI: it holds only draft form state and calls back to the
  * parent for every action. Bitrate is computed via `exportBitrate` from the
  * sibling `../bitrate` module.
  */
 
-import { Button, Dialog, Input, Segmented } from "@design/components";
-import type { SegmentedOption } from "@design/components";
-import { useMemo, useState } from "react";
+import { Button, Dialog } from "@design/components";
+import { useId, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { exportBitrate } from "../bitrate";
+import {
+  ChipGroup,
+  type ChoiceOption,
+  OptionRow,
+  PillSegmented,
+  PillSelect,
+  ProgressTrack,
+  RowHint,
+  StatusGlyph,
+  ThumbPlaceholder,
+  formatTimecode,
+  mono,
+  pillField,
+} from "./controls";
 import type {
   ExportCodec,
   ExportFormat,
@@ -53,7 +67,21 @@ export interface ExportDialogProps {
   exportDisabled?: boolean | undefined;
   /** Called whenever the draft config changes (live estimates in the parent). */
   onConfigChange?: ((config: ExportUiConfig) => void) | undefined;
-  /** Extra option sections (range, captions, audio, GIF options, filename…). */
+  /** Encoder summary for the left column (e.g. "Hardware encoder"); status text while probing. */
+  encoderLabel?: ReactNode;
+  /** Encoder value tone: success (hardware) or muted. */
+  encoderTone?: "success" | "muted" | undefined;
+  /** Note card under the summary (e.g. how captions are exported). */
+  note?: ReactNode;
+  /** Format-specific rows after the codec (audio + hardware, or GIF options). */
+  mediaOptions?: ReactNode;
+  /** Rows in the output section, before the destination (range, captions, filename). */
+  outputOptions?: ReactNode;
+  /** Rows after the destination (reveal / copy after export). */
+  afterOptions?: ReactNode;
+  /** Status lines above the form (checking encoders, cancelled…). */
+  status?: ReactNode;
+  /** Extra option content; rendered at the end of the media section. */
   children?: ReactNode;
 }
 
@@ -73,29 +101,29 @@ const RESOLUTIONS: ReadonlyArray<ResolutionChoice> = [
   { id: "original", label: "Original", width: null, height: null },
 ];
 
-const FORMAT_OPTIONS: ReadonlyArray<SegmentedOption<ExportFormat>> = [
+const FORMAT_OPTIONS: ReadonlyArray<ChoiceOption<ExportFormat>> = [
   { value: "mp4", label: "MP4" },
   { value: "gif", label: "GIF" },
   { value: "webm", label: "WebM" },
 ];
 
-const FPS_OPTIONS: ReadonlyArray<SegmentedOption<ExportFps>> = [
-  { value: 30, label: "30" },
-  { value: 60, label: "60" },
+const FPS_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "30", label: "30" },
+  { value: "60", label: "60" },
 ];
 
-const QUALITY_OPTIONS: ReadonlyArray<SegmentedOption<ExportQuality>> = [
+const QUALITY_OPTIONS: ReadonlyArray<ChoiceOption<ExportQuality>> = [
   { value: "High", label: "High" },
   { value: "Max", label: "Max" },
 ];
 
-const MP4_CODECS: ReadonlyArray<SegmentedOption<ExportCodec>> = [
+const MP4_CODECS: ReadonlyArray<ChoiceOption<ExportCodec>> = [
   { value: "h264", label: "H.264" },
   { value: "hevc", label: "HEVC" },
   { value: "av1", label: "AV1" },
 ];
 
-const WEBM_CODECS: ReadonlyArray<SegmentedOption<ExportCodec>> = [{ value: "vp9", label: "VP9" }];
+const WEBM_CODECS: ReadonlyArray<ChoiceOption<ExportCodec>> = [{ value: "vp9", label: "VP9" }];
 
 /** Progress phases in order, mapped to a human label. */
 const PHASE_LABEL: Record<Exclude<ExportPhase, "idle" | "done">, string> = {
@@ -117,7 +145,7 @@ const DEFAULT_CONFIG: ExportUiConfig = {
 };
 
 /** Legal codecs for a given format; used to keep codec valid on format change. */
-function codecsFor(format: ExportFormat): ReadonlyArray<SegmentedOption<ExportCodec>> {
+function codecsFor(format: ExportFormat): ReadonlyArray<ChoiceOption<ExportCodec>> {
   if (format === "webm") return WEBM_CODECS;
   if (format === "mp4") return MP4_CODECS;
   return [];
@@ -132,65 +160,7 @@ function formatBytes(bytes: number): string {
   return `${Math.round(bytes / 1_000_000)} MB`;
 }
 
-const tokenStyles = {
-  section: { marginBottom: "var(--space-4)" } as const,
-  label: {
-    display: "block",
-    marginBottom: "var(--space-2)",
-    fontFamily: "var(--font-body)",
-    color: "var(--text-2)",
-    fontSize: "0.85rem",
-  } as const,
-  select: {
-    width: "100%",
-    padding: "var(--space-2)",
-    borderRadius: "var(--radius-md)",
-    background: "var(--bg-sunken)",
-    color: "var(--text-1)",
-    border: "1px solid var(--border-strong)",
-  } as const,
-  readout: {
-    display: "flex",
-    justifyContent: "space-between",
-    padding: "var(--space-3)",
-    borderRadius: "var(--radius-md)",
-    background: "var(--bg-sunken)",
-    color: "var(--text-1)",
-    fontFamily: "var(--font-body)",
-    marginBottom: "var(--space-4)",
-  } as const,
-  destinationRow: {
-    display: "flex",
-    gap: "var(--space-2)",
-    alignItems: "flex-end",
-  } as const,
-  progressTrack: {
-    height: "8px",
-    width: "100%",
-    borderRadius: "var(--radius-full)",
-    background: "var(--bg-active)",
-    overflow: "hidden",
-    marginBottom: "var(--space-3)",
-  } as const,
-  successPanel: {
-    textAlign: "center",
-    padding: "var(--space-4) 0",
-  } as const,
-  actionsRow: {
-    display: "flex",
-    gap: "var(--space-2)",
-    justifyContent: "center",
-  } as const,
-} satisfies Record<string, React.CSSProperties>;
-
-function Labelled({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div style={tokenStyles.section}>
-      <span style={tokenStyles.label}>{label}</span>
-      {children}
-    </div>
-  );
-}
+const summaryRow = { display: "flex", justifyContent: "space-between", gap: "8px" } as const;
 
 export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null {
   const {
@@ -216,6 +186,13 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
 
   const [config, setConfig] = useState<ExportUiConfig>(initialConfig ?? DEFAULT_CONFIG);
   const [resolutionId, setResolutionId] = useState<string>("1080p");
+  const ids = {
+    resolution: useId(),
+    fps: useId(),
+    quality: useId(),
+    codec: useId(),
+    destination: useId(),
+  };
 
   const durationSeconds = durationMs / 1000;
 
@@ -271,37 +248,28 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
   if (isProgress) {
     const pct = Math.round(Math.min(Math.max(progress ?? 0, 0), 1) * 100);
     return (
-      <Dialog
-        open={open}
-        onClose={onClose}
-        title="Export"
-        actions={
-          <Button variant="secondary" onClick={onCancelExport}>
-            Cancel
-          </Button>
-        }
-      >
-        <div>
-          <div style={tokenStyles.label} data-testid="progress-phase">
+      <Dialog open={open} onClose={onClose}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: "12px",
+            }}
+          >
+            <div style={{ fontFamily: "var(--font-heading)", fontSize: "18px" }}>Exporting…</div>
+            <span style={{ ...mono, fontSize: "12px", color: "var(--text-2)" }}>{pct}%</span>
+          </div>
+          <ProgressTrack fraction={pct / 100} label="Export progress" />
+          <div style={{ fontSize: "11px", color: "var(--text-2)" }} data-testid="progress-phase">
             {PHASE_LABEL[phase]}
           </div>
-          {/* biome-ignore lint/a11y/useFocusableInteractive: read-only progress indicator */}
-          <div
-            style={tokenStyles.progressTrack}
-            role="progressbar"
-            aria-valuenow={pct}
-            aria-valuemin={0}
-            aria-valuemax={100}
-          >
-            <div
-              style={{
-                height: "100%",
-                width: `${pct}%`,
-                background: "var(--accent)",
-              }}
-            />
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <Button variant="secondary" onClick={onCancelExport}>
+              Cancel
+            </Button>
           </div>
-          <div style={{ fontFamily: "var(--font-body)", color: "var(--text-1)" }}>{pct}%</div>
         </div>
       </Dialog>
     );
@@ -309,31 +277,36 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
 
   // --- Done view -----------------------------------------------------------
   if (phase === "done") {
+    const fileName = config.destinationPath.split(/[\\/]/).pop() || config.destinationPath;
     return (
-      <Dialog open={open} onClose={onClose} title="Export">
-        <div style={tokenStyles.successPanel}>
-          <div
-            style={{
-              fontFamily: "var(--font-heading)",
-              fontSize: "1.1rem",
-              color: "var(--text-1)",
-              marginBottom: "var(--space-4)",
-            }}
-          >
-            Export complete
+      <Dialog open={open} onClose={onClose}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <StatusGlyph tone="success" />
+            <div style={{ fontFamily: "var(--font-heading)", fontSize: "18px" }}>
+              Export finished
+            </div>
           </div>
           <div
             style={{
-              fontFamily: "var(--font-body)",
-              color: "var(--text-2)",
-              marginBottom: "var(--space-4)",
-              wordBreak: "break-all",
+              display: "flex",
+              gap: "12px",
+              alignItems: "center",
+              padding: "12px",
+              borderRadius: "12px",
+              background: "var(--bg-panel-raised)",
             }}
           >
-            {config.destinationPath}
+            <ThumbPlaceholder width="64px" height="38px" radius="6px" />
+            <div style={{ flex: 1, minWidth: 0, fontSize: "12px" }}>
+              <div style={{ fontWeight: 600, wordBreak: "break-all" }}>{fileName}</div>
+              <div style={{ ...mono, color: "var(--text-3)", wordBreak: "break-all" }}>
+                {config.destinationPath}
+              </div>
+            </div>
           </div>
-          <div style={tokenStyles.actionsRow}>
-            <Button variant="secondary" onClick={onReveal}>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+            <Button variant="primary" onClick={onReveal}>
               Reveal in Finder
             </Button>
             <Button
@@ -344,7 +317,7 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
             >
               Copy
             </Button>
-            <Button variant="primary" onClick={onClose}>
+            <Button variant="ghost" onClick={onClose} style={{ marginLeft: "auto" }}>
               Close
             </Button>
           </div>
@@ -354,38 +327,32 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
   }
 
   // --- Configuration form (idle) ------------------------------------------
-  const showCodec = config.format !== "gif";
+  const isGif = config.format === "gif";
   const codecOptions = codecsFor(config.format).map((opt) => {
     const reason = unsupportedCodecs?.[opt.value];
-    return reason === undefined
-      ? opt
-      : {
-          value: opt.value,
-          label: (
-            <span
-              aria-disabled="true"
-              title={reason}
-              style={{ color: "var(--text-3)", textDecoration: "line-through" }}
-            >
-              {opt.label}
-            </span>
-          ),
-        };
+    return reason === undefined ? opt : { ...opt, disabled: true, title: reason };
   });
   const unsupportedNote = codecsFor(config.format)
     .filter((c) => isUnsupported(c.value))
     .map((c) => c.label)
     .join(", ");
   const shownDestination = destinationPath ?? config.destinationPath;
+  const sizeText = readout
+    ? `~${sizeEstimate ?? readout.size}`
+    : sizeEstimate
+      ? `~${sizeEstimate}`
+      : "size varies";
+  const buttonEstimate = readout || sizeEstimate ? sizeText : null;
 
   return (
     <Dialog
       open={open}
       onClose={onClose}
+      width={640}
       title="Export"
       actions={
         <>
-          <Button variant="secondary" onClick={onCancel}>
+          <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
           <Button
@@ -394,110 +361,226 @@ export function ExportDialog(props: ExportDialogProps): React.JSX.Element | null
             onClick={() => onExport({ ...config, destinationPath: shownDestination })}
           >
             Export
+            {buttonEstimate ? <span style={mono}>· {buttonEstimate}</span> : null}
           </Button>
         </>
       }
     >
-      <Labelled label="Format">
-        <Segmented
-          name="export-format"
-          value={config.format}
-          options={FORMAT_OPTIONS}
-          onChange={onFormatChange}
-        />
-      </Labelled>
-
-      <Labelled label="Resolution">
-        <select
-          aria-label="Resolution"
-          style={tokenStyles.select}
-          value={resolutionId}
-          onChange={(e) => onResolutionChange(e.target.value)}
-        >
-          {RESOLUTIONS.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.label}
-            </option>
-          ))}
-        </select>
-      </Labelled>
-
-      <Labelled label="Frame rate">
-        <Segmented
-          name="export-fps"
-          value={config.fps}
-          options={FPS_OPTIONS}
-          onChange={(fps) => patch({ fps })}
-        />
-      </Labelled>
-
-      {showCodec ? (
-        <Labelled label="Codec">
-          <Segmented
-            name="export-codec"
-            value={config.codec}
-            options={codecOptions}
-            onChange={(codec) => {
-              if (!isUnsupported(codec)) patch({ codec });
-            }}
-          />
-          {unsupportedNote ? (
-            <div
-              data-testid="codec-unsupported-note"
-              style={{ ...tokenStyles.label, color: "var(--text-3)", marginTop: "var(--space-2)" }}
-            >
-              {unsupportedNote}: Not supported on this device
-            </div>
-          ) : null}
-        </Labelled>
-      ) : null}
-
-      <Labelled label="Quality">
-        <Segmented
-          name="export-quality"
-          value={config.quality}
-          options={QUALITY_OPTIONS}
-          onChange={(quality) => patch({ quality })}
-        />
-      </Labelled>
-
-      <div style={tokenStyles.readout} data-testid="bitrate-readout">
-        {readout ? (
-          <>
-            <span data-testid="bitrate-value">{readout.bitrate}</span>
-            <span data-testid="size-value">~{sizeEstimate ?? readout.size}</span>
-          </>
-        ) : (
-          <span data-testid="size-value">{sizeEstimate ? `~${sizeEstimate}` : "size varies"}</span>
-        )}
-      </div>
-
-      {children}
-
-      <div style={tokenStyles.destinationRow}>
-        <div style={{ flex: 1 }}>
-          <Input label="Destination" readOnly value={shownDestination} aria-label="Destination" />
-        </div>
-        <Button variant="secondary" onClick={onChangeDestination}>
-          Change…
-        </Button>
-      </div>
-
-      {issues && issues.length > 0 ? (
-        <ul
-          role="alert"
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "20px", alignItems: "flex-start" }}>
+        {/* Left: preview + summary */}
+        <div
           style={{
-            margin: "var(--space-3) 0 0",
-            paddingLeft: "var(--space-4)",
-            color: "var(--danger)",
-            fontFamily: "var(--font-body)",
+            width: "236px",
+            flex: "1 1 200px",
+            maxWidth: "236px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
           }}
         >
-          {issues.map((msg) => (
-            <li key={msg}>{msg}</li>
-          ))}
-        </ul>
-      ) : null}
+          <ThumbPlaceholder height="133px" inner>
+            <span
+              style={{
+                ...mono,
+                position: "absolute",
+                left: "8px",
+                bottom: "8px",
+                padding: "4px 9px",
+                borderRadius: "999px",
+                background: "color-mix(in srgb, var(--bg-sunken) 75%, transparent)",
+                color: "var(--text-1)",
+                fontSize: "10px",
+              }}
+            >
+              {isGif ? config.format.toUpperCase() : `${config.width} × ${config.height}`}
+              {isGif ? "" : ` · ${config.fps} fps`}
+            </span>
+          </ThumbPlaceholder>
+          <div
+            data-testid="bitrate-readout"
+            style={{
+              fontSize: "11px",
+              color: "var(--text-3)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "5px",
+            }}
+          >
+            <div style={summaryRow}>
+              <span>Duration</span>
+              <span style={{ ...mono, color: "var(--text-1)" }}>{formatTimecode(durationMs)}</span>
+            </div>
+            <div style={summaryRow}>
+              <span>Estimated size</span>
+              <span data-testid="size-value" style={{ ...mono, color: "var(--text-1)" }}>
+                {sizeText}
+              </span>
+            </div>
+            {props.encoderLabel !== undefined && !isGif ? (
+              <div style={summaryRow}>
+                <span>Encoder</span>
+                <span
+                  style={{
+                    color: props.encoderTone === "success" ? "var(--success)" : "var(--text-2)",
+                    textAlign: "right",
+                  }}
+                >
+                  {props.encoderLabel}
+                </span>
+              </div>
+            ) : null}
+          </div>
+          {props.note ? (
+            <div
+              style={{
+                padding: "10px 12px",
+                borderRadius: "12px",
+                background: "var(--bg-panel-raised)",
+                fontSize: "11px",
+                color: "var(--text-2)",
+              }}
+            >
+              {props.note}
+            </div>
+          ) : null}
+        </div>
+
+        {/* Right: options */}
+        <div
+          style={{
+            flex: "1 1 280px",
+            minWidth: 0,
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
+            fontSize: "11px",
+          }}
+        >
+          {props.status}
+          <PillSegmented
+            name="export-format"
+            ariaLabel="Format"
+            value={config.format}
+            options={FORMAT_OPTIONS}
+            onChange={onFormatChange}
+            fontSize="12px"
+            padding="6px"
+          />
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {!isGif ? (
+              <>
+                <OptionRow label="Resolution" htmlFor={ids.resolution}>
+                  <PillSelect
+                    id={ids.resolution}
+                    value={resolutionId}
+                    options={RESOLUTIONS.map((r) => ({ value: r.id, label: r.label }))}
+                    onChange={onResolutionChange}
+                  />
+                </OptionRow>
+                <OptionRow label="Frame rate" htmlFor={ids.fps}>
+                  <PillSelect
+                    id={ids.fps}
+                    value={String(config.fps)}
+                    options={FPS_OPTIONS}
+                    onChange={(v) => patch({ fps: (v === "30" ? 30 : 60) as ExportFps })}
+                  />
+                </OptionRow>
+                <OptionRow label="Quality" labelId={ids.quality}>
+                  <PillSegmented
+                    name="export-quality"
+                    labelledBy={ids.quality}
+                    value={config.quality}
+                    options={QUALITY_OPTIONS}
+                    onChange={(quality) => patch({ quality })}
+                  />
+                </OptionRow>
+                {readout ? (
+                  <RowHint mono>
+                    <span data-testid="bitrate-value">≈ {readout.bitrate}</span>
+                  </RowHint>
+                ) : null}
+                <OptionRow label="Codec" labelId={ids.codec}>
+                  <ChipGroup
+                    name="export-codec"
+                    labelledBy={ids.codec}
+                    value={config.codec}
+                    options={codecOptions}
+                    onChange={(codec) => {
+                      if (!isUnsupported(codec)) patch({ codec });
+                    }}
+                  />
+                </OptionRow>
+                {unsupportedNote ? (
+                  <RowHint testId="codec-unsupported-note">
+                    {unsupportedNote}: Not supported on this device
+                  </RowHint>
+                ) : null}
+              </>
+            ) : null}
+            {props.mediaOptions}
+            {children}
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+              paddingTop: "10px",
+              borderTop: "1px solid var(--border)",
+            }}
+          >
+            {props.outputOptions}
+            <OptionRow label="Destination" htmlFor={ids.destination}>
+              <input
+                id={ids.destination}
+                readOnly
+                aria-label="Destination"
+                value={shownDestination}
+                title={shownDestination}
+                style={{
+                  ...pillField,
+                  ...mono,
+                  flex: "1 1 auto",
+                  color: "var(--text-2)",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              />
+              {onChangeDestination ? (
+                <Button
+                  variant="ghost"
+                  onClick={onChangeDestination}
+                  style={{ padding: "4px 6px", fontSize: "11px" }}
+                >
+                  Change…
+                </Button>
+              ) : null}
+            </OptionRow>
+            {props.afterOptions}
+          </div>
+
+          {issues && issues.length > 0 ? (
+            <ul
+              role="alert"
+              style={{
+                margin: 0,
+                padding: "8px 12px 8px 26px",
+                borderRadius: "12px",
+                background: "color-mix(in srgb, var(--record) 12%, transparent)",
+                color: "color-mix(in srgb, var(--record) 35%, var(--text-1))",
+                fontSize: "12px",
+              }}
+            >
+              {issues.map((msg) => (
+                <li key={msg}>{msg}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </div>
     </Dialog>
   );
 }

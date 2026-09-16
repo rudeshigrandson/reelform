@@ -16,6 +16,7 @@ import type { EndTrackRequest, RecordingEvent, RecordingPort, WriteChunkRequest 
 
 export class FakeTrack implements MediaStreamTrackLike {
   stopped = false;
+  enabled = true;
   private listeners = new Set<() => void>();
   constructor(readonly kind: string) {}
   stop(): void {

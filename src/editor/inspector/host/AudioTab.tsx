@@ -1,9 +1,12 @@
-import { type ReactElement, useEffect, useState } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 import { type ProjectSessionData, useProjectSession } from "../../../app/project/session";
+import { measureLoudness, tracksToMeasure } from "../../audio/loudnessRunner";
+import { type LoudnessTrack, useLoudnessStore } from "../../audio/loudnessStore";
 import { usePlaybackStore } from "../../playback";
 import { useEditorStore } from "../../store";
 import { AudioInspector, WAVEFORM_BARS, addRegion } from "../audio";
 import type { AvailableTracks } from "../audio/types";
+import { useInspectorT, withDetail } from "../i18n";
 import { fileNameOf, peaksFromAudio } from "./audioPeaks";
 import { decodeCached, errorMessage, hostId, useDecodedAudio } from "./hooks";
 import type { InspectorHost } from "./types";
@@ -33,6 +36,7 @@ export function regionUrl(mediaBaseUrl: string | null, path: string): string | n
 }
 
 export function AudioTab({ host }: { host: InspectorHost }): ReactElement {
+  const t = useInspectorT();
   const audio = useEditorStore((s) => s.audio);
   const durationMs = useEditorStore((s) => s.durationMs);
   const meta = useProjectSession((s) => s.meta);
@@ -44,6 +48,45 @@ export function AudioTab({ host }: { host: InspectorHost }): ReactElement {
   const [regionPeaks, setRegionPeaks] = useState<Record<string, number[]>>({});
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // §9.5: measure integrated loudness (off-thread) the first time Normalize is on for a source.
+  // Measurements are keyed by source URL in the store, so remounting this tab doesn't
+  // re-measure and a replaced source (or another project) never reuses a stale value.
+  const measuredUrls = useRef<Partial<Record<LoudnessTrack, string>>>({
+    ...useLoudnessStore.getState().sources,
+  });
+  const micNormalize = audio.tracks.mic.normalize;
+  const systemNormalize = audio.tracks.system.normalize;
+  useEffect(() => {
+    const urls = { mic: micUrl, system: systemAudioUrl };
+    const store = useLoudnessStore.getState();
+    for (const kind of ["mic", "system"] as const) {
+      const measuredFrom = store.sources[kind];
+      if ((measuredFrom !== undefined || kind in store.lufs) && measuredFrom !== urls[kind]) {
+        store.forget(kind);
+        if (measuredUrls.current[kind] === measuredFrom) delete measuredUrls.current[kind];
+      }
+    }
+    const tracks = { mic: { normalize: micNormalize }, system: { normalize: systemNormalize } };
+    for (const kind of tracksToMeasure(tracks, urls, measuredUrls.current)) {
+      const url = urls[kind];
+      if (!url) continue;
+      measuredUrls.current[kind] = url;
+      const stale = () => measuredUrls.current[kind] !== url;
+      decodeCached(host, url)
+        .then((decoded) => (decoded ? measureLoudness(decoded) : null))
+        .then(
+          (lufs) => {
+            if (stale()) return;
+            if (lufs === null) delete measuredUrls.current[kind];
+            else useLoudnessStore.getState().setLufs(kind, lufs, url);
+          },
+          () => {
+            if (!stale()) delete measuredUrls.current[kind];
+          },
+        );
+    }
+  }, [host, micUrl, systemAudioUrl, micNormalize, systemNormalize]);
 
   const regionKey = audio.regions.map((r) => `${r.id}:${r.path}`).join("|");
   // biome-ignore lint/correctness/useExhaustiveDependencies: regionKey summarizes audio.regions
@@ -66,13 +109,16 @@ export function AudioTab({ host }: { host: InspectorHost }): ReactElement {
   const addAudio = async () => {
     setError(null);
     try {
-      const picked = await host.pickFile({ title: "Add audio", filters: AUDIO_FILTERS });
+      const picked = await host.pickFile({
+        title: t("inspector.audio.add"),
+        filters: AUDIO_FILTERS,
+      });
       if (!picked) return;
       setAdding(true);
       const media = await host.importMedia("audio", picked);
       const decoded = await decodeCached(host, media.url);
       const lengthMs = media.durationMs ?? decoded?.durationMs ?? 0;
-      if (!(lengthMs > 0)) throw new Error("The file has no readable audio.");
+      if (!(lengthMs > 0)) throw new Error(t("inspector.audio.error.noAudio"));
       const startMs = Math.min(usePlaybackStore.getState().currentMs, Math.max(0, durationMs - 1));
       const id = hostId("audio");
       const next = addRegion(useEditorStore.getState().audio, {
@@ -83,9 +129,9 @@ export function AudioTab({ host }: { host: InspectorHost }): ReactElement {
         endMs: Math.min(durationMs, startMs + lengthMs),
       });
       if (decoded) setRegionPeaks((p) => ({ ...p, [id]: peaksFromAudio(decoded, PEAK_BUCKETS) }));
-      host.documentUpdate("Add audio", { audio: next });
+      host.documentUpdate(t("inspector.audio.add"), { audio: next });
     } catch (err) {
-      setError(`Couldn't add audio. ${errorMessage(err, "")}`.trim());
+      setError(withDetail(t, "inspector.audio.error.add", errorMessage(err, "")));
     } finally {
       setAdding(false);
     }
@@ -99,7 +145,24 @@ export function AudioTab({ host }: { host: InspectorHost }): ReactElement {
   return (
     <AudioInspector
       value={audio}
-      onChange={(next) => host.documentUpdate("Audio settings", { audio: next }, "audio-settings")}
+      onChange={(next) => {
+        // "Clicks" mirrors the Cursor tab's click sound volume (one undo entry).
+        // `cursor` is always in the patch (same reference when unchanged): a coalesced
+        // entry undoes with its first patch's keys and redoes with its last, so the
+        // key set must not vary within a drag or the two volumes drift apart.
+        const { audio: current, cursor } = useEditorStore.getState();
+        host.documentUpdate(
+          t("inspector.audio.history.settings"),
+          {
+            audio: next,
+            cursor:
+              next.clickVolume === current.clickVolume
+                ? cursor
+                : { ...cursor, clickSound: { ...cursor.clickSound, volume: next.clickVolume } },
+          },
+          "audio-settings",
+        );
+      }}
       availableTracks={available}
       waveforms={waveforms}
       trackDurationMs={durationMs}

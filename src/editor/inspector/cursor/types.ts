@@ -47,6 +47,11 @@ export const cursorSettingsSchema = z.object({
   customCursor: customCursorSchema.nullable(),
   /** Percent of base 32px sprite. */
   size: z.number().min(L.size.min).max(L.size.max),
+  /**
+   * §6.6 "scale with zoom": when on, the cursor grows with the camera zoom
+   * instead of keeping its apparent size. Defaults off for older documents.
+   */
+  scaleWithZoom: z.boolean().default(false),
   /** "Snappy ⟷ Silky", 0–100. */
   smoothing: z.number().min(L.smoothing.min).max(L.smoothing.max),
   motionBlur: z.object({
@@ -83,6 +88,7 @@ export const DEFAULT_CURSOR_SETTINGS: CursorSettings = {
   style: "macos",
   customCursor: null,
   size: 100,
+  scaleWithZoom: false,
   smoothing: 50,
   motionBlur: { enabled: false, amount: 50 },
   clickEffect: { type: "ripple", color: "#ffffff", size: 100 },

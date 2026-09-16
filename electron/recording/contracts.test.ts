@@ -15,12 +15,14 @@ describe("recording contracts", () => {
         "recording:listSources",
         "recording:pause",
         "recording:resume",
+        "recording:setMicMuted",
         "recording:start",
         "recording:stop",
         "recording:writeChunk",
       ].sort(),
     );
     expect(recordingEvents["recording:event"].name).toBe("recording:event");
+    expect(recordingEvents["recording:transcodeProgress"].name).toBe("recording:transcodeProgress");
   });
 
   it("validates start requests (§3)", () => {
@@ -36,6 +38,8 @@ describe("recording contracts", () => {
     expect(start.safeParse({ ...valid, fps: 45 }).success).toBe(false);
     expect(start.safeParse({ ...valid, countdown: 4 }).success).toBe(false);
     expect(start.safeParse({ ...valid, source: { kind: "tab", id: "x" } }).success).toBe(false);
+    const withLabel = { ...valid, audio: { system: false, mic: "abc", micLabel: "Shure MV7" } };
+    expect(start.parse(withLabel).audio.micLabel).toBe("Shure MV7");
   });
 
   it("writeChunk accepts binary chunks only", () => {
@@ -79,6 +83,20 @@ describe("recording contracts", () => {
         reason: "cosmic ray",
         recordedMs: 1,
       }).success,
+    ).toBe(false);
+  });
+
+  it("validates mute requests and transcode progress events", () => {
+    const mute = recordingContracts["recording:setMicMuted"];
+    expect(mute.request.safeParse({ sessionId: "s1", muted: true }).success).toBe(true);
+    expect(mute.request.safeParse({ sessionId: "s1" }).success).toBe(false);
+    expect(mute.response.safeParse({ ok: true, applied: false }).success).toBe(true);
+    const progress = recordingEvents["recording:transcodeProgress"].payload;
+    expect(
+      progress.safeParse({ sessionId: "s1", progress: 0.5, done: false, outputPath: null }).success,
+    ).toBe(true);
+    expect(
+      progress.safeParse({ sessionId: "s1", progress: 2, done: false, outputPath: null }).success,
     ).toBe(false);
   });
 });

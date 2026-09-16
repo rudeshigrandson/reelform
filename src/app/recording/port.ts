@@ -26,12 +26,46 @@ export type FinalizeResult = ResponseOf<"recording:finalize">;
 export type CreateProjectRequest = RequestOf<"project:create">;
 export type CreateProjectResult = ResponseOf<"project:create">;
 export type SaveProjectRequest = RequestOf<"project:save">;
+export type RelinkProjectRequest = RequestOf<"project:relink">;
+export type RelinkProjectResult = ResponseOf<"project:relink">;
+export type ReplaceSourceRequest = RequestOf<"project:replaceSource">;
+export type ReplaceSourceResult = ResponseOf<"project:replaceSource">;
+export type OpenProjectRequest = RequestOf<"project:open">;
+export type OpenProjectResult = ResponseOf<"project:open">;
+export type TranscodeProgressEvent = EventPayloadOf<"recording:transcodeProgress">;
 export type ClosableWindowKind = RequestOf<"windows:closeKind">["kind"];
+export type HudExpansionSize = NonNullable<RequestOf<"windows:setHudExpansion">["size"]>;
+export type HudLayoutInfo = NonNullable<ResponseOf<"windows:setHudExpansion">["layout"]>;
+export type HudSizeRequest = RequestOf<"windows:setHudSize">;
+export type HudRect = HudLayoutInfo["bounds"];
+export type HudCommitStage = NonNullable<RequestOf<"windows:commitHudExpansion">["stage"]>;
+
+/**
+ * A prepared HUD window change (SPEC §5.7): main computed the target bounds
+ * without moving; the renderer lays out, waits for paint, then commits.
+ */
+export interface HudWindowPlan {
+  commitId: number;
+  /** Window bounds now. */
+  previous: HudRect;
+  /** Window bounds once committed. */
+  target: HudRect;
+}
+
+export interface HudExpansionPlan extends HudWindowPlan {
+  /** Null when collapsing back to the bare pill. */
+  layout: HudLayoutInfo | null;
+}
 
 export interface AppRecordingPort extends RecordingPort {
   listSources(): Promise<SourcesResult>;
   start(req: StartRecordingRequest): Promise<StartRecordingResult>;
   finalize(sessionId: string): Promise<FinalizeResult>;
+  /**
+   * `recording:transcodeProgress` — background VP9→H.264 transcode of a
+   * finalized Electron-backend video (SPEC §5.2). Returns an unsubscribe.
+   */
+  onTranscodeProgress?(listener: (progress: TranscodeProgressEvent) => void): () => void;
 }
 
 export interface WindowsPort {
@@ -45,9 +79,35 @@ export interface WindowsPort {
   openEditor(projectId: string): Promise<void>;
 }
 
+/** What the HUD window itself needs from `windows:*` (pre-record popovers, preview, settings). */
+export interface HudWindowsPort extends Pick<WindowsPort, "openWebcamBubble" | "closeKind"> {
+  /**
+   * Prepare growing the HUD window for popovers keeping the pill anchored
+   * (`null` collapses). Null when no HUD is open. Apply with {@link commitHudLayout}.
+   */
+  setHudExpansion(size: HudExpansionSize | null): Promise<HudExpansionPlan | null>;
+  /** Prepare resizing the pill itself (recording pill, hidden dot). Null when no HUD is open. */
+  setHudSize(req: HudSizeRequest): Promise<HudWindowPlan | null>;
+  /**
+   * Apply a prepared change; false when stale or the HUD is gone. `"grow"`
+   * only grows the window to fit both the current and target bounds (the
+   * change stays pending); `"final"` (default) applies it.
+   */
+  commitHudLayout(commitId: number, stage?: HudCommitStage): Promise<boolean>;
+  /** Click-through outline of the selected window source on its display. */
+  openSourceOutline(displayId: string): Promise<void>;
+  openSettings(): Promise<void>;
+}
+
 export interface ProjectPort {
   create(req: CreateProjectRequest): Promise<CreateProjectResult>;
   save(req: SaveProjectRequest): Promise<void>;
+  /** `project:relink` — validate a replacement file and copy/reference it; the document is not written. */
+  relink?(req: RelinkProjectRequest): Promise<RelinkProjectResult>;
+  /** `project:replaceSource` — swap a source's file and write the document in main. */
+  replaceSource?(req: ReplaceSourceRequest): Promise<ReplaceSourceResult>;
+  /** `project:open` — the document as currently saved (unvalidated). */
+  open?(req: OpenProjectRequest): Promise<OpenProjectResult>;
 }
 
 export type PermissionSettingsKind = "screen" | "microphone" | "camera";
@@ -148,6 +208,9 @@ export function createIpcRecordingPort(ipc: IpcClient = defaultIpcClient): AppRe
     discard: async (sessionId) => {
       await call(ipc, "recording:discard", { sessionId });
     },
+    setMicMuted: async (sessionId, muted) => {
+      await call(ipc, "recording:setMicMuted", { sessionId, muted });
+    },
     writeChunk: async (req) => {
       await call(
         ipc,
@@ -173,6 +236,7 @@ export function createIpcRecordingPort(ipc: IpcClient = defaultIpcClient): AppRe
     },
     subscribe: (listener) =>
       ipc.onEvent("recording:event", (payload) => listener(mapMainRecordingEvent(payload))),
+    onTranscodeProgress: (listener) => ipc.onEvent("recording:transcodeProgress", listener),
   };
 }
 
@@ -201,12 +265,57 @@ export function createIpcWindowsPort(ipc: IpcClient = defaultIpcClient): Windows
   };
 }
 
+export function createIpcHudWindowsPort(ipc: IpcClient = defaultIpcClient): HudWindowsPort {
+  return {
+    openWebcamBubble: async () => {
+      await call(ipc, "windows:openWebcamBubble", {});
+    },
+    closeKind: async (kind) => {
+      await call(ipc, "windows:closeKind", { kind });
+    },
+    setHudExpansion: async (size) => {
+      const res = await call(ipc, "windows:setHudExpansion", { size });
+      return res.commitId === null || !res.previous || !res.target
+        ? null
+        : {
+            commitId: res.commitId,
+            previous: res.previous,
+            target: res.target,
+            layout: res.layout,
+          };
+    },
+    setHudSize: async (req) => {
+      const res = await call(ipc, "windows:setHudSize", req);
+      return res.commitId === null || !res.previous || !res.target
+        ? null
+        : { commitId: res.commitId, previous: res.previous, target: res.target };
+    },
+    commitHudLayout: async (commitId, stage) =>
+      (
+        await call(
+          ipc,
+          "windows:commitHudExpansion",
+          stage === "grow" ? { commitId, stage } : { commitId },
+        )
+      ).applied,
+    openSourceOutline: async (displayId) => {
+      await call(ipc, "windows:openSourceOutline", { displayId });
+    },
+    openSettings: async () => {
+      await call(ipc, "windows:openSettings", undefined);
+    },
+  };
+}
+
 export function createIpcProjectPort(ipc: IpcClient = defaultIpcClient): ProjectPort {
   return {
     create: (req) => call(ipc, "project:create", req),
     save: async (req) => {
       await call(ipc, "project:save", req);
     },
+    relink: (req) => call(ipc, "project:relink", req),
+    replaceSource: (req) => call(ipc, "project:replaceSource", req),
+    open: (req) => call(ipc, "project:open", req),
   };
 }
 

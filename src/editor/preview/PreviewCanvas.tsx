@@ -1,4 +1,4 @@
-import { Button, Segmented, Tag } from "@design/components";
+import { Button } from "@design/components";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactElement } from "react";
 import type { Annotation } from "../inspector/annotations/types";
@@ -7,7 +7,7 @@ import type { EffectsSettings } from "../inspector/effects/types";
 import { outputSize } from "../inspector/frame/frameLogic";
 import type { FrameAspect, FrameSettings, Size } from "../inspector/frame/types";
 import type { WebcamSettings } from "../inspector/webcam/types";
-import type { ZoomRegion } from "../inspector/zoom/types";
+import type { CameraSettings, ZoomRegion } from "../inspector/zoom/types";
 import type { Clip } from "../model/schema";
 import type { CursorPositionSource } from "./camera";
 import { type ComposeInput, composeScene } from "./compose";
@@ -27,6 +27,7 @@ import {
 } from "./quality";
 import type { SceneAssets } from "./sceneGraph";
 import type { SpeedLike } from "./timeMapping";
+import { upcomingIncomingSourceMs } from "./transitions";
 import {
   SCRUB_SETTLE_MS,
   type VideoElementLike,
@@ -42,6 +43,8 @@ import type { WallpaperRegistry } from "./wallpapers";
 export interface PreviewCanvasProps {
   frame: FrameSettings;
   zoomRegions: readonly ZoomRegion[];
+  /** Project `camera` settings (follow smoothing, max speed); defaults when omitted. */
+  camera?: CameraSettings | undefined;
   cursor: CursorSettings;
   /** Smoothed cursor track (e.g. `SmoothedCursorTrack`); null → cursor layer disabled. */
   cursorTrack?: CursorPositionSource | null | undefined;
@@ -145,33 +148,104 @@ const labelStyle: CSSProperties = { fontSize: "13px", color: "var(--text-2)" };
 const titleStyle: CSSProperties = { fontSize: "14px", fontWeight: 600, color: "var(--text-1)" };
 const detailStyle: CSSProperties = { fontSize: "12px", color: "var(--text-2)", maxWidth: 420 };
 
+/** Media offline (design S12/13): hatched frame, record-tinted hairline, alert disc. */
 const offlineCardStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   alignItems: "center",
-  gap: "var(--space-3)",
-  padding: "var(--space-4) var(--space-6)",
-  borderRadius: "var(--radius-lg)",
-  background: "var(--bg-panel-raised)",
-  border: "1px solid var(--border)",
-  boxShadow: "var(--shadow-md)",
+  justifyContent: "center",
+  gap: "10px",
+  width: "min(360px, 100%)",
+  aspectRatio: "16 / 9",
+  boxSizing: "border-box",
+  padding: "var(--space-4)",
+  borderRadius: "var(--radius-sm)",
+  background:
+    "repeating-linear-gradient(45deg, var(--bg-panel) 0 10px, color-mix(in srgb, var(--bg-panel) 50%, var(--bg-app)) 10px 20px)",
+  border: "1px solid color-mix(in srgb, var(--record) 50%, transparent)",
   pointerEvents: "auto",
+};
+
+const offlineDiscStyle: CSSProperties = {
+  width: "40px",
+  height: "40px",
+  borderRadius: "var(--radius-full)",
+  background: "color-mix(in srgb, var(--record) 18%, transparent)",
+  color: "var(--record)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "18px",
+  fontWeight: 600,
+};
+
+/** Floating canvas chip: translucent panel pill with a strong hairline (design S12/01). */
+const floatingPill: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "6px",
+  padding: "6px 12px",
+  borderRadius: "var(--radius-full)",
+  background: "color-mix(in srgb, var(--bg-panel) 90%, transparent)",
+  border: "1px solid var(--border-strong)",
+  color: "var(--text-1)",
+  fontFamily: "var(--font-body)",
+  fontSize: "12px",
+  fontWeight: 400,
+  lineHeight: 1.2,
+  whiteSpace: "nowrap",
 };
 
 const chipStyle: CSSProperties = {
   position: "absolute",
-  top: "var(--space-3)",
-  left: "var(--space-3)",
+  top: "12px",
+  left: "14px",
+  zIndex: 2,
+  display: "flex",
+  gap: "8px",
 };
 
 const bottomBarStyle: CSSProperties = {
   position: "absolute",
-  bottom: "var(--space-3)",
+  bottom: "10px",
   left: "50%",
   transform: "translateX(-50%)",
+  zIndex: 2,
   display: "flex",
   alignItems: "center",
-  gap: "var(--space-2)",
+  gap: "8px",
+};
+
+/** "Fit · 50% · 100%" — quiet text pills; the active one gets a translucent panel fill. */
+const zoomGroupStyle: CSSProperties = {
+  display: "flex",
+  gap: "8px",
+  margin: 0,
+  padding: 0,
+  border: "none",
+  fontSize: "11px",
+  color: "var(--text-3)",
+};
+
+function zoomOptionStyle(active: boolean): CSSProperties {
+  return {
+    position: "relative",
+    padding: "5px 12px",
+    borderRadius: "var(--radius-full)",
+    background: active ? "color-mix(in srgb, var(--bg-panel) 80%, transparent)" : "transparent",
+    color: active ? "var(--text-2)" : "var(--text-3)",
+    cursor: "pointer",
+    fontVariantNumeric: "tabular-nums",
+  };
+}
+
+const visuallyHiddenInput: CSSProperties = {
+  position: "absolute",
+  opacity: 0,
+  width: 0,
+  height: 0,
+  margin: 0,
+  pointerEvents: "none",
 };
 
 const EMPTY_ANNOTATIONS: readonly Annotation[] = [];
@@ -180,6 +254,7 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
   const {
     frame,
     zoomRegions,
+    camera,
     cursor,
     cursorTrack,
     currentMs,
@@ -223,6 +298,7 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
   const hostRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const webcamRef = useRef<HTMLVideoElement>(null);
+  const nextVideoRef = useRef<HTMLVideoElement>(null);
   const [well, setWell] = useState<Size>({ width: 0, height: 0 });
   const [zoom, setZoom] = useState<CanvasZoom>("fit");
   const [stage, setStage] = useState<PreviewStage | null>(null);
@@ -234,6 +310,9 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
   const activeUrl = mediaOffline ? null : videoUrl;
   const hasVideo = activeUrl !== null;
   const activeWebcamUrl = mediaOffline ? null : webcamUrl;
+  // Cross-dissolve draws the incoming clip's first frame from a second element.
+  const wantsNextVideo =
+    hasVideo && effects?.transition.kind === "cross-dissolve" && (clips?.length ?? 0) > 1;
 
   const output = useMemo(() => outputSize(frame.aspect, sourceSize), [frame.aspect, sourceSize]);
   const view = useMemo(() => canvasViewSize(zoom, well, output), [zoom, well, output]);
@@ -313,6 +392,12 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
     stage.setWebcam(activeWebcamUrl !== null ? webcamRef.current : null);
   }, [stage, activeWebcamUrl]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-attach when the media URL changes.
+  useEffect(() => {
+    if (!stage?.setNextVideo) return;
+    stage.setNextVideo(wantsNextVideo ? nextVideoRef.current : null);
+  }, [stage, wantsNextVideo, activeUrl]);
+
   // New video frames (after seeks / while playing) → re-upload + redraw.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-subscribe when the media URL changes.
   useEffect(() => {
@@ -321,6 +406,14 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
     const refresh = stage.refreshVideo;
     return watchVideoFrames(v as unknown as VideoElementLike, () => refresh());
   }, [stage, hasVideo, activeUrl]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-subscribe when the media URL changes.
+  useEffect(() => {
+    const v = nextVideoRef.current;
+    if (!stage?.refreshVideo || !v || !wantsNextVideo) return;
+    const refresh = stage.refreshVideo;
+    return watchVideoFrames(v as unknown as VideoElementLike, () => refresh());
+  }, [stage, wantsNextVideo, activeUrl]);
 
   // ── video sync ──
   const sync = useRef<{
@@ -441,6 +534,7 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
       frame: cropMode ? { ...frame, crop: null } : frame,
       sourceSize,
       zoomRegions: suppressCamera ? [] : zoomRegions,
+      camera,
       cursor,
       cursorTrack,
       hasVideo: hasVideo && inClip,
@@ -468,6 +562,7 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
       sourceSize,
       suppressCamera,
       zoomRegions,
+      camera,
       cursor,
       cursorTrack,
       hasVideo,
@@ -491,6 +586,22 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
   useEffect(() => {
     if (stage) stage.render(scene);
   }, [stage, scene]);
+
+  // Park the second element on the incoming clip's first frame: during a dissolve, and
+  // ahead of the next boundary so the frame is already decoded when the window opens.
+  const incomingSourceMs = wantsNextVideo
+    ? scene.transition?.kind === "cross-dissolve"
+      ? scene.transition.incomingSourceMs
+      : upcomingIncomingSourceMs(clips, currentMs)
+    : null;
+  useEffect(() => {
+    const v = nextVideoRef.current;
+    if (!v || !wantsNextVideo || incomingSourceMs === null) return;
+    if (!v.paused) v.pause();
+    if (Math.abs(v.currentTime * 1000 - incomingSourceMs) > 1) {
+      v.currentTime = incomingSourceMs / 1000;
+    }
+  }, [wantsNextVideo, incomingSourceMs]);
 
   const state: string =
     status !== "ready" ? status : mediaOffline ? "offline" : hasVideo ? "ready" : "empty";
@@ -576,6 +687,18 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
         tabIndex={-1}
         data-testid="preview-video"
       />
+      {wantsNextVideo && (
+        <video
+          ref={nextVideoRef}
+          style={hiddenVideoStyle}
+          src={activeUrl ?? undefined}
+          muted
+          playsInline
+          preload="auto"
+          tabIndex={-1}
+          data-testid="preview-next-video"
+        />
+      )}
       {activeWebcamUrl !== null && (
         <video
           ref={webcamRef}
@@ -605,9 +728,19 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
       {status === "ready" && mediaOffline && (
         <div style={overlayStyle}>
           <div style={offlineCardStyle} role="alert">
-            <span style={titleStyle}>Media offline</span>
-            <span style={detailStyle}>The source recording was moved or deleted.</span>
-            <Button variant="primary" onClick={onLocateMedia} disabled={!onLocateMedia}>
+            <span aria-hidden="true" style={offlineDiscStyle}>
+              !
+            </span>
+            <span style={{ ...titleStyle, fontSize: "13px" }}>Media offline</span>
+            <span style={{ ...detailStyle, fontSize: "11px", color: "var(--text-3)" }}>
+              The source recording was moved or deleted.
+            </span>
+            <Button
+              variant="primary"
+              onClick={onLocateMedia}
+              disabled={!onLocateMedia}
+              style={{ borderRadius: "var(--radius-full)", padding: "7px 16px", fontSize: "12px" }}
+            >
               Locate…
             </Button>
           </div>
@@ -622,26 +755,44 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
 
       {status !== "error" && (
         <div style={chipStyle}>
-          <Tag variant="neutral" data-testid="aspect-chip">
+          <span style={floatingPill} data-testid="aspect-chip">
             {aspectLabel(frame.aspect)}
-          </Tag>
+          </span>
+          {status === "ready" && !cropMode && onCropModeChange && hasVideo && !mediaOffline && (
+            <button
+              type="button"
+              style={{
+                ...floatingPill,
+                color: "var(--text-2)",
+                cursor: isPlaying ? "not-allowed" : "pointer",
+                opacity: isPlaying ? 0.45 : 1,
+              }}
+              onClick={() => onCropModeChange(true)}
+              disabled={isPlaying}
+            >
+              Crop
+            </button>
+          )}
         </div>
       )}
 
       {status === "ready" && !cropMode && (
         <div style={bottomBarStyle} data-testid="canvas-zoom">
-          <Segmented<CanvasZoom>
-            name="preview-canvas-zoom"
-            size="sm"
-            value={zoom}
-            options={CANVAS_ZOOMS.map((z) => ({ value: z, label: canvasZoomLabel(z) }))}
-            onChange={setZoom}
-          />
-          {onCropModeChange && hasVideo && !mediaOffline && (
-            <Button variant="ghost" onClick={() => onCropModeChange(true)} disabled={isPlaying}>
-              Crop
-            </Button>
-          )}
+          <fieldset style={zoomGroupStyle} aria-label="Canvas zoom">
+            {CANVAS_ZOOMS.map((z) => (
+              <label key={z} style={zoomOptionStyle(z === zoom)}>
+                <input
+                  type="radio"
+                  name="preview-canvas-zoom"
+                  value={z}
+                  checked={z === zoom}
+                  onChange={() => setZoom(z)}
+                  style={visuallyHiddenInput}
+                />
+                {canvasZoomLabel(z)}
+              </label>
+            ))}
+          </fieldset>
         </div>
       )}
     </div>

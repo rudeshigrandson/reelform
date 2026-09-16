@@ -1,5 +1,6 @@
 import type { ProjectSessionData } from "../../../app/project/session";
 import type { CaptureInfo } from "../../model/v1";
+import { ti } from "../i18n";
 import { joinPath } from "../project/logic";
 import type { ProjectInfo, SourceInfo, SourceStat } from "../project/types";
 
@@ -64,9 +65,10 @@ export function projectInfoFromSession(
   }
   const video = meta.sources.video;
   const audioTracks: string[] = [];
-  if (meta.sources.mic) audioTracks.push("Microphone");
-  if (meta.sources.system) audioTracks.push("System audio");
-  if (audioTracks.length === 0 && video.hasAudio) audioTracks.push("Source audio");
+  if (meta.sources.mic) audioTracks.push(ti("inspector.audio.track.mic"));
+  if (meta.sources.system) audioTracks.push(ti("inspector.audio.track.system"));
+  if (audioTracks.length === 0 && video.hasAudio)
+    audioTracks.push(ti("inspector.common.sourceAudio"));
   const backend = meta.sources.capture?.backend;
   const points = session.telemetry?.file.points.length ?? cursorPointCount;
   return {

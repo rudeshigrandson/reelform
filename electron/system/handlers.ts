@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import type { ClipboardMethod, FileFilter, SystemFileHandlers } from "./contracts";
+import type { PickedPathRegistry } from "./pickedPaths";
 
 /**
  * System shell handlers (§3 system domain, §10.7 finalize). Electron-free: the
@@ -48,6 +49,8 @@ export interface SystemDeps {
   clipboardWriteBuffer(format: string, bytes: Uint8Array): void;
   /** Default folder for save dialogs without `defaultDir` (e.g. Videos). */
   defaultSaveDir?: (() => string) | undefined;
+  /** Records files chosen in open/save dialogs so text I/O may touch them (§13). */
+  pickedPaths?: PickedPathRegistry | undefined;
 }
 
 const pathApi = (platform: string): path.PlatformPath =>
@@ -148,7 +151,9 @@ export function createSystemFileHandlers(deps: SystemDeps): SystemFileHandlers {
         filters: req.filters,
         properties: ["openFile"],
       });
-      return { path: res.canceled ? null : (res.filePaths[0] ?? null) };
+      const picked = res.canceled ? null : (res.filePaths[0] ?? null);
+      if (picked) deps.pickedPaths?.add(picked);
+      return { path: picked };
     },
 
     "system:pickFolder": async (req) => {
@@ -165,7 +170,9 @@ export function createSystemFileHandlers(deps: SystemDeps): SystemFileHandlers {
       const dir = req.defaultDir ?? deps.defaultSaveDir?.();
       const defaultPath = dir ? pathApi(deps.platform).join(dir, name) : name;
       const res = await deps.showSaveDialog({ defaultPath, filters: req.filters });
-      return { path: res.canceled || !res.filePath ? null : res.filePath };
+      const picked = res.canceled || !res.filePath ? null : res.filePath;
+      if (picked) deps.pickedPaths?.add(picked);
+      return { path: picked };
     },
 
     "system:clipboardWriteFile": async (req) => {

@@ -9,7 +9,7 @@ import type { BackgroundPaint, PaintStop } from "./scene";
  * deterministic hash fallback in `scene.ts`.
  */
 
-export const WALLPAPER_MANIFEST_URL = "/wallpapers/wallpapers.json";
+export const WALLPAPER_MANIFEST_URL = "./wallpapers/wallpapers.json";
 /** Mesh blob radius (fraction of the frame diagonal) when a point omits it. */
 export const MESH_DEFAULT_RADIUS = 0.6;
 

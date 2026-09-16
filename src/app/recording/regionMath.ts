@@ -1,4 +1,5 @@
 import type { RegionRect } from "./bus";
+import type { SourcesResult } from "./port";
 
 /**
  * Region overlay result (§5.7): the overlay window covers one display, so its
@@ -59,4 +60,40 @@ export function defaultRegionBounds(viewport: Viewport): RegionRect {
     width = Math.round((height * 16) / 9);
   }
   return { x: Math.round((vw - width) / 2), y: Math.round((vh - height) / 2), width, height };
+}
+
+// ---- snapping (SPEC §5.7) -------------------------------------------------------------
+
+export { SNAP_THRESHOLD_PX, type SnapEdges, snapRect } from "../../overlays/snap";
+
+const finiteRect = (r: RegionRect): boolean =>
+  Number.isFinite(r.x) &&
+  Number.isFinite(r.y) &&
+  Number.isFinite(r.width) &&
+  Number.isFinite(r.height);
+
+/**
+ * Snap targets for one display's region overlay: windows that report bounds
+ * (native backends; desktopCapturer windows have none), converted from global
+ * DIP to display-local DIP.
+ */
+export function windowSnapTargets(sources: SourcesResult | null, displayId: string): RegionRect[] {
+  const display = sources?.displays.find((d) => d.id === displayId);
+  if (!sources || !display) return [];
+  const db = display.bounds;
+  const out: RegionRect[] = [];
+  for (const w of sources.windows) {
+    const b = w.bounds;
+    if (!b || !finiteRect(b) || b.width <= 0 || b.height <= 0) continue;
+    const onDisplay =
+      w.displayId !== undefined
+        ? w.displayId === displayId
+        : b.x < db.x + db.width &&
+          b.x + b.width > db.x &&
+          b.y < db.y + db.height &&
+          b.y + b.height > db.y;
+    if (!onDisplay) continue;
+    out.push({ x: b.x - db.x, y: b.y - db.y, width: b.width, height: b.height });
+  }
+  return out;
 }

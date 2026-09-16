@@ -3,7 +3,8 @@ import { type ReactElement, useEffect, useRef, useState } from "react";
 import { useProjectSession } from "../../../app/project/session";
 import type { SuggestedZoom } from "../../autozoom";
 import { usePlaybackStore } from "../../playback";
-import { useEditorStore } from "../../store";
+import { useEditorStore, useEditorUiStore } from "../../store";
+import { useInspectorT } from "../i18n";
 import { ZoomInspector, deleteRegion, duplicateRegion } from "../zoom";
 import { formatTimecode } from "../zoom/zoomLogic";
 import { hostId } from "./hooks";
@@ -29,21 +30,25 @@ type Pending =
   | { mode: "review"; review: ReviewState }
   | null;
 
+/** Raised 12px card matching the inspector auto-zoom block (design S15). */
 const toastStyle = {
   display: "flex",
   flexDirection: "column" as const,
-  gap: "var(--space-2)",
-  margin: "var(--space-2) var(--space-3) 0",
-  padding: "var(--space-2) var(--space-3)",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--border-strong)",
+  gap: "9px",
+  margin: "0 0 14px",
+  padding: "12px",
+  borderRadius: "12px",
+  border: "1px solid var(--border)",
   background: "var(--bg-panel-raised)",
   color: "var(--text-1)",
   fontFamily: "var(--font-body)",
-  fontSize: "13px",
+  fontSize: "11px",
 };
 
+const actionStyle = { borderRadius: "999px", fontSize: "12px" };
+
 export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
+  const t = useInspectorT();
   const e = useEditorStore();
   const telemetry = useProjectSession((s) => s.telemetry);
   const meta = useProjectSession((s) => s.meta);
@@ -59,6 +64,14 @@ export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
       live.current = false;
     };
   }, []);
+
+  // Suggestions awaiting Keep / Review / Dismiss are the pending set (timeline ghosts, §8).
+  const offered = pending?.mode === "toast" ? pending.suggestions : null;
+  useEffect(() => {
+    if (!offered || offered.length === 0) return;
+    useEditorUiStore.getState().setPendingSuggestions(offered.map((s) => s.id));
+    return () => useEditorUiStore.getState().clearPendingSuggestions();
+  }, [offered]);
 
   const hasTelemetry = telemetry !== null && telemetry.telemetry.points.length > 0;
 
@@ -78,7 +91,7 @@ export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
         if (live.current) setPending({ mode: "toast", suggestions });
       } catch (err) {
         if (live.current)
-          setError(err instanceof Error ? err.message : "Couldn't analyze cursor activity.");
+          setError(err instanceof Error ? err.message : t("inspector.zoom.analyzeFailed"));
       } finally {
         if (live.current) setAnalyzing(false);
       }
@@ -95,7 +108,7 @@ export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
     if (pending?.mode !== "review") return;
     const next = reviewStep(pending.review, decision);
     if (reviewDone(next)) {
-      commit(next.kept, "Keep reviewed zooms");
+      commit(next.kept, t("inspector.zoom.history.keepReviewed"));
       return;
     }
     const upcoming = next.suggestions[next.index];
@@ -108,23 +121,35 @@ export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
   return (
     <>
       {error && (
-        <div role="alert" style={{ ...toastStyle, color: "var(--danger)" }}>
+        <div
+          role="alert"
+          style={{
+            ...toastStyle,
+            background: "color-mix(in srgb, var(--record) 12%, transparent)",
+            border: "1px solid color-mix(in srgb, var(--record) 45%, transparent)",
+            color: "color-mix(in srgb, var(--record) 45%, var(--text-1))",
+          }}
+        >
           {error}
         </div>
       )}
       {pending?.mode === "toast" && (
-        <output aria-label="Zoom suggestions" style={toastStyle}>
+        <output aria-label={t("inspector.zoom.suggestions.label")} style={toastStyle}>
           <span>{suggestionsToastText(pending.suggestions.length)}</span>
-          <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
             {pending.suggestions.length > 0 && (
               <>
                 <Button
+                  style={actionStyle}
                   variant="primary"
-                  onClick={() => commit(pending.suggestions, "Keep zoom suggestions")}
+                  onClick={() =>
+                    commit(pending.suggestions, t("inspector.zoom.history.keepSuggestions"))
+                  }
                 >
-                  Keep all
+                  {t("inspector.zoom.suggestions.keepAll")}
                 </Button>
                 <Button
+                  style={actionStyle}
                   variant="secondary"
                   onClick={() => {
                     const first = pending.suggestions[0];
@@ -132,12 +157,12 @@ export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
                     setPending({ mode: "review", review: startReview(pending.suggestions) });
                   }}
                 >
-                  Review
+                  {t("inspector.zoom.suggestions.review")}
                 </Button>
               </>
             )}
-            <Button variant="ghost" onClick={() => setPending(null)}>
-              Dismiss
+            <Button style={actionStyle} variant="ghost" onClick={() => setPending(null)}>
+              {t("inspector.zoom.suggestions.dismiss")}
             </Button>
           </div>
         </output>
@@ -147,21 +172,24 @@ export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
       )}
       <ZoomInspector
         settings={e.zoom}
-        onSettingsChange={(zoom) => host.documentUpdate("Zoom settings", { zoom }, "zoom-settings")}
+        onSettingsChange={(zoom) =>
+          host.documentUpdate(t("inspector.zoom.history.settings"), { zoom }, "zoom-settings")
+        }
         selectedRegion={selectedRegion}
         onRegionChange={(next) =>
           host.documentUpdate(
-            "Edit zoom",
+            t("inspector.zoom.history.edit"),
             { zoomRegions: e.zoomRegions.map((r) => (r.id === next.id ? next : r)) },
             `zoom-edit-${next.id}`,
           )
         }
         onDuplicate={(id) => {
           const regions = duplicateRegion(e.zoomRegions, id, e.durationMs, hostId("zoom"));
-          if (regions) host.documentUpdate("Duplicate zoom", { zoomRegions: regions });
+          if (regions)
+            host.documentUpdate(t("inspector.zoom.history.duplicate"), { zoomRegions: regions });
         }}
         onDelete={(id) =>
-          host.documentUpdate("Delete zoom", {
+          host.documentUpdate(t("inspector.zoom.history.delete"), {
             zoomRegions: deleteRegion(e.zoomRegions, id),
             selectedZoomId: null,
           })
@@ -185,26 +213,32 @@ function ReviewCard({
   onDecide: (d: "keep" | "skip") => void;
   onCancel: () => void;
 }): ReactElement | null {
+  const t = useInspectorT();
   const current = review.suggestions[review.index];
   if (!current) return null;
   return (
-    <fieldset aria-label="Review zoom suggestions" style={{ ...toastStyle, minWidth: 0 }}>
+    <fieldset aria-label={t("inspector.zoom.review.label")} style={{ ...toastStyle, minWidth: 0 }}>
       <span>
-        Zoom {review.index + 1} of {review.suggestions.length} ·{" "}
+        {t("inspector.zoom.review.position", {
+          index: review.index + 1,
+          total: review.suggestions.length,
+        })}{" "}
         <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-2)" }}>
           {formatTimecode(current.startMs)}–{formatTimecode(current.endMs)}
         </span>
       </span>
-      <span style={{ color: "var(--text-2)" }}>Zoomed because: {current.reason}</span>
-      <div style={{ display: "flex", gap: "var(--space-1)" }}>
-        <Button variant="primary" onClick={() => onDecide("keep")}>
-          Keep
+      <span style={{ color: "var(--text-2)" }}>
+        {t("inspector.zoom.review.reason", { reason: current.reason })}
+      </span>
+      <div style={{ display: "flex", gap: "6px" }}>
+        <Button style={actionStyle} variant="primary" onClick={() => onDecide("keep")}>
+          {t("inspector.common.keep")}
         </Button>
-        <Button variant="secondary" onClick={() => onDecide("skip")}>
-          Skip
+        <Button style={actionStyle} variant="secondary" onClick={() => onDecide("skip")}>
+          {t("inspector.zoom.review.skip")}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
-          Cancel
+        <Button style={actionStyle} variant="ghost" onClick={onCancel}>
+          {t("inspector.common.cancel")}
         </Button>
       </div>
     </fieldset>

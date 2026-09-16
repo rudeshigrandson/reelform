@@ -31,6 +31,8 @@ export interface SecureWebPreferences {
   nodeIntegration: false;
   sandbox: true;
   webSecurity: true;
+  /** Off only for windows that must keep working hidden (the launcher hosts MediaRecorders). */
+  backgroundThrottling?: boolean | undefined;
 }
 
 export interface WindowOptions {
@@ -55,7 +57,26 @@ export interface WindowOptions {
   hasShadow?: boolean | undefined;
   focusable?: boolean | undefined;
   enableLargerThanScreen?: boolean | undefined;
+  /** macOS only: traffic lights drawn inside the app chrome (launcher, settings). */
+  titleBarStyle?: "hiddenInset" | undefined;
+  trafficLightPosition?: Point | undefined;
   webPreferences: SecureWebPreferences;
+}
+
+/** Kinds that draw their own title bar with inset traffic lights on macOS. */
+export const INSET_TITLE_BAR_KINDS: ReadonlySet<WindowKind> = new Set(["launcher", "settings"]);
+/** Traffic lights centred vertically in the 40px in-app title bar. */
+export const TRAFFIC_LIGHT_POSITION: Point = { x: 16, y: 14 };
+
+/** True when a window of `kind` on `platform` (a `process.platform` value) uses an inset title bar. */
+export function usesInsetTitleBar(kind: WindowKind, platform: string | undefined): boolean {
+  return platform === "darwin" && INSET_TITLE_BAR_KINDS.has(kind);
+}
+
+function titleBar(kind: WindowKind, platform: string | undefined): Partial<WindowOptions> {
+  return usesInsetTitleBar(kind, platform)
+    ? { titleBarStyle: "hiddenInset", trafficLightPosition: { ...TRAFFIC_LIGHT_POSITION } }
+    : {};
 }
 
 /** Dark-first opaque ground shown before first paint. */
@@ -65,7 +86,7 @@ export const TRANSPARENT_BACKGROUND = "#00000000";
 export const LAUNCHER_SIZE = { width: 720, height: 520, minWidth: 640, minHeight: 480 } as const;
 export const EDITOR_SIZE = { width: 1440, height: 900, minWidth: 1024, minHeight: 700 } as const;
 export const SETTINGS_SIZE = { width: 860, height: 620 } as const;
-export const HUD_SIZE: Size = { width: 560, height: 64 };
+export const HUD_SIZE: Size = { width: 620, height: 64 };
 export const COUNTDOWN_SIZE: Size = { width: 240, height: 240 };
 export const WEBCAM_BUBBLE_SIZE: Size = { width: 240, height: 240 };
 /** Gap between a floating window and the work-area edge. */
@@ -81,6 +102,8 @@ export interface WindowOptionsContext {
   position?: Point | undefined;
   /** Override size for resizable floating windows (webcam bubble). */
   size?: Size | undefined;
+  /** `process.platform`; decides the macOS inset title bar for launcher / settings. */
+  platform?: string | undefined;
 }
 
 export function secureWebPreferences(preloadPath: string): SecureWebPreferences {
@@ -125,7 +148,10 @@ export function buildWindowOptions(kind: WindowKind, ctx: WindowOptionsContext):
         title: "Reelform",
         backgroundColor: OPAQUE_BACKGROUND,
         resizable: true,
-        webPreferences,
+        ...titleBar(kind, ctx.platform),
+        // The launcher hosts the Electron backend's MediaRecorders and may be
+        // hidden during capture; throttling would stall chunks and the mic meter.
+        webPreferences: { ...webPreferences, backgroundThrottling: false },
       };
     case "editor":
       return {
@@ -146,6 +172,7 @@ export function buildWindowOptions(kind: WindowKind, ctx: WindowOptionsContext):
         minimizable: false,
         maximizable: false,
         fullscreenable: false,
+        ...titleBar(kind, ctx.platform),
         webPreferences,
       };
     case "hud": {
@@ -172,6 +199,23 @@ export function buildWindowOptions(kind: WindowKind, ctx: WindowOptionsContext):
         height: b.height,
         show: false,
         movable: false,
+        enableLargerThanScreen: true,
+        webPreferences,
+      };
+    }
+    case "source-outline": {
+      // Click-through outline of the chosen window source (SPEC §5.7): never
+      // takes focus or the mouse; the manager also sets ignore-mouse-events.
+      const b = ctx.displayBounds ?? { x: 0, y: 0, width: 0, height: 0 };
+      return {
+        ...floating,
+        x: b.x,
+        y: b.y,
+        width: b.width,
+        height: b.height,
+        show: false,
+        movable: false,
+        focusable: false,
         enableLargerThanScreen: true,
         webPreferences,
       };
@@ -220,6 +264,72 @@ export function defaultHudPosition(workArea: Rect, size: Size = HUD_SIZE): Point
     x: Math.round(workArea.x + (workArea.width - size.width) / 2),
     y: Math.round(workArea.y + workArea.height - size.height - EDGE_MARGIN),
   };
+}
+
+export type HudPlacement = "above" | "below";
+
+/** Expanded HUD window: its bounds and where the pill sits inside them. */
+export interface HudLayout {
+  bounds: Rect;
+  /** Popovers open above the pill unless the work area has no room there. */
+  placement: HudPlacement;
+  /** Pill top-left relative to the window, so it stays at the same screen position. */
+  pillOffset: Point;
+}
+
+/**
+ * Grow the HUD window around its pill (menus, source picker, warning chips)
+ * without moving the pill on screen: the window extends upward (or downward
+ * when there is no room above), centred on the pill and clamped horizontally
+ * into the work area while still containing the pill.
+ */
+export function hudExpansionLayout(pill: Rect, requested: Size, workArea: Rect): HudLayout {
+  const fit = (want: number, min: number, max: number) => {
+    const v = Number.isFinite(want) ? want : min;
+    return Math.round(Math.max(min, Math.min(v, Math.max(min, max))));
+  };
+  const width = fit(requested.width, pill.width, workArea.width);
+  const height = fit(requested.height, pill.height, workArea.height);
+  const aboveY = pill.y + pill.height - height;
+  const placement: HudPlacement = aboveY >= workArea.y ? "above" : "below";
+  const y = placement === "above" ? aboveY : pill.y;
+  const ideal = pill.x + (pill.width - width) / 2;
+  const inArea = Math.min(Math.max(ideal, workArea.x), workArea.x + workArea.width - width);
+  // The pill must stay inside the window even when the area clamp disagrees.
+  const x = Math.round(Math.min(Math.max(inArea, pill.x + pill.width - width), pill.x));
+  return {
+    bounds: { x, y: Math.round(y), width, height },
+    placement,
+    pillOffset: { x: Math.round(pill.x - x), y: Math.round(pill.y - y) },
+  };
+}
+
+export type HudAnchor = "center" | "top-left";
+
+/**
+ * New HUD pill rect for a size change (recording pill, hidden dot): kept
+ * around the old pill's centre (or top-left) and clamped into the work area.
+ */
+export function hudResizeRect(
+  pill: Rect,
+  requested: Size,
+  anchor: HudAnchor,
+  workArea: Rect,
+): Rect {
+  const dim = (v: number, fallback: number) =>
+    Math.max(1, Math.round(Number.isFinite(v) && v > 0 ? v : fallback));
+  const size = {
+    width: dim(requested.width, pill.width),
+    height: dim(requested.height, pill.height),
+  };
+  const want =
+    anchor === "center"
+      ? {
+          x: pill.x + (pill.width - size.width) / 2,
+          y: pill.y + (pill.height - size.height) / 2,
+        }
+      : { x: pill.x, y: pill.y };
+  return { ...clampIntoArea(want, workArea, size), ...size };
 }
 
 /** Clamp a top-left so a window of `size` stays fully inside `area` (when it fits). */

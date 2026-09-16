@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Clip } from "../../editor/model/schema";
 import type { RateRegion } from "../../editor/playback/clock";
 import type { ExportConfig } from "../route";
-import type { AudioBufferLike } from "./audio";
+import { type AudioBufferLike, bufferBlockSource } from "./audio";
 import { BT709_LIMITED, ExportConfigError } from "./encoderConfig";
 import {
   EncoderFailure,
@@ -92,7 +92,8 @@ function setup(o: SetupOptions = {}) {
     },
     timeline: { clips: [clip], speeds: o.speeds, sourceFps: 30 },
     sceneAt: (ms) => fakeScene(ms, o.visible ?? true),
-    audio: o.audio ?? null,
+    // 30 s render blocks, like the real offline mixdown.
+    audio: o.audio ? bufferBlockSource(o.audio, 48_000 * 30) : null,
     preferHardware: o.preferHardware ?? true,
   };
   const phases = () => progress.map((p) => p.phase).filter((p, i, a) => i === 0 || a[i - 1] !== p);
@@ -130,7 +131,7 @@ describe("runExport — happy path", () => {
       attempts: 1,
       framesEncoded: 90,
       audio: "none",
-      pcmWav: null,
+      pcmAudio: null,
     });
     const enc = h.fake.videoEncoders[0];
     expect(h.fake.videoEncoders).toHaveLength(1);
@@ -335,18 +336,95 @@ describe("runExport — audio and validation", () => {
     expect(h.fake.audioDataCounter.live).toBe(0);
   });
 
-  it("WebM without Opus falls back to PCM WAV for ffmpeg finalize", async () => {
+  it("WebM without Opus hands the unrendered audio back for the PCM WAV finalize", async () => {
     const h = setup({
       codec: "vp9",
       container: "webm",
       audio: fakeAudioBuffer(1000),
       wc: { opusSupported: false },
     });
-    const result = await runExport(h.job, h.deps);
+    let iterated = 0;
+    const audio = h.job.audio as NonNullable<typeof h.job.audio>;
+    h.job.audio = {
+      ...audio,
+      blocks: () => {
+        iterated++;
+        return audio.blocks();
+      },
+    };
+    const result = await runExport(h.job, h.deps, { onProgress: (p) => h.progress.push(p) });
     expect(result.audio).toBe("pcm-wav");
-    expect(result.pcmWav?.byteLength).toBe(44 + 1000 * 4);
+    expect(result.pcmAudio?.length).toBe(1000);
+    // Nothing rendered or held in memory by the engine itself.
+    expect(iterated).toBe(0);
+    expect(h.phases()).not.toContain("encoding-audio");
     expect(h.muxers[0]?.opts.audio).toBeNull();
     expect(h.fake.audioEncoders).toHaveLength(0);
+  });
+
+  it("audio blocks are pulled one at a time before any video frame", async () => {
+    const h = setup({ durationMs: 500 });
+    const order: string[] = [];
+    const inner = bufferBlockSource(fakeAudioBuffer(48_000 * 2), 24_000);
+    h.job.audio = {
+      sampleRate: inner.sampleRate,
+      numberOfChannels: inner.numberOfChannels,
+      length: inner.length,
+      async *blocks() {
+        for await (const b of inner.blocks()) {
+          order.push(`block@${b.frameOffset}`);
+          yield b;
+        }
+      },
+    };
+    const sceneAt = h.job.sceneAt;
+    h.job.sceneAt = (ms) => {
+      order.push("frame");
+      return sceneAt(ms);
+    };
+    await runExport(h.job, h.deps);
+    expect(order.slice(0, 5)).toEqual([
+      "block@0",
+      "block@24000",
+      "block@48000",
+      "block@72000",
+      "frame",
+    ]);
+    expect(h.muxers[0]?.audio).toEqual([0, 500_000, 1_000_000, 1_500_000]);
+  });
+
+  it("cross-dissolve frames come from a second decoder, held once per boundary and closed", async () => {
+    const h = setup({ durationMs: 2000 });
+    let opened = 0;
+    h.deps.openNextFrameSource = async () => {
+      opened++;
+      return new StreamingDecoder({
+        source: h.source,
+        createDecoder: (init) => new FakeVideoDecoder(init, h.ledger),
+        maxWindow: 2,
+      });
+    };
+    const sceneAt = h.job.sceneAt;
+    // Dissolve over [500, 1000) into a clip whose first source frame is at 1500 ms.
+    h.job.sceneAt = (ms) => {
+      const s = sceneAt(ms);
+      return ms >= 500 && ms < 1000
+        ? ({
+            ...s,
+            transition: { kind: "cross-dissolve", mix: (ms - 500) / 500, incomingSourceMs: 1500 },
+          } as typeof s)
+        : s;
+    };
+    await runExport(h.job, h.deps);
+    expect(opened).toBe(1);
+    // mix 0 at 500 ms → attached from the next frame, detached when the window ends.
+    expect(h.renderer.nextSets).toHaveLength(2);
+    expect(h.renderer.nextSets[1]).toBeNull();
+    const attached = h.renderer.nextAtRender.filter((t) => t !== null);
+    expect(attached.length).toBe(14);
+    expect(new Set(attached).size).toBe(1);
+    await settle();
+    expect(h.ledger.live).toBe(0);
   });
 
   it("invalid configs and empty ranges fail before touching the sink", async () => {

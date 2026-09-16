@@ -1,4 +1,5 @@
 import { type StoreApi, createStore } from "zustand/vanilla";
+import type { ProjectV1 } from "../../editor/model/v1";
 import type { CaptureDeps, CaptureOptions, CaptureSession } from "../../recording/captureSession";
 import type { Platform } from "../../recording/constraints";
 import {
@@ -8,17 +9,22 @@ import {
   toRecordingError,
 } from "../../recording/port";
 import { captureWarningCode, interruptCopy } from "../../recording/sessionStore";
+import { useAppSettings } from "../settings/store";
 import type { RecordingBus, SessionSnapshot, SnapshotPhase } from "./bus";
 import {
+  type CaptureOptionsResult,
+  type RecordingDocumentDefaults,
   type RecordingSetup,
   buildRecordingDocument,
   captureOptionsFor,
   displayIdFor,
+  micLabelFor,
   planMedia,
   recordingProjectName,
   resolvedFileNames,
   sourceLabel,
   toStartRequest,
+  webcamCaptureOptionsFor,
 } from "./document";
 import type {
   AppRecordingPort,
@@ -26,6 +32,7 @@ import type {
   ProjectPort,
   SourcesResult,
   SystemPort,
+  TranscodeProgressEvent,
   WindowsPort,
 } from "./port";
 
@@ -43,8 +50,20 @@ import type {
  *   pause/resume onto the MediaRecorders, and on stop/interrupt flushes every
  *   chunk + ends each track *before* `recording:finalize` — so an interrupted
  *   recording keeps everything written.
+ * - Native backends (sck/wgc): the helper records screen + audio; with the
+ *   webcam on, a webcam-only renderer capture streams beside it (§5.7). Its
+ *   failure is a warning, never the end of the screen recording.
+ * - Mic mute (HUD `hud:setMicMuted`): the renderer disables its mic track on the
+ *   Electron backend; native backends go through `recording:setMicMuted`.
+ * - Restart (HUD `hud:restart`): discard the live session keeping the HUD open,
+ *   then start again with the same setup (region mode re-opens the selection).
+ * - The mic's device label is resolved at start (native helpers match by label).
  * - Finalized media is moved into a new project (`project:create`), then the
  *   editor opens or the post-record card (S11) is shown.
+ * - Electron-backend videos are transcoded to H.264 in the background (§5.2);
+ *   when main reports the finished file, the project's screen video is relinked
+ *   to it (`project:relink`, copy) and the document saved. Best effort: a
+ *   failure is logged and the project keeps the recorded VP9.
  * - Other windows (HUD, countdown, overlays) learn the session over the bus.
  */
 
@@ -105,6 +124,12 @@ export interface RecordingFlowState {
 
 /** Hooks the flow passes to the renderer capture (bound to the real browser deps by the app). */
 export type CaptureHooks = Pick<CaptureDeps, "port" | "onMicLevel" | "onDeviceLost" | "onError">;
+export interface DeviceInfoLike {
+  deviceId: string;
+  kind: string;
+  label: string;
+}
+
 export type StartCaptureFn = (
   options: CaptureOptions,
   hooks: CaptureHooks,
@@ -125,6 +150,32 @@ export interface RecordingFlowDeps {
   /** Latest `recording:listSources` the launcher shows; fetched when null. */
   sources(): SourcesResult | null;
   bus?: RecordingBus | undefined;
+  /** `navigator.mediaDevices.enumerateDevices` (mic label for native helpers). */
+  enumerateDevices?: (() => Promise<readonly DeviceInfoLike[]>) | undefined;
+  /** Settings "Default frame preset" / "Default aspect"; defaults to the app settings store. */
+  editorDefaults?: (() => RecordingDocumentDefaults) | undefined;
+  /** Best-effort failures (transcode relink); defaults to `console.warn`. */
+  log?: ((message: string) => void) | undefined;
+}
+
+/** Read-only view of the app settings used for new recording documents (§11). */
+export function appEditorDefaults(): RecordingDocumentDefaults {
+  const { defaultFramePreset, defaultAspect } = useAppSettings.getState().settings;
+  return { framePreset: defaultFramePreset, aspect: defaultAspect };
+}
+
+const browserEnumerateDevices = async (): Promise<readonly DeviceInfoLike[]> =>
+  typeof navigator !== "undefined" && navigator.mediaDevices?.enumerateDevices
+    ? navigator.mediaDevices.enumerateDevices()
+    : [];
+
+/** A finished background transcode waiting for (or applied to) its project. */
+interface TranscodeWatch {
+  recordingId: string;
+  durationMs: number;
+  done: TranscodeProgressEvent | null;
+  target: { projectPath: string; document: ProjectV1 } | null;
+  off: () => void;
 }
 
 export interface RecordingFlow {
@@ -142,6 +193,8 @@ export interface RecordingFlow {
   recordAnother(): Promise<void>;
   deleteRecording(): Promise<void>;
   dismissError(): void;
+  /** Mute / unmute the mic of the live session (applied once capture starts). */
+  setMicMuted(muted: boolean): Promise<void>;
   dispose(): void;
 }
 
@@ -178,6 +231,7 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
   let countdownTotal: number | null = null;
   let regionDisplays: string[] = [];
   let disposed = false;
+  let micMuted = false;
 
   const fail = (stage: FlowStage, err: unknown, fallback = "recording-failed"): void => {
     set({ phase: "error", error: { ...toRecordingError(err, fallback), stage } });
@@ -218,6 +272,7 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
       sourceLabel: sourceLabel(s.setup, sourcesAtStart),
       displayId: displayIdFor(s.setup, sourcesAtStart) ?? null,
       webcamDeviceId: s.setup.webcam ? (s.setup.webcamDeviceId ?? "") : null,
+      setup: s.setup,
     };
   };
 
@@ -232,7 +287,16 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
   const unsubscribeStore = store.subscribe(publish);
   const unsubscribeBus = deps.bus?.subscribe((m) => {
     if (m.type === "snapshotRequest") deps.bus?.post({ type: "snapshot", snapshot: snapshot() });
+    // Pre-record HUD (guide S05): same entry points as the launcher's Record.
+    else if (m.type === "startRequest") startWith(m.setup);
+    else if (m.type === "hud:setMicMuted") void setMicMuted(m.muted);
+    else if (m.type === "hud:restart") void restart();
   });
+
+  const startWith = (setup: RecordingSetup): void => {
+    if (setup.mode === "region") void selectRegion(setup);
+    else void start(setup);
+  };
 
   // ---- windows ------------------------------------------------------------------
 
@@ -241,6 +305,9 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
       quietly(deps.windows.closeKind(kind));
     }
   };
+
+  /** Setup to start again once main confirms the discard of a HUD Restart. */
+  let restartSetup: RecordingSetup | null = null;
 
   const stopListening = (): void => {
     unsubscribeEvents?.();
@@ -254,18 +321,32 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
     finalized = null;
     finalizing = null;
     countdownTotal = null;
+    micMuted = false;
+    restartSetup = null;
   };
 
-  // ---- capture (Electron backend) ----------------------------------------------
+  // ---- renderer capture ----------------------------------------------------------
 
-  const beginCapture = (sessionId: string, setup: RecordingSetup): void => {
-    const opts = captureOptionsFor(sessionId, setup, sourcesAtStart, deps.platform);
+  /**
+   * Start the renderer capture: every track on the Electron backend (a failure
+   * discards the session), or only the webcam beside a native helper (a failure
+   * is a warning; the helper keeps recording).
+   */
+  const beginCapture = (sessionId: string, opts: CaptureOptionsResult, native: boolean): void => {
+    const giveUp = async (err: unknown, fallback: string): Promise<void> => {
+      if (native) {
+        if (get().sessionId === sessionId)
+          addWarning(captureWarningCode(toRecordingError(err, fallback).code));
+        return;
+      }
+      fail("capture", err, fallback);
+      await deps.port.discard(sessionId).catch(() => {});
+      closeSessionWindows();
+      stopListening();
+    };
     capturePromise = (async () => {
       if (!opts.ok) {
-        fail("capture", { code: opts.code, message: opts.message });
-        await deps.port.discard(sessionId).catch(() => {});
-        closeSessionWindows();
-        stopListening();
+        await giveUp({ code: opts.code, message: opts.message }, "capture-failed");
         return null;
       }
       // Late callbacks from a discarded/finished capture (e.g. a chunk write
@@ -286,13 +367,11 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
         });
         for (const w of capture.warnings) addWarning(w);
         mimeTypes = {};
+        if (micMuted) capture.setMicMuted?.(true);
         return capture;
       } catch (err) {
         if (get().sessionId === sessionId && LIVE_PHASES.includes(get().phase)) {
-          fail("capture", err, "capture-failed");
-          await deps.port.discard(sessionId).catch(() => {});
-          closeSessionWindows();
-          stopListening();
+          await giveUp(err, "capture-failed");
         }
         return null;
       }
@@ -304,6 +383,112 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
       if (phase === "paused") capture.pause();
       if (phase === "idle" || phase === "error") quietly(capture.discard());
     });
+  };
+
+  /** Resolve the mic's device label once, without blocking a start on failure. */
+  const withMicLabel = async (setup: RecordingSetup): Promise<RecordingSetup> => {
+    if (!setup.mic || setup.micLabel) return setup;
+    try {
+      const devices = await (deps.enumerateDevices ?? browserEnumerateDevices)();
+      const micLabel = micLabelFor(setup, devices);
+      return micLabel ? { ...setup, micLabel } : setup;
+    } catch {
+      return setup; // Main falls back to the default input.
+    }
+  };
+
+  const setMicMuted = async (muted: boolean): Promise<void> => {
+    micMuted = muted;
+    const { sessionId, backend, phase } = get();
+    if (!sessionId || (phase !== "recording" && phase !== "paused")) return;
+    if (backend === "electron") {
+      const capture = capturePromise ? await capturePromise : null;
+      capture?.setMicMuted?.(muted);
+      return;
+    }
+    try {
+      await deps.port.setMicMuted?.(sessionId, muted);
+    } catch (err) {
+      if (get().sessionId === sessionId) addWarning(captureWarningCode(toRecordingError(err).code));
+    }
+  };
+
+  // ---- background transcode → relink ----------------------------------------------
+
+  const log = deps.log ?? ((message: string) => console.warn(message));
+  const transcodeWatches = new Map<string, TranscodeWatch>();
+
+  const endTranscodeWatch = (w: TranscodeWatch): void => {
+    w.off();
+    transcodeWatches.delete(w.recordingId);
+  };
+
+  const relinkTranscoded = async (w: TranscodeWatch): Promise<void> => {
+    const { done, target } = w;
+    if (!done?.outputPath || !target || !deps.projects.replaceSource) return;
+    endTranscodeWatch(w);
+    try {
+      // Main patches project.json under its lock (keeping edits saved since create),
+      // tells open editors, and merges the new path into their later saves.
+      const res = await deps.projects.replaceSource({
+        path: target.projectPath,
+        source: "video",
+        filePath: done.outputPath,
+        replaces: target.document.sources.video.path,
+        expected: { durationMs: w.durationMs },
+        // The transcode always writes H.264.
+        codec: "h264",
+      });
+      if (!res.applied) {
+        log(`transcode relink skipped for ${target.projectPath}: the screen video was replaced`);
+      }
+    } catch (err) {
+      const e = toRecordingError(err, "RELINK_FAILED");
+      log(`transcode relink failed for ${target.projectPath}: ${e.code} ${e.message}`);
+    }
+  };
+
+  /** Watch the background transcode of a finalized Electron-backend video. */
+  const watchTranscode = (fin: FinalizeResult): void => {
+    if (!deps.port.onTranscodeProgress || !deps.projects.replaceSource) return;
+    if (fin.meta.backend !== "electron") return;
+    if (transcodeWatches.has(fin.recordingId) || disposed) return;
+    const w: TranscodeWatch = {
+      recordingId: fin.recordingId,
+      durationMs: fin.meta.durationMs,
+      done: null,
+      target: null,
+      off: () => {},
+    };
+    transcodeWatches.set(fin.recordingId, w);
+    w.off = deps.port.onTranscodeProgress((p) => {
+      if (p.sessionId !== w.recordingId || !p.done || w.done) return;
+      if (!p.outputPath || p.error !== undefined) {
+        if (p.error !== undefined) log(`transcode failed for ${w.recordingId}: ${p.error}`);
+        endTranscodeWatch(w);
+        return;
+      }
+      w.done = p;
+      void relinkTranscoded(w);
+    });
+  };
+
+  /** The project now owns the video: relink once (or as soon as) the transcode is done. */
+  const attachTranscodeTarget = (recordingId: string, projectPath: string, document: ProjectV1) => {
+    const w = transcodeWatches.get(recordingId);
+    if (!w) return;
+    if (document.sources.video.codec === "h264") {
+      endTranscodeWatch(w); // Already H.264: main transcodes nothing.
+      return;
+    }
+    w.target = { projectPath, document };
+    void relinkTranscoded(w);
+  };
+
+  const cancelTranscodeFor = (projectPath: string): void => {
+    for (const w of [...transcodeWatches.values()]) {
+      if (w.target?.projectPath === projectPath) endTranscodeWatch(w);
+    }
   };
 
   // ---- finalize → project --------------------------------------------------------
@@ -324,23 +509,30 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
         name,
         nowIso,
         appVersion: deps.appVersion,
+        defaults,
       });
-    let path: string;
+    let defaults: RecordingDocumentDefaults | undefined;
     try {
-      const res = await deps.projects.create({
-        name,
-        document: build(plan.fileNames),
-        media: plan.imports,
-      });
+      defaults = (deps.editorDefaults ?? appEditorDefaults)();
+    } catch {
+      defaults = undefined; // Settings not loaded: the default frame.
+    }
+    let path: string;
+    let document: ProjectV1;
+    try {
+      document = build(plan.fileNames);
+      const res = await deps.projects.create({ name, document, media: plan.imports });
       path = res.path;
       const actual = resolvedFileNames(plan, res.mediaFiles);
       if (JSON.stringify(actual) !== JSON.stringify(plan.fileNames)) {
-        await deps.projects.save({ path, document: build(actual) });
+        document = build(actual);
+        await deps.projects.save({ path, document });
       }
     } catch (err) {
       fail("create", err, "PROJECT_CREATE_FAILED");
       return;
     }
+    attachTranscodeTarget(fin.recordingId, path, document);
     const result: PostRecordInfo = {
       projectId: id,
       projectPath: path,
@@ -389,6 +581,7 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
       return;
     }
     finalized = fin;
+    watchTranscode(fin);
     await createProject(fin);
   };
 
@@ -414,7 +607,17 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
         if (s.phase !== "starting" && s.phase !== "countdown") return;
         quietly(deps.windows.closeKind("countdown"));
         set({ phase: "recording", backend: e.backend, countdownRemaining: null });
-        if (e.backend === "electron") beginCapture(e.sessionId, s.setup);
+        if (e.backend === "electron") {
+          beginCapture(
+            e.sessionId,
+            captureOptionsFor(e.sessionId, s.setup, sourcesAtStart, deps.platform),
+            false,
+          );
+        } else {
+          const webcam = webcamCaptureOptionsFor(e.sessionId, s.setup, deps.platform);
+          if (webcam) beginCapture(e.sessionId, { ok: true, options: webcam }, true);
+          if (micMuted) void setMicMuted(true);
+        }
         return;
       case "paused":
         if (s.phase === "recording") set({ phase: "paused" });
@@ -454,9 +657,17 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
       case "discarded": {
         const cp = capturePromise;
         if (cp) void cp.then((c) => c?.discard());
-        closeSessionWindows();
+        const again = restartSetup;
+        if (again) {
+          // HUD Restart: the pill stays open and adopts the next session.
+          quietly(deps.windows.closeKind("countdown"));
+          quietly(deps.windows.closeKind("webcam-bubble"));
+        } else {
+          closeSessionWindows();
+        }
         resetSession();
         store.setState(initialFlowState());
+        if (again) startWith(again);
         return;
       }
       case "error": {
@@ -477,10 +688,16 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
     return phase === "idle" || phase === "error" || phase === "done" || phase === "selectingRegion";
   };
 
-  const start = async (setup: RecordingSetup): Promise<void> => {
+  const start = async (requested: RecordingSetup): Promise<void> => {
+    let setup = requested;
     if (disposed || !canStart()) return;
     resetSession();
     store.setState({ ...initialFlowState(), phase: "starting", setup });
+
+    const labelled = await withMicLabel(setup);
+    if (get().phase !== "starting") return;
+    if (labelled !== setup) set({ setup: labelled });
+    setup = labelled;
 
     sourcesAtStart = deps.sources();
     if (!sourcesAtStart) {
@@ -570,6 +787,20 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
     }
   };
 
+  /** HUD Restart: discard the live session (HUD kept), then start the same setup again. */
+  const restart = async (): Promise<void> => {
+    const { sessionId, phase, setup } = get();
+    if (disposed || !sessionId || !setup || !LIVE_PHASES.includes(phase) || restartSetup) return;
+    restartSetup = setup;
+    try {
+      await deps.port.discard(sessionId);
+    } catch (err) {
+      if (get().sessionId !== sessionId) return;
+      restartSetup = null;
+      set({ error: { ...toRecordingError(err), stage: "start" } });
+    }
+  };
+
   const retry = async (): Promise<void> => {
     const { error, sessionId } = get();
     if (!error) return;
@@ -620,12 +851,14 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
       if (!result) return;
       try {
         await deps.system.deleteProject(result.projectPath);
+        cancelTranscodeFor(result.projectPath);
         resetSession();
         store.setState(initialFlowState());
       } catch (err) {
         set({ error: { ...toRecordingError(err, "DELETE_FAILED"), stage: "delete" } });
       }
     },
+    setMicMuted,
     dismissError: () => {
       const { phase, result } = get();
       if (phase === "error" && !finalized && !result) {
@@ -641,6 +874,7 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
       unsubscribeRegion?.();
       unsubscribeStore();
       unsubscribeBus?.();
+      for (const w of [...transcodeWatches.values()]) endTranscodeWatch(w);
     },
   };
 }

@@ -1,5 +1,6 @@
 import type { RequestOf, ResponseOf } from "@contracts";
 import type { ExportSink, ExportSinkBeginInfo } from "../../export/engine/muxer";
+import { t } from "../../i18n/format";
 import { invoke } from "../ipc";
 
 /**
@@ -37,7 +38,7 @@ export function ipcExportTransport(): ExportIpc {
     payload: RequestOf<K>,
   ): Promise<ResponseOf<K>> => {
     const res = await invoke(channel, payload);
-    if (res === null) throw new ExportFlowError("NOT_BRIDGED", "Export needs the desktop app");
+    if (res === null) throw new ExportFlowError("NOT_BRIDGED", t("exportFlow.error.notBridged"));
     return res;
   };
   return {
@@ -187,7 +188,30 @@ export class IpcExportSink implements ExportSink {
   }
 }
 
-/** Write a small file (sidecar / WAV) next to an export through the same channels. */
+/**
+ * Stream a file next to an export through the same channels: `write` appends
+ * chunks in order (e.g. a WAV header then one chunk per render block), so the
+ * whole file is never held in memory.
+ */
+export async function streamFileViaSink(
+  opts: IpcExportSinkOptions,
+  container: FileSinkBeginInfo["container"],
+  write: (append: (bytes: Uint8Array) => Promise<void>) => Promise<void>,
+): Promise<string> {
+  const sink = new IpcExportSink(opts);
+  try {
+    await sink.begin({ container });
+    await write(async (bytes) => {
+      if (bytes.byteLength > 0) await sink.writeChunk(bytes);
+    });
+    return (await sink.finish()).path;
+  } catch (e) {
+    await sink.cancel();
+    throw e;
+  }
+}
+
+/** Write a small file (sidecar) next to an export through the same channels. */
 export async function writeFileViaSink(
   opts: IpcExportSinkOptions,
   container: FileSinkBeginInfo["container"],

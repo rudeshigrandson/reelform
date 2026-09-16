@@ -1,21 +1,38 @@
+import { useLoudnessStore } from "../../editor/audio/loudnessStore";
+import { defaultNoiseReduction } from "../../editor/audio/usePreviewAudio";
+import { timelineClips } from "../../editor/inspector/host/timeMap";
 import type { Clip } from "../../editor/model/schema";
 import { buildCursorMotion } from "../../editor/preview/cursorEffects";
 import { type FetchJson, fetchJsonViaFetch } from "../../editor/preview/cursorPack";
 import { type WallpaperRegistry, loadWallpaperRegistry } from "../../editor/preview/wallpapers";
 import type { EditorData } from "../../editor/store";
 import { createPixiFrameRenderer } from "../../export/engine/pixiFrameRenderer";
+import { t } from "../../i18n/format";
+import { invoke } from "../ipc";
 import type { ProjectSessionData } from "../project/session";
 import {
   browserAudioDecoder,
   browserOfflineContext,
   createExportAudioRenderer,
 } from "./audioSources";
-import { type ExportIpc, IpcExportSink, ipcExportTransport, writeFileViaSink } from "./exportSink";
+import {
+  ExportFlowError,
+  type ExportIpc,
+  IpcExportSink,
+  ipcExportTransport,
+  streamFileViaSink,
+  writeFileViaSink,
+} from "./exportSink";
 import { createGifRoute, readPixelsOffscreen } from "./gifRoute";
 import { createGifWorker } from "./gifWorker";
-import type { ExportFlowPhase, ExportRunnerDeps } from "./runner";
+import type { ExportFlowPhase, ExportRunnerDeps, MuxAudioRequest, MuxAudioResult } from "./runner";
 import type { SystemPort } from "./systemPort";
-import { type TimelineSnapshot, createVideoRoute, openUrlFrameSource } from "./videoRoute";
+import {
+  type TimelineSnapshot,
+  type WebcamTrack,
+  createVideoRoute,
+  openUrlFrameSource,
+} from "./videoRoute";
 
 /**
  * Real export deps from a snapshot of the editor document + project session,
@@ -33,13 +50,31 @@ export interface ExportBaseDeps {
   now(): number;
 }
 
+/**
+ * The clips the export plans, exactly as the preview plays them: the editor
+ * store's `clips` are the source of truth (splits, trims and deletes land
+ * there); `meta.clips` is only the value loaded with the project, so it is a
+ * fallback, never an override.
+ */
 export function clipsFor(snapshot: ExportStoreSnapshot): Clip[] {
   const { meta } = snapshot.session;
+  const storeClips = snapshot.editor.clips;
+  if (storeClips.length > 0) return timelineClips(storeClips, meta);
   if (meta?.clips && meta.clips.length > 0) return meta.clips;
   const sourceEndMs = meta?.sources.video.durationMs ?? snapshot.editor.durationMs;
   return sourceEndMs > 0
     ? [{ id: "clip-1", sourceStartMs: 0, sourceEndMs, timelineStartMs: 0 }]
     : [];
+}
+
+/**
+ * Webcam track to composite, or null when there is none, it is disabled, or the
+ * media is offline (the preview hides the bubble in those cases too).
+ */
+export function webcamTrackFor(snapshot: ExportStoreSnapshot): WebcamTrack | null {
+  const { editor, session } = snapshot;
+  if (session.webcamUrl === null || session.mediaOffline || !editor.webcam.enabled) return null;
+  return { url: session.webcamUrl, syncOffsetMs: editor.webcam.syncOffsetMs };
 }
 
 export interface TimelineSnapshotOptions {
@@ -66,10 +101,16 @@ export function timelineFromSnapshot(
     : null;
   let wallpapers: WallpaperRegistry | null = null;
   let loading: Promise<void> | null = null;
+  const webcam = webcamTrackFor(snapshot);
+  const webcamSource = session.meta?.sources.webcam;
+  const webcamSourceSize = webcamSource
+    ? { width: webcamSource.width, height: webcamSource.height }
+    : null;
   return {
     clips,
     speeds: editor.speedRegions,
     sourceFps: session.meta?.sources.video.fps,
+    webcam,
     prepare: () => {
       loading ??= loadWallpaperRegistry(options.fetchJson ?? fetchJsonViaFetch).then((reg) => {
         wallpapers = reg.size > 0 ? reg : null;
@@ -81,6 +122,7 @@ export function timelineFromSnapshot(
       frame: editor.frame,
       sourceSize: session.sourceSize,
       zoomRegions: editor.zoomRegions,
+      camera: editor.zoom.camera,
       cursor: editor.cursor,
       cursorTrack: session.cursorTrack,
       hasVideo: session.videoUrl !== null,
@@ -96,16 +138,39 @@ export function timelineFromSnapshot(
         style: editor.captionStyle,
         enabled: scene.burnInCaptions,
       },
-      // The export engine does not decode/feed webcam frames yet
-      // (PixiFrameRenderer.setWebcamFrame is never called), so the bubble is
-      // hidden rather than drawn empty.
+      // The route decodes `webcam` and feeds PixiFrameRenderer.setWebcamFrame;
+      // an unreadable webcam file hides the bubble at render time.
       webcam: {
         settings: editor.webcam,
-        hasWebcam: false,
+        hasWebcam: webcam !== null,
         regions: session.meta?.webcamRegions,
+        sourceSize: webcamSourceSize,
       },
     }),
   };
+}
+
+/**
+ * `export:muxAudio`: ffmpeg muxes the PCM WAV into the finished video in place
+ * and deletes the WAV. Rejects with code FFMPEG_UNAVAILABLE when there is no
+ * ffmpeg (the runner then keeps the WAV as a sidecar).
+ */
+export async function muxAudioViaIpc(req: MuxAudioRequest): Promise<MuxAudioResult> {
+  const res = await invoke("export:muxAudio", req);
+  if (res === null) throw new ExportFlowError("NOT_BRIDGED", t("exportFlow.error.notBridged"));
+  return res.bytes !== undefined
+    ? { path: res.outputPath, bytes: res.bytes }
+    : { path: res.outputPath };
+}
+
+/**
+ * `project:deleteRawSource` (Settings "Auto-delete raw recordings after
+ * export"): raw capture files go to the OS trash; the project stays.
+ */
+export async function deleteRawSourceViaIpc(projectPath: string): Promise<string[]> {
+  const res = await invoke("project:deleteRawSource", { path: projectPath });
+  if (res === null) throw new ExportFlowError("NOT_BRIDGED", t("exportFlow.error.notBridged"));
+  return res.removed;
 }
 
 export function createDefaultExportDeps(
@@ -125,9 +190,15 @@ export function createDefaultExportDeps(
       now: base.now,
       renderAudio: createExportAudioRenderer({
         urls: { micUrl: session.micUrl, systemAudioUrl: session.systemAudioUrl },
+        mediaBaseUrl,
         settings: editor.audio,
         clips: timeline.clips,
         speeds: editor.speedRegions,
+        clickSound: editor.cursor.clickSound,
+        telemetry: session.telemetry?.telemetry ?? null,
+        // Measured by the Audio tab's loudness worker; missing tracks are measured inline.
+        loudnessLufs: () => useLoudnessStore.getState().lufs,
+        noiseReduction: defaultNoiseReduction(),
         decoder: browserAudioDecoder(),
         createContext: browserOfflineContext,
       }),
@@ -135,13 +206,19 @@ export function createDefaultExportDeps(
     runGif: createGifRoute({
       timeline,
       createWorker: createGifWorker,
-      openFrameSource: () => openUrlFrameSource(videoUrl),
+      openFrameSource: (options) => openUrlFrameSource(videoUrl, options),
+      openWebcamSource: (track, options) => openUrlFrameSource(track.url, options),
       createRenderer: (size) => createPixiFrameRenderer({ ...size, mediaBaseUrl }),
       readPixels: readPixelsOffscreen,
       now: base.now,
     }),
     createSink: (target) => new IpcExportSink({ ipc, ...target }),
     writeFile: (target, container, bytes) => writeFileViaSink({ ipc, ...target }, container, bytes),
+    streamFile: (target, container, write) =>
+      streamFileViaSink({ ipc, ...target }, container, write),
+    muxAudio: muxAudioViaIpc,
+    deleteRawSource: async () =>
+      session.projectPath ? deleteRawSourceViaIpc(session.projectPath) : [],
     system: base.system,
     onChange: base.onChange,
     now: base.now,

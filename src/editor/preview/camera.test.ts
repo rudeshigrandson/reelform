@@ -2,9 +2,24 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { ZoomRegion } from "../inspector/zoom/types";
 import {
+  FOLLOW_SAMPLE_MS,
+  FOLLOW_SILKY_CUTOFF_HZ,
+  FOLLOW_SNAPPY_CUTOFF_HZ,
+  FOLLOW_SPEED_PER_ZOOM_SPEED,
+  PARALLAX_FACTOR,
+  PARALLAX_OVERSCAN,
+  TILT_GAIN,
+  TILT_MAX_RAD,
   activeRegionAt,
+  buildCameraFollowPath,
+  cameraFollowPath,
+  cameraTilt,
   cameraTransform,
   focusAt,
+  followFocusAt,
+  followMinCutoff,
+  maxFollowSpeed,
+  parallaxOffset,
   webcamZoomReactiveScale,
   zoomLevelAt,
 } from "./camera";
@@ -104,6 +119,118 @@ describe("focusAt", () => {
     const r = region({ focus: { mode: "follow", x: 0.3, y: 0.6 } });
     expect(focusAt(r, 2000)).toEqual({ x: 0.3, y: 0.6 });
     expect(focusAt(r, 2000, null)).toEqual({ x: 0.3, y: 0.6 });
+  });
+});
+
+describe("camera follow path", () => {
+  const follow = region({ startMs: 0, endMs: 4000, focus: { mode: "follow", x: 0.5, y: 0.5 } });
+  // Cursor jumps from 0.2 to 0.8 at t=1000.
+  const step = { positionAt: (t: number) => ({ x: t < 1000 ? 0.2 : 0.8, y: 0.5 }) };
+
+  it("maps smoothing to a one-euro min cutoff and maxZoomSpeed to a pan speed", () => {
+    expect(followMinCutoff(0)).toBe(FOLLOW_SNAPPY_CUTOFF_HZ);
+    expect(followMinCutoff(1)).toBe(FOLLOW_SILKY_CUTOFF_HZ);
+    expect(followMinCutoff(Number.NaN)).toBeCloseTo(
+      (FOLLOW_SNAPPY_CUTOFF_HZ + FOLLOW_SILKY_CUTOFF_HZ) / 2,
+      10,
+    );
+    expect(maxFollowSpeed(4)).toBeCloseTo(4 * FOLLOW_SPEED_PER_ZOOM_SPEED, 10);
+    expect(maxFollowSpeed(-1)).toBe(0);
+  });
+
+  it("starts on the cursor, eases toward a jump, then settles", () => {
+    const p = buildCameraFollowPath(step.positionAt, 0, 4000, { smoothing: 0.5, maxZoomSpeed: 4 });
+    expect(p.positionAt(0).x).toBeCloseTo(0.2, 10);
+    // Last grid sample before the jump (the next one, at 1000, already moves).
+    expect(p.positionAt(1000 - FOLLOW_SAMPLE_MS).x).toBeCloseTo(0.2, 6);
+    const shortly = p.positionAt(1100).x;
+    expect(shortly).toBeGreaterThan(0.2);
+    expect(shortly).toBeLessThan(0.8);
+    expect(p.positionAt(4000).x).toBeCloseTo(0.8, 2);
+    // Clamped outside the range.
+    expect(p.positionAt(-50)).toEqual(p.positionAt(0));
+    expect(p.positionAt(9e9)).toEqual(p.positionAt(4000));
+  });
+
+  it("never moves faster than maxZoomSpeed allows", () => {
+    for (const maxZoomSpeed of [0.5, 2, 10]) {
+      const p = buildCameraFollowPath(step.positionAt, 0, 4000, { smoothing: 0, maxZoomSpeed });
+      const limit = maxFollowSpeed(maxZoomSpeed);
+      for (let t = FOLLOW_SAMPLE_MS; t <= 4000; t += FOLLOW_SAMPLE_MS) {
+        const a = p.positionAt(t - FOLLOW_SAMPLE_MS);
+        const b = p.positionAt(t);
+        const v = Math.hypot(b.x - a.x, b.y - a.y) / (FOLLOW_SAMPLE_MS / 1000);
+        expect(v).toBeLessThanOrEqual(limit + 1e-9);
+      }
+    }
+  });
+
+  it("more smoothing removes more jitter", () => {
+    // Small 6 Hz hand jitter around 0.5: well under the speed limit.
+    const jitter = (t: number) => ({
+      x: 0.5 + 0.01 * Math.sin((2 * Math.PI * 6 * t) / 1000),
+      y: 0.5,
+    });
+    const swing = (smoothing: number): number => {
+      const p = buildCameraFollowPath(jitter, 0, 4000, { smoothing, maxZoomSpeed: 10 });
+      let lo = 1;
+      let hi = 0;
+      for (let t = 2000; t <= 4000; t += FOLLOW_SAMPLE_MS) {
+        const x = p.positionAt(t).x;
+        lo = Math.min(lo, x);
+        hi = Math.max(hi, x);
+      }
+      return hi - lo;
+    };
+    expect(swing(1)).toBeLessThan(swing(0) * 0.5);
+    expect(swing(0)).toBeLessThanOrEqual(0.02 + 1e-9);
+  });
+
+  it("is a pure function of tMs and caches per track, mapping, region and settings", () => {
+    const settings = { smoothing: 0.4, maxZoomSpeed: 3 };
+    const a = cameraFollowPath(follow, step, settings);
+    expect(cameraFollowPath(follow, step, settings)).toBe(a);
+    expect(cameraFollowPath(follow, step, { ...settings, smoothing: 0.9 })).not.toBe(a);
+    expect(cameraFollowPath({ ...follow, endMs: 3000 }, step, settings)).not.toBe(a);
+    const shift = (t: number) => t + 500;
+    expect(cameraFollowPath(follow, step, settings, shift)).not.toBe(a);
+    // Uncached rebuild gives identical values at arbitrary times (order-independent).
+    const fresh = buildCameraFollowPath(step.positionAt, 0, 4000, settings);
+    for (const t of [3500, 17, 1234.5, 999.9]) {
+      expect(a.positionAt(t)).toEqual(fresh.positionAt(t));
+    }
+  });
+
+  it("followFocusAt: fixed regions ignore the cursor; follow falls back without one", () => {
+    expect(followFocusAt(region(), 2000, cursorAt(0.9, 0.1))).toEqual({ x: 0.25, y: 0.75 });
+    expect(followFocusAt(follow, 2000, null)).toEqual({ x: 0.5, y: 0.5 });
+    const junk = { positionAt: () => ({ x: Number.NaN, y: Number.POSITIVE_INFINITY }) };
+    const f = followFocusAt(follow, 2000, junk);
+    expect(Number.isFinite(f.x) && Number.isFinite(f.y)).toBe(true);
+  });
+});
+
+describe("motion effects", () => {
+  it("tilt is proportional to velocity, fades in with zoom, and is capped", () => {
+    expect(cameraTilt(1, 0, 1)).toEqual({ x: 0, y: 0 });
+    expect(cameraTilt(0.5, 0, 2).x).toBeCloseTo(-0.5 * TILT_GAIN, 10);
+    expect(cameraTilt(0.5, 0, 1.5).x).toBeCloseTo(-0.25 * TILT_GAIN, 10);
+    expect(cameraTilt(100, -100, 3)).toEqual({ x: -TILT_MAX_RAD, y: -TILT_MAX_RAD });
+    const junk = cameraTilt(Number.NaN, Number.NaN, Number.NaN);
+    expect(Number.isFinite(junk.x) && Number.isFinite(junk.y)).toBe(true);
+  });
+
+  it("parallax offsets opposite the pivot delta and stays inside the overscan", () => {
+    const c = cameraTransform({ level: 2, focus: { x: 0, y: 1 }, contentW: 800, contentH: 400 });
+    const o = parallaxOffset(c);
+    expect(o.x).toBeCloseTo(-(c.pivotX - 400) * PARALLAX_FACTOR, 10);
+    expect(o.y).toBeCloseTo(-(c.pivotY - 200) * PARALLAX_FACTOR, 10);
+    expect(Math.abs(o.x)).toBeLessThanOrEqual(((PARALLAX_OVERSCAN - 1) / 2) * 800);
+    expect(
+      parallaxOffset(
+        cameraTransform({ level: 1, focus: { x: 0, y: 0 }, contentW: 800, contentH: 400 }),
+      ),
+    ).toEqual({ x: 0, y: 0 });
   });
 });
 

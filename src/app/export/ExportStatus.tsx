@@ -1,5 +1,7 @@
 import { Button } from "@design/components";
-import type { CSSProperties, ReactElement } from "react";
+import type { CSSProperties, ReactElement, ReactNode } from "react";
+import { ProgressTrack, StatusGlyph, ThumbPlaceholder, mono } from "../../export/ui/controls";
+import { t as translate, useT } from "../../i18n";
 import { formatBytes, formatDuration } from "./config";
 import type { ExportFlowPhase } from "./runner";
 import { type ExportProgressData, useExportProgress } from "./useExportProgress";
@@ -8,48 +10,47 @@ import { type ExportProgressData, useExportProgress } from "./useExportProgress"
 
 type Phase<K extends ExportFlowPhase["kind"]> = Extract<ExportFlowPhase, { kind: K }>;
 
-const text: CSSProperties = { fontFamily: "var(--font-body)", color: "var(--text-1)" };
-const muted: CSSProperties = { ...text, color: "var(--text-2)", fontSize: "0.85rem" };
-const row: CSSProperties = {
+const heading: CSSProperties = {
+  fontFamily: "var(--font-heading)",
+  fontWeight: "var(--font-heading-weight)",
+  fontSize: "18px",
+  lineHeight: 1.25,
+  color: "var(--text-1)",
+};
+const small: CSSProperties = { fontSize: "11px", color: "var(--text-2)" };
+const stack = (gap: number): CSSProperties => ({
   display: "flex",
-  gap: "var(--space-2)",
+  flexDirection: "column",
+  gap: `${gap}px`,
+  fontFamily: "var(--font-body)",
+  color: "var(--text-1)",
+});
+const actions: CSSProperties = {
+  display: "flex",
+  gap: "8px",
   flexWrap: "wrap",
-  justifyContent: "flex-end",
-  marginTop: "var(--space-4)",
+  alignItems: "center",
 };
 
-const number = new Intl.NumberFormat("en-US");
-
-export function progressHeadline(phase: Phase<"running">): string {
-  const p = phase.progress;
-  if (phase.cancelling) return "Cancelling…";
-  if (p.phase === "rendering" && p.framesTotal > 0) {
-    return `Rendering frames ${number.format(p.framesDone)} / ${number.format(p.framesTotal)}`;
-  }
-  return p.label;
-}
-
-function ProgressBar({ fraction, label }: { fraction: number; label: string }): ReactElement {
-  const pct = Math.round(Math.min(1, Math.max(0, Number.isFinite(fraction) ? fraction : 0)) * 100);
+function Notice({ children }: { children: ReactNode }): ReactElement {
   return (
-    // biome-ignore lint/a11y/useFocusableInteractive: read-only progress indicator
-    <div
-      role="progressbar"
-      aria-label={label}
-      aria-valuenow={pct}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      style={{
-        height: "8px",
-        borderRadius: "var(--radius-full)",
-        background: "var(--bg-active)",
-        overflow: "hidden",
-        margin: "var(--space-3) 0",
-      }}
-    >
-      <div style={{ width: `${pct}%`, height: "100%", background: "var(--accent)" }} />
+    <div role="note" style={{ fontSize: "12px", color: "var(--warning)" }}>
+      {children}
     </div>
   );
+}
+
+/** Headline over the progress bar, in the active window language. */
+export function progressHeadline(phase: Phase<"running">): string {
+  const p = phase.progress;
+  if (phase.cancelling) return translate("exportFlow.progress.cancelling");
+  if (p.phase === "rendering" && p.framesTotal > 0) {
+    return translate("exportFlow.progress.renderingFrames", {
+      done: p.framesDone,
+      total: p.framesTotal,
+    });
+  }
+  return p.label;
 }
 
 export function ExportProgressView(props: {
@@ -58,35 +59,70 @@ export function ExportProgressView(props: {
   onBackground(): void;
 }): ReactElement {
   const { phase } = props;
+  const t = useT();
   const p = phase.progress;
+  const percent = Math.round((Number.isFinite(p.fraction) ? p.fraction : 0) * 100);
   return (
-    <div data-testid="export-progress">
-      <div style={text} data-testid="export-progress-label">
-        {progressHeadline(phase)}
+    <div data-testid="export-progress" style={stack(12)}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: "12px",
+        }}
+      >
+        <div style={heading}>{t("exportFlow.title.running")}</div>
+        <span style={{ ...mono, fontSize: "12px", color: "var(--text-2)" }}>
+          {t("exportFlow.progress.percent", { percent })}
+        </span>
       </div>
-      <ProgressBar fraction={p.fraction} label="Export progress" />
-      <div style={{ ...muted, display: "flex", gap: "var(--space-4)", flexWrap: "wrap" }}>
-        <span>{Math.round(p.fraction * 100)}%</span>
-        <span data-testid="export-eta">{formatDuration(p.etaMs)} left</span>
-        {p.speed !== null ? (
-          <span data-testid="export-speed">{p.speed.toFixed(1)}× realtime</span>
-        ) : null}
+      <ProgressTrack fraction={p.fraction} label={t("exportFlow.progress.label")} />
+      <div
+        style={{
+          ...small,
+          display: "flex",
+          justifyContent: "space-between",
+          gap: "8px 12px",
+          flexWrap: "wrap",
+        }}
+      >
+        <span data-testid="export-progress-label" style={{ fontVariantNumeric: "tabular-nums" }}>
+          {progressHeadline(phase)}
+        </span>
+        <span style={mono}>
+          {p.speed !== null ? (
+            <>
+              <span data-testid="export-speed">
+                {t("exportFlow.progress.speed", { speed: p.speed.toFixed(1) })}
+              </span>
+              {" · "}
+            </>
+          ) : null}
+          <span data-testid="export-eta">
+            {t("exportFlow.progress.timeLeft", { duration: formatDuration(p.etaMs) })}
+          </span>
+        </span>
+      </div>
+      <div style={{ ...small, color: "var(--text-3)", display: "flex", gap: "12px" }}>
+        <span>
+          {p.encoder === "hardware"
+            ? t("exportFlow.progress.hardwareEncoder")
+            : t("exportFlow.progress.softwareEncoder")}
+        </span>
         {phase.estimatedBytes !== null ? (
-          <span data-testid="export-estimate">~{formatBytes(phase.estimatedBytes)} est.</span>
+          <span data-testid="export-estimate" style={mono}>
+            {t("exportFlow.progress.estimate", { size: formatBytes(phase.estimatedBytes) })}
+          </span>
         ) : null}
-        <span>{p.encoder === "hardware" ? "Hardware encoder" : "Software encoder"}</span>
       </div>
-      {phase.notice ? (
-        <div role="note" style={{ ...muted, color: "var(--warning)", marginTop: "var(--space-2)" }}>
-          {phase.notice}
-        </div>
-      ) : null}
-      <div style={row}>
+      {phase.notice ? <Notice>{phase.notice}</Notice> : null}
+      <div style={{ ...actions, justifyContent: "flex-end" }}>
         <Button variant="ghost" onClick={props.onBackground}>
-          Run in background
+          {t("exportFlow.progress.runInBackground")}
         </Button>
         <Button variant="secondary" onClick={props.onCancel} disabled={phase.cancelling}>
-          Cancel
+          {t("common.cancel")}
         </Button>
       </div>
     </div>
@@ -96,77 +132,77 @@ export function ExportProgressView(props: {
 export function ExportDoneView(props: {
   phase: Phase<"done">;
   copyState: "idle" | "copied" | "path-copied" | "failed";
+  /** Mono details after the size, e.g. `1080p60` and the duration timecode. */
+  details?: ReadonlyArray<string> | undefined;
   onReveal(): void;
   onCopy(): void;
   onExportAnother(): void;
   onClose(): void;
 }): ReactElement {
   const { phase } = props;
+  const t = useT();
+  const meta = [formatBytes(phase.bytes), ...(props.details ?? [])].join(" · ");
   return (
-    <div data-testid="export-done">
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
-        <span
-          aria-hidden="true"
-          style={{
-            display: "inline-flex",
-            width: "28px",
-            height: "28px",
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: "var(--radius-full)",
-            background: "var(--success)",
-            color: "var(--on-accent)",
-          }}
-        >
-          ✓
-        </span>
-        <span style={{ ...text, fontFamily: "var(--font-heading)" }}>Export complete</span>
+    <div data-testid="export-done" style={stack(14)}>
+      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <StatusGlyph tone="success" />
+        <div style={heading}>{t("exportFlow.done.title")}</div>
       </div>
       <div
         style={{
-          marginTop: "var(--space-4)",
-          padding: "var(--space-3)",
-          borderRadius: "var(--radius-md)",
-          border: "1px solid var(--border)",
-          background: "var(--bg-sunken)",
+          display: "flex",
+          gap: "12px",
+          alignItems: "center",
+          padding: "12px",
+          borderRadius: "12px",
+          background: "var(--bg-panel-raised)",
         }}
       >
-        <div style={{ ...text, wordBreak: "break-all" }}>{phase.fileName}</div>
-        <div style={muted}>
-          {formatBytes(phase.bytes)} · <span style={{ wordBreak: "break-all" }}>{phase.path}</span>
-        </div>
-        {phase.sidecars.map((s) => (
-          <div key={s} style={muted}>
-            + {s.split(/[\\/]/).pop()}
+        <ThumbPlaceholder width="64px" height="38px" radius="6px" />
+        <div style={{ flex: 1, minWidth: 0, fontSize: "12px" }}>
+          <div style={{ fontWeight: 600, wordBreak: "break-all" }}>{phase.fileName}</div>
+          <div style={{ ...mono, color: "var(--text-3)" }}>{meta}</div>
+          <div
+            title={phase.path}
+            style={{
+              ...small,
+              color: "var(--text-3)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {phase.path}
           </div>
-        ))}
-      </div>
-      {phase.notice ? (
-        <div role="note" style={{ ...muted, color: "var(--warning)", marginTop: "var(--space-2)" }}>
-          {phase.notice}
+          {phase.sidecars.map((s) => (
+            <div key={s} style={{ ...small, color: "var(--text-3)" }}>
+              {t("exportFlow.done.sidecar", { name: s.split(/[\\/]/).pop() ?? s })}
+            </div>
+          ))}
         </div>
-      ) : null}
+      </div>
+      {phase.notice ? <Notice>{phase.notice}</Notice> : null}
       {props.copyState !== "idle" ? (
-        <output style={{ ...muted, display: "block", marginTop: "var(--space-2)" }}>
+        <output style={{ ...small, display: "block" }}>
           {props.copyState === "copied"
-            ? "Copied to clipboard"
+            ? t("exportFlow.done.copied")
             : props.copyState === "path-copied"
-              ? "File path copied"
-              : "Couldn't copy"}
+              ? t("exportFlow.done.pathCopied")
+              : t("exportFlow.done.copyFailed")}
         </output>
       ) : null}
-      <div style={row}>
-        <Button variant="secondary" onClick={props.onReveal}>
-          Reveal
+      <div style={actions}>
+        <Button variant="primary" onClick={props.onReveal}>
+          {t("exportFlow.action.reveal")}
         </Button>
         <Button variant="secondary" onClick={props.onCopy}>
-          Copy
+          {t("exportFlow.action.copy")}
         </Button>
-        <Button variant="secondary" onClick={props.onExportAnother}>
-          Export another
+        <Button variant="ghost" onClick={props.onExportAnother}>
+          {t("exportFlow.done.exportAnother")}
         </Button>
-        <Button variant="primary" onClick={props.onClose}>
-          Done
+        <Button variant="ghost" onClick={props.onClose} style={{ marginLeft: "auto" }}>
+          {t("exportFlow.done.done")}
         </Button>
       </div>
     </div>
@@ -183,55 +219,66 @@ export function ExportProblemView(props: {
   onBack(): void;
 }): ReactElement {
   const { phase } = props;
+  const t = useT();
   const title =
     phase.kind === "low-disk"
-      ? "Not enough disk space"
+      ? t("exportFlow.problem.lowDiskTitle")
       : phase.kind === "codec-unsupported"
-        ? "Codec not supported"
-        : "Export failed";
+        ? t("exportFlow.problem.codecTitle")
+        : t("exportFlow.failed");
+  const canRetrySoftware =
+    (phase.kind === "failed" && phase.canRetrySoftware) || phase.kind === "codec-unsupported";
   return (
-    <div data-testid={`export-${phase.kind}`}>
-      <div role="alert">
-        <div style={{ ...text, fontFamily: "var(--font-heading)", color: "var(--danger)" }}>
-          {title}
+    <div data-testid={`export-${phase.kind}`} style={stack(12)}>
+      <div role="alert" style={stack(12)}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <StatusGlyph tone="danger" />
+          <div style={heading}>{title}</div>
         </div>
-        <div style={{ ...muted, marginTop: "var(--space-2)", wordBreak: "break-word" }}>
+        <div
+          style={{
+            fontSize: "12px",
+            color: "color-mix(in srgb, var(--record) 35%, var(--text-1))",
+            wordBreak: "break-word",
+          }}
+        >
           {phase.message}
+          {phase.kind === "failed" ? (
+            <>
+              {" "}
+              <span style={mono}>{phase.code}</span>
+            </>
+          ) : null}
         </div>
-        {phase.kind === "failed" ? (
-          <div style={{ ...muted, fontFamily: "var(--font-mono)", color: "var(--text-3)" }}>
-            {phase.code}
-          </div>
-        ) : null}
       </div>
+      {phase.kind === "failed" && phase.notice ? <Notice>{phase.notice}</Notice> : null}
       {props.diagnosticsCopied ? (
-        <output style={{ ...muted, display: "block", marginTop: "var(--space-2)" }}>
-          Diagnostics copied
+        <output style={{ ...small, display: "block" }}>
+          {t("exportFlow.problem.diagnosticsCopied")}
         </output>
       ) : null}
-      <div style={row}>
-        <Button variant="ghost" onClick={props.onBack}>
-          Change settings
-        </Button>
-        <Button variant="secondary" onClick={props.onCopyDiagnostics}>
-          Copy diagnostics
-        </Button>
+      <div style={actions}>
+        {canRetrySoftware ? (
+          <Button variant="primary" onClick={props.onRetrySoftware}>
+            {t("exportFlow.problem.retrySoftware")}
+          </Button>
+        ) : null}
         {phase.kind === "low-disk" ? (
           <>
-            <Button variant="secondary" onClick={props.onChooseFolder}>
-              Choose another folder
-            </Button>
             <Button variant="primary" onClick={props.onRetry}>
-              Try again
+              {t("exportFlow.problem.tryAgain")}
+            </Button>
+            <Button variant="secondary" onClick={props.onChooseFolder}>
+              {t("exportFlow.problem.chooseFolder")}
             </Button>
           </>
         ) : null}
-        {(phase.kind === "failed" && phase.canRetrySoftware) ||
-        phase.kind === "codec-unsupported" ? (
-          <Button variant="primary" onClick={props.onRetrySoftware}>
-            Retry with software encoder
-          </Button>
-        ) : null}
+        <Button variant="secondary" onClick={props.onCopyDiagnostics}>
+          {t("exportFlow.problem.copyDiagnostics")}
+        </Button>
+        <Button variant="ghost" onClick={props.onBack} style={{ marginLeft: "auto" }}>
+          {t("exportFlow.problem.changeSettings")}
+        </Button>
       </div>
     </div>
   );
@@ -246,14 +293,18 @@ export interface ExportToastProps {
   onDismiss(): void;
 }
 
+/** Toast text for the shared progress state, in the active window language. */
 export function toastMessage(s: ExportProgressData): string | null {
   switch (s.activity) {
     case "running":
-      return `Exporting ${Math.round(s.fraction * 100)}% · ${formatDuration(s.etaMs)} left`;
+      return translate("exportFlow.toast.running", {
+        percent: Math.round(s.fraction * 100),
+        duration: formatDuration(s.etaMs),
+      });
     case "done":
       return s.label;
     case "failed":
-      return "Export failed";
+      return translate("exportFlow.failed");
     default:
       return null;
   }
@@ -262,64 +313,106 @@ export function toastMessage(s: ExportProgressData): string | null {
 /** S28 progress / success / error toast, bound to {@link useExportProgress}. */
 export function ExportToast(props: ExportToastProps): ReactElement | null {
   const state = useExportProgress();
+  const t = useT();
   const message = toastMessage(state);
   if (message === null) return null;
-  const tone =
-    state.activity === "failed"
-      ? "var(--danger)"
-      : state.activity === "done"
-        ? "var(--success)"
-        : "var(--accent)";
-  return (
-    <output
-      data-testid="export-toast"
-      style={{
-        position: "fixed",
-        right: "var(--space-4)",
-        bottom: "var(--space-4)",
-        zIndex: 50,
-        display: "flex",
-        alignItems: "center",
-        gap: "var(--space-3)",
-        padding: "var(--space-2) var(--space-3)",
-        borderRadius: "var(--radius-lg)",
-        border: "1px solid var(--border-strong)",
-        borderLeft: `3px solid ${tone}`,
-        background: "var(--bg-panel-raised)",
-        ...text,
-      }}
+  const percent = Math.round((Number.isFinite(state.fraction) ? state.fraction : 0) * 100);
+
+  const action = (onClick: () => void, label: string, quiet = false): ReactElement => (
+    <button
+      type="button"
+      className={quiet ? "toast-action toast-action-quiet" : "toast-action"}
+      onClick={onClick}
     >
-      <span>{message}</span>
-      {state.activity === "running" ? (
-        <Button variant="ghost" onClick={props.onCancel}>
-          Cancel
-        </Button>
-      ) : null}
-      {state.activity === "done" ? (
-        <>
-          <Button variant="ghost" onClick={props.onReveal}>
-            Reveal
-          </Button>
-          <Button variant="ghost" onClick={props.onCopy}>
-            Copy
-          </Button>
-        </>
-      ) : null}
-      {state.activity === "failed" ? (
-        <>
-          <Button variant="ghost" onClick={props.onRetry}>
-            Retry
-          </Button>
-          <Button variant="ghost" onClick={props.onDetails}>
-            Details
-          </Button>
-        </>
-      ) : null}
-      {state.activity !== "running" ? (
-        <Button variant="ghost" aria-label="Dismiss" onClick={props.onDismiss}>
+      {label}
+    </button>
+  );
+
+  if (state.activity === "running") {
+    return (
+      <div className="toast-stack">
+        <output
+          data-testid="export-toast"
+          aria-label={message}
+          className="toast"
+          style={{ flexDirection: "column", alignItems: "stretch", gap: "8px" }}
+        >
+          <div style={{ display: "flex", alignItems: "center", fontSize: "12px" }}>
+            <span style={{ flex: 1, fontWeight: 600 }}>
+              {t("exportFlow.toast.runningTitle", { percent })}
+            </span>
+            <span style={{ ...mono, color: "var(--text-2)", marginRight: "12px" }}>
+              {t("exportFlow.progress.timeLeft", { duration: formatDuration(state.etaMs) })}
+            </span>
+            {action(props.onCancel, t("common.cancel"))}
+          </div>
+          <ProgressTrack
+            fraction={state.fraction}
+            height={3}
+            label={t("exportFlow.progress.label")}
+          />
+        </output>
+      </div>
+    );
+  }
+
+  const done = state.activity === "done";
+  const title =
+    done && state.fileName !== null
+      ? t("exportFlow.toast.exportedTitle", { fileName: state.fileName })
+      : message;
+  const subtitle = done
+    ? state.bytes !== null
+      ? formatBytes(state.bytes)
+      : null
+    : (state.error ?? null);
+  return (
+    <div className="toast-stack">
+      <output
+        data-testid="export-toast"
+        aria-label={message}
+        className={done ? "toast" : "toast toast-danger"}
+      >
+        <span
+          aria-hidden="true"
+          className={done ? "toast-icon toast-icon-success" : "toast-icon toast-icon-danger"}
+        >
+          {done ? "✓" : "!"}
+        </span>
+        <div style={{ flex: 1, minWidth: 0, fontSize: "12px" }}>
+          <div
+            style={{
+              fontWeight: 600,
+              color: "var(--text-1)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {title}
+          </div>
+          {subtitle ? <div style={{ ...small, wordBreak: "break-word" }}>{subtitle}</div> : null}
+        </div>
+        {done ? (
+          <>
+            {action(props.onReveal, t("exportFlow.action.reveal"))}
+            {action(props.onCopy, t("exportFlow.action.copy"))}
+          </>
+        ) : (
+          <>
+            {action(props.onRetry, t("exportFlow.action.retry"))}
+            {action(props.onDetails, t("exportFlow.toast.details"), true)}
+          </>
+        )}
+        <button
+          type="button"
+          className="toast-action toast-action-quiet"
+          aria-label={t("exportFlow.toast.dismiss")}
+          onClick={props.onDismiss}
+        >
           ×
-        </Button>
-      ) : null}
-    </output>
+        </button>
+      </output>
+    </div>
   );
 }

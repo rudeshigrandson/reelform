@@ -10,6 +10,8 @@ export type {
   ImportKind,
   ImportedMedia,
   InspectorHost,
+  IpcImportKind,
+  MetaUpdateEffects,
   PickFileOptions,
   RelinkRequest,
   RelinkResult,
@@ -58,9 +60,10 @@ export {
 } from "./zoomSuggestions";
 export {
   type AudioCandidate,
-  NO_AUDIO_MESSAGE,
-  NO_SPEECH_MESSAGE,
+  noAudioMessage,
+  noSpeechMessage,
   captionsErrorMessage,
+  isCaptionsCancel,
   mapTranscribedCaptions,
   modelIdForTier,
   pickAudioCandidate,
@@ -105,4 +108,17 @@ export {
 } from "./EffectsTab";
 export { availableTracksFor, regionUrl } from "./AudioTab";
 export { webcamSourceFor, withWebcamSource, withoutWebcamSource } from "./WebcamTab";
-export { withSourcePath } from "./ProjectTab";
+export { trimHistoryEffects, withSourcePath, withTrimmedSource } from "./ProjectTab";
+export { ipcImportKind } from "./types";
+export {
+  FrameTab,
+  type FrameTabProps,
+  IMAGE_FILTERS,
+  USER_PRESETS_SETTINGS_KEY,
+  loadWallpaperCatalogue,
+  readUserPresets,
+  wallpapersFromPack,
+} from "./FrameTab";
+export { CURSOR_FILTERS, CursorTab } from "./CursorTab";
+export { FONT_FILTERS } from "./CaptionsTab";
+export { fileSystemPath, pathForFile } from "./filePaths";

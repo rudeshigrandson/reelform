@@ -1,23 +1,25 @@
 import { Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
 import { useEffect, useState } from "react";
+import { type MessageKey, type Translate, useT } from "../../i18n";
 import {
+  ExternalLink,
   Group,
   NumberField,
-  PageHeading,
+  Page,
   Row,
   Select,
   type SelectOption,
   StatusText,
   Switch,
 } from "../controls";
-import type { DeviceOption } from "../services";
+import { type DeviceOption, PRIVACY_URL } from "../services";
 import type { Countdown, DefaultSource, Fps, SettingsProps } from "../types";
 
-const SOURCE_OPTIONS: ReadonlyArray<SegmentedOption<DefaultSource>> = [
-  { value: "display", label: "Display" },
-  { value: "window", label: "Window" },
-  { value: "region", label: "Region" },
+const SOURCE_OPTIONS: ReadonlyArray<{ value: DefaultSource; labelKey: MessageKey }> = [
+  { value: "display", labelKey: "settings.recording.source.display" },
+  { value: "window", labelKey: "settings.recording.source.window" },
+  { value: "region", labelKey: "settings.recording.source.region" },
 ];
 
 const FPS_OPTIONS: ReadonlyArray<SegmentedOption<`${Fps}`>> = [
@@ -25,12 +27,7 @@ const FPS_OPTIONS: ReadonlyArray<SegmentedOption<`${Fps}`>> = [
   { value: "60", label: "60" },
 ];
 
-const COUNTDOWN_OPTIONS: ReadonlyArray<SegmentedOption<`${Countdown}`>> = [
-  { value: "0", label: "Off" },
-  { value: "3", label: "3s" },
-  { value: "5", label: "5s" },
-  { value: "10", label: "10s" },
-];
+const COUNTDOWNS: readonly Countdown[] = [0, 3, 5, 10];
 
 const NONE = "__none__";
 
@@ -65,13 +62,25 @@ export function useDeviceList(enumerate: (() => Promise<DeviceOption[]>) | undef
   return state;
 }
 
+const DEVICE_COPY = {
+  audioinput: {
+    numbered: "settings.recording.micNumbered",
+    missing: "settings.recording.micMissing",
+  },
+  videoinput: {
+    numbered: "settings.recording.cameraNumbered",
+    missing: "settings.recording.cameraMissing",
+  },
+} as const satisfies Record<DeviceOption["kind"], { numbered: MessageKey; missing: MessageKey }>;
+
 function deviceOptions(
   load: DeviceLoad,
   kind: DeviceOption["kind"],
   current: string | null,
-  noun: string,
+  t: Translate,
 ): { options: SelectOption<string>[]; hiddenLabels: boolean } {
-  const options: SelectOption<string>[] = [{ value: NONE, label: "None" }];
+  const copy = DEVICE_COPY[kind];
+  const options: SelectOption<string>[] = [{ value: NONE, label: t("common.none") }];
   let hiddenLabels = false;
   if (load.status === "ready") {
     let n = 0;
@@ -79,65 +88,80 @@ function deviceOptions(
       if (d.kind !== kind) continue;
       n++;
       if (!d.label) hiddenLabels = true;
-      options.push({ value: d.deviceId, label: d.label || `${noun} ${n}` });
+      options.push({ value: d.deviceId, label: d.label || t(copy.numbered, { n }) });
     }
   }
   if (current !== null && !options.some((o) => o.value === current)) {
-    options.push({ value: current, label: `${noun} (not connected)` });
+    options.push({ value: current, label: t(copy.missing) });
   }
   return { options, hiddenLabels };
 }
 
+/** S24/01 — capture card (source, rate, devices, countdown) + toggle/limits card. */
 export function RecordingPage({ settings, onChange, services }: SettingsProps) {
+  const t = useT();
   const devices = useDeviceList(services?.enumerateDevices);
-  const mics = deviceOptions(devices, "audioinput", settings.defaultMicId, "Microphone");
-  const cams = deviceOptions(devices, "videoinput", settings.defaultCameraId, "Camera");
+  const mics = deviceOptions(devices, "audioinput", settings.defaultMicId, t);
+  const cams = deviceOptions(devices, "videoinput", settings.defaultCameraId, t);
   const deviceSelectsDisabled = devices.status !== "ready";
+  const sourceOptions = SOURCE_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }));
+  const countdownOptions: SegmentedOption<`${Countdown}`>[] = COUNTDOWNS.map((n) => ({
+    value: `${n}`,
+    label:
+      n === 0
+        ? t("settings.recording.countdown.off")
+        : t("settings.recording.countdown.seconds", { n }),
+  }));
+  // No platform helper implements these yet (S24): shown, but disabled.
+  const notYet = t("common.notAvailableYet");
 
   return (
-    <div>
-      <PageHeading>Recording</PageHeading>
+    <Page title={t("settings.section.recording")}>
+      <Group title={t("settings.recording.capture")}>
+        <Row
+          label={t("settings.recording.defaultSource")}
+          help={t("settings.recording.defaultSource.help")}
+        >
+          <Segmented<DefaultSource>
+            name="settings-source"
+            value={settings.defaultSource}
+            options={sourceOptions}
+            onChange={(defaultSource) => onChange({ defaultSource })}
+          />
+        </Row>
+        <Row label={t("settings.recording.defaultFps")}>
+          <Segmented<`${Fps}`>
+            name="settings-fps"
+            className="rf-seg-wide"
+            value={`${settings.defaultFps}`}
+            options={FPS_OPTIONS}
+            onChange={(v) => onChange({ defaultFps: Number(v) as Fps })}
+          />
+        </Row>
 
-      <Row label="Default source">
-        <Segmented<DefaultSource>
-          name="settings-source"
-          value={settings.defaultSource}
-          options={SOURCE_OPTIONS}
-          onChange={(defaultSource) => onChange({ defaultSource })}
-        />
-      </Row>
-
-      <Row label="Default frame rate">
-        <Segmented<`${Fps}`>
-          name="settings-fps"
-          value={`${settings.defaultFps}`}
-          options={FPS_OPTIONS}
-          onChange={(v) => onChange({ defaultFps: Number(v) as Fps })}
-        />
-      </Row>
-
-      <Group title="Devices">
-        {devices.status === "loading" ? <StatusText>Looking for devices…</StatusText> : null}
+        {devices.status === "loading" ? (
+          <StatusText>{t("settings.recording.devices.loading")}</StatusText>
+        ) : null}
         {devices.status === "error" ? (
-          <StatusText tone="danger">Couldn't list devices: {devices.message}</StatusText>
-        ) : null}
-        {devices.status === "unavailable" ? (
-          <StatusText>Device selection is available in the desktop app.</StatusText>
-        ) : null}
-        {mics.hiddenLabels || cams.hiddenLabels ? (
-          <StatusText tone="warning">
-            Device names are hidden until Reelform has microphone and camera permission.
+          <StatusText tone="danger">
+            {t("settings.recording.devices.error", { message: devices.message })}
           </StatusText>
         ) : null}
+        {devices.status === "unavailable" ? (
+          <StatusText>{t("settings.recording.devices.unavailable")}</StatusText>
+        ) : null}
+        {mics.hiddenLabels || cams.hiddenLabels ? (
+          <StatusText tone="warning">{t("settings.recording.devices.hiddenLabels")}</StatusText>
+        ) : null}
         <Select
-          label="Default microphone"
+          label={t("settings.recording.defaultMic")}
           value={settings.defaultMicId ?? NONE}
           options={mics.options}
           disabled={deviceSelectsDisabled}
           onChange={(v) => onChange({ defaultMicId: v === NONE ? null : v })}
         />
         <Select
-          label="Default camera"
+          label={t("settings.recording.defaultCamera")}
           value={settings.defaultCameraId ?? NONE}
           options={cams.options}
           disabled={deviceSelectsDisabled}
@@ -146,72 +170,87 @@ export function RecordingPage({ settings, onChange, services }: SettingsProps) {
         <Switch
           checked={settings.defaultSystemAudio}
           onChange={(defaultSystemAudio) => onChange({ defaultSystemAudio })}
-          label="Record system audio by default"
+          label={t("settings.recording.systemAudio")}
         />
+        <Row label={t("settings.recording.defaultCountdown")}>
+          <Segmented<`${Countdown}`>
+            name="settings-countdown"
+            value={`${settings.defaultCountdown}`}
+            options={countdownOptions}
+            onChange={(v) => onChange({ defaultCountdown: Number(v) as Countdown })}
+          />
+        </Row>
       </Group>
 
-      <Row label="Default countdown">
-        <Segmented<`${Countdown}`>
-          name="settings-countdown"
-          value={`${settings.defaultCountdown}`}
-          options={COUNTDOWN_OPTIONS}
-          onChange={(v) => onChange({ defaultCountdown: Number(v) as Countdown })}
-        />
-      </Row>
-
-      <Group title="While recording">
+      <Group title={t("settings.recording.whileRecording")} dense>
         <Switch
           checked={settings.hideHudWhileRecording}
           onChange={(hideHudWhileRecording) => onChange({ hideHudWhileRecording })}
-          label="Hide HUD while recording"
+          label={t("settings.recording.hideHud")}
         />
         <Switch
           checked={settings.hideDesktopIcons}
           onChange={(hideDesktopIcons) => onChange({ hideDesktopIcons })}
-          label="Hide desktop icons"
+          label={t("settings.recording.hideDesktopIcons")}
+          disabled
+          help={notYet}
         />
         <Switch
           checked={settings.doNotDisturbWhileRecording}
           onChange={(doNotDisturbWhileRecording) => onChange({ doNotDisturbWhileRecording })}
-          label="Do Not Disturb while recording"
+          label={t("settings.recording.doNotDisturb")}
+          disabled
+          help={notYet}
         />
         <Switch
           checked={settings.showClicksDuringCapture}
           onChange={(showClicksDuringCapture) => onChange({ showClicksDuringCapture })}
-          label="Show clicks during capture"
+          label={t("settings.recording.showClicks")}
+          disabled
+          help={notYet}
         />
         <Switch
           checked={settings.hideCursorByDefault}
           onChange={(hideCursorByDefault) => onChange({ hideCursorByDefault })}
-          label="Hide cursor by default"
+          label={t("settings.recording.hideCursor")}
         />
-      </Group>
-
-      <Group title="Files & limits">
+        <Switch
+          checked={settings.recordTypedTextBadges}
+          onChange={(recordTypedTextBadges) => onChange({ recordTypedTextBadges })}
+          label={t("settings.recording.typedText")}
+          help={
+            <>
+              {t("settings.recording.typedText.help")}{" "}
+              <ExternalLink url={PRIVACY_URL} system={services?.system}>
+                {t("common.privacyPolicy")}
+              </ExternalLink>
+            </>
+          }
+        />
         <Switch
           checked={settings.autoDeleteRawAfterExport}
           onChange={(autoDeleteRawAfterExport) => onChange({ autoDeleteRawAfterExport })}
-          label="Auto-delete raw recordings after export (keep project)"
+          label={t("settings.recording.autoDeleteRaw")}
         />
         <NumberField
-          label="Max recording length"
+          label={t("settings.recording.maxLength")}
           value={settings.maxLengthHours}
           min={0.1}
           max={24}
           step={0.5}
-          suffix="hours"
+          suffix={t("settings.recording.hours")}
           onChange={(maxLengthHours) => onChange({ maxLengthHours })}
         />
         <NumberField
-          label="Warn when free disk space is below"
+          label={t("settings.recording.diskWarning")}
           value={settings.diskWarningThresholdGb}
           min={0.5}
           max={1000}
           step={0.5}
-          suffix="GB"
+          suffix={t("settings.recording.gigabytes")}
           onChange={(diskWarningThresholdGb) => onChange({ diskWarningThresholdGb })}
         />
       </Group>
-    </div>
+    </Page>
   );
 }

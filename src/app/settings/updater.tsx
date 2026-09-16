@@ -1,5 +1,7 @@
 import { Button, Dialog } from "@design/components";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { type Translate, t as appT, useT } from "../../i18n";
+import type { LauncherNotice } from "../../launcher/types";
 import { releaseNotesToText } from "../../settings/releaseNotes";
 import type { UpdaterControls } from "../../settings/services";
 import type { UpdaterState } from "../../settings/types";
@@ -59,6 +61,63 @@ export function useUpdater(port: UpdaterPort = ipcUpdaterPort): UpdaterControls 
   return { state, check, restart };
 }
 
+/**
+ * S04/01 update strip as a launcher notice, so it renders inside the launcher's
+ * own top strip (clear of the macOS traffic lights). Null unless downloaded.
+ */
+export function updateReadyNotice(
+  state: UpdaterState | null,
+  actions: { restart: () => void; dismiss?: (() => void) | undefined },
+  t: Translate = appT,
+): LauncherNotice | null {
+  if (!state || state.phase !== "downloaded" || !state.info) return null;
+  return {
+    id: "update",
+    tone: "info",
+    message: t("launcher.update.available", { version: state.info.version }),
+    action: { label: t("launcher.update.restart"), onClick: actions.restart },
+    onDismiss: actions.dismiss,
+  };
+}
+
+/**
+ * Launcher notices for the updater: the ready strip (dismissable per version)
+ * plus a danger notice when Restart fails.
+ */
+export function useLauncherUpdateNotices(updater: UpdaterControls): LauncherNotice[] {
+  const t = useT();
+  const { state, restart: restartUpdater } = updater;
+  const version = state?.info?.version ?? null;
+  const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
+  const [restartError, setRestartError] = useState<string | null>(null);
+
+  return useMemo(() => {
+    if (version === null || dismissedVersion === version) return [];
+    const ready = updateReadyNotice(
+      state,
+      {
+        restart: () => {
+          setRestartError(null);
+          restartUpdater().catch(() => setRestartError(t("launcher.update.restartFailed")));
+        },
+        dismiss: () => setDismissedVersion(version),
+      },
+      t,
+    );
+    if (!ready) return [];
+    const notices: LauncherNotice[] = [ready];
+    if (restartError) {
+      notices.push({
+        id: "update-error",
+        tone: "danger",
+        message: restartError,
+        onDismiss: () => setRestartError(null),
+      });
+    }
+    return notices;
+  }, [state, version, dismissedVersion, restartError, restartUpdater, t]);
+}
+
 export interface UpdateBannerProps {
   state: UpdaterState | null;
   onRestart: () => void;
@@ -111,7 +170,7 @@ export interface UpdateReadyDialogProps {
   onLater: () => void;
 }
 
-/** S27 "Update ready" — sanitized release notes + Restart now / Later. */
+/** S27 "Reelform X is ready" — sanitized "· note" lines, quiet Later + primary Restart now. */
 export function UpdateReadyDialog({
   open,
   version,
@@ -124,7 +183,7 @@ export function UpdateReadyDialog({
     <Dialog
       open={open}
       onClose={onLater}
-      title="Update ready"
+      title={`Reelform ${version} is ready`}
       actions={
         <>
           <Button variant="ghost" onClick={onLater}>
@@ -136,29 +195,29 @@ export function UpdateReadyDialog({
         </>
       }
     >
-      <p style={{ marginTop: 0 }}>
-        Reelform {version} has been downloaded and installs when you restart.
-      </p>
       {lines.length > 0 ? (
-        <div
+        <ul
           aria-label="Release notes"
           style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "6px",
             maxHeight: "240px",
             overflowY: "auto",
-            padding: "var(--space-3)",
-            background: "var(--bg-sunken)",
-            borderRadius: "var(--radius-md)",
+            margin: 0,
+            padding: 0,
+            listStyle: "none",
           }}
         >
           {lines.map((line, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: static text lines, never reordered
-            <p key={i} style={{ margin: "0 0 var(--space-1)" }}>
-              {line}
-            </p>
+            <li key={i}>· {line}</li>
           ))}
-        </div>
+        </ul>
       ) : (
-        <p style={{ color: "var(--text-3)" }}>No release notes were published for this version.</p>
+        <p style={{ margin: 0, color: "var(--text-3)" }}>
+          No release notes were published for this version.
+        </p>
       )}
     </Dialog>
   );

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Launcher, sampleLauncherProps } from "./Launcher";
 import type { RecordOptions } from "./types";
 
@@ -16,7 +16,7 @@ describe("Launcher", () => {
 
   it("highlights a source when selected", () => {
     render(<Launcher {...sampleLauncherProps} />);
-    const listbox = screen.getByRole("listbox", { name: /capturable sources/i });
+    const listbox = screen.getByRole("group", { name: /capturable sources/i });
     const cards = within(listbox).getAllByRole("button");
     // First source is selected by default.
     expect(cards[0]).toHaveAttribute("aria-pressed", "true");
@@ -44,7 +44,7 @@ describe("Launcher", () => {
     render(<Launcher {...sampleLauncherProps} onStart={onStart} />);
 
     // Select the second source, then record.
-    const listbox = screen.getByRole("listbox", { name: /capturable sources/i });
+    const listbox = screen.getByRole("group", { name: /capturable sources/i });
     const cards = within(listbox).getAllByRole("button");
     fireEvent.click(cards[1] as HTMLElement);
 
@@ -63,7 +63,7 @@ describe("Launcher", () => {
   it("keeps the selection across a source refresh and falls back when it disappears", () => {
     const onStart = vi.fn();
     const { rerender } = render(<Launcher {...sampleLauncherProps} onStart={onStart} />);
-    const cards = within(screen.getByRole("listbox")).getAllByRole("button");
+    const cards = within(screen.getByRole("group")).getAllByRole("button");
     fireEvent.click(cards[1] as HTMLElement);
     rerender(
       <Launcher
@@ -156,5 +156,83 @@ describe("Launcher", () => {
       micDeviceId: "mic-default",
       hideCursor: true,
     });
+  });
+
+  it("Browse… opens the source picker; selecting a window switches to Window mode", () => {
+    const onStart = vi.fn();
+    const pickerSources = sampleLauncherProps.sources.map((src) => ({
+      ...src,
+      title: src.name,
+      minimized: false,
+    }));
+    render(<Launcher {...sampleLauncherProps} onStart={onStart} pickerSources={pickerSources} />);
+    expect(screen.queryByRole("dialog", { name: "Choose a source" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Browse…" }));
+    const picker = screen.getByRole("dialog", { name: "Choose a source" });
+    fireEvent.click(within(picker).getByRole("tab", { name: "Windows" }));
+    fireEvent.click(within(picker).getByRole("button", { name: "Safari — Reelform" }));
+    fireEvent.click(within(picker).getByRole("button", { name: "Select" }));
+    expect(screen.queryByRole("dialog", { name: "Choose a source" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "window", sourceId: "win-1" }),
+    );
+  });
+
+  it("picker Cancel keeps the current choice; no Browse button without picker sources", () => {
+    const onStart = vi.fn();
+    const pickerSources = sampleLauncherProps.sources.map((src) => ({
+      ...src,
+      title: src.name,
+      minimized: false,
+    }));
+    const { unmount } = render(
+      <Launcher {...sampleLauncherProps} onStart={onStart} pickerSources={pickerSources} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Browse…" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "LG UltraFine" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "screen", sourceId: "disp-1" }),
+    );
+    unmount();
+    render(<Launcher {...sampleLauncherProps} />);
+    expect(screen.queryByRole("button", { name: "Browse…" })).toBeNull();
+  });
+});
+
+describe("Launcher — reduce motion", () => {
+  afterEach(() => {
+    delete document.documentElement.dataset.reduceMotion;
+  });
+
+  it("source cards animate the selection outline unless motion is reduced", () => {
+    const { unmount } = render(<Launcher {...sampleLauncherProps} />);
+    const listbox = () => screen.getByRole("group", { name: /capturable sources/i });
+    const card = () => within(listbox()).getAllByRole("button")[0] as HTMLElement;
+    expect(card().style.transition).toContain("outline-color");
+    unmount();
+    document.documentElement.dataset.reduceMotion = "true";
+    render(<Launcher {...sampleLauncherProps} />);
+    expect(card().style.transition).toBe("none");
+  });
+});
+
+describe("Launcher — defaults", () => {
+  it("applies defaults that arrive after mount (settings load async)", () => {
+    const onStart = vi.fn();
+    const { rerender } = render(<Launcher {...sampleLauncherProps} onStart={onStart} />);
+    rerender(
+      <Launcher
+        {...sampleLauncherProps}
+        onStart={onStart}
+        defaults={{ fps: 60, countdown: 10, hideCursor: true }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    expect(onStart.mock.calls[0]?.[0]).toMatchObject({ fps: 60, countdown: 10, hideCursor: true });
   });
 });

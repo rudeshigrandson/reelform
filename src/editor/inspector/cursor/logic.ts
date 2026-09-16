@@ -1,4 +1,5 @@
 import { knobToMinCutoff } from "../../preview/cursorSmoothing";
+import { ti } from "../i18n";
 import {
   CURSOR_LIMITS,
   type CursorSettings,
@@ -21,7 +22,7 @@ export function smoothingToMinCutoffHz(smoothing: number): number {
 /** "1,204 points" / "1 point". Negative or non-finite counts read as 0. */
 export function formatPointCount(count: number): string {
   const n = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
-  return `${n.toLocaleString("en-US")} ${n === 1 ? "point" : "points"}`;
+  return ti("inspector.cursor.points", { count: n });
 }
 
 /** True when there's usable cursor telemetry for the rendered cursor. */
@@ -50,10 +51,10 @@ export function validateCustomCursorFile(file: CursorFileLike): CustomCursorVali
   let kind: "png" | "svg" | null = null;
   if (mime === "image/png" || (mime === "" && ext === "png")) kind = "png";
   else if (mime === "image/svg+xml" || (mime === "" && ext === "svg")) kind = "svg";
-  if (kind === null) return { ok: false, error: "Use a PNG or SVG file." };
-  if (file.size <= 0) return { ok: false, error: "That file is empty." };
+  if (kind === null) return { ok: false, error: ti("inspector.cursor.error.type") };
+  if (file.size <= 0) return { ok: false, error: ti("inspector.cursor.error.empty") };
   if (file.size > MAX_CUSTOM_CURSOR_BYTES)
-    return { ok: false, error: "Cursor image must be 2 MB or smaller." };
+    return { ok: false, error: ti("inspector.cursor.error.tooBig") };
   return { ok: true, kind };
 }
 

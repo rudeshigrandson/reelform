@@ -1,149 +1,148 @@
 import { Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
 import { useId } from "react";
-import {
-  NumberField,
-  PageHeading,
-  Row,
-  Select,
-  type SelectOption,
-  Switch,
-  labelStyle,
-} from "../controls";
+import { type MessageKey, useT } from "../../i18n";
+import { Group, NumberField, Page, Row, Select, type SelectOption, Switch } from "../controls";
 import type { DefaultAspect, PreviewQuality, SettingsProps } from "../types";
 
 /** Built-in frame preset ids (src/editor/inspector/frame BUILT_IN_FRAME_PRESETS). */
-const FRAME_PRESETS: ReadonlyArray<SelectOption<string>> = [
-  { value: "default", label: "Default" },
-  { value: "minimal", label: "Minimal" },
-  { value: "product-hunt", label: "Product Hunt" },
-  { value: "twitter", label: "Twitter" },
-  { value: "vertical", label: "Vertical" },
+const FRAME_PRESETS: ReadonlyArray<{ value: string; labelKey: MessageKey }> = [
+  { value: "default", labelKey: "settings.editor.framePreset.default" },
+  { value: "minimal", labelKey: "settings.editor.framePreset.minimal" },
+  { value: "product-hunt", labelKey: "settings.editor.framePreset.productHunt" },
+  { value: "twitter", labelKey: "settings.editor.framePreset.twitter" },
+  { value: "vertical", labelKey: "settings.editor.framePreset.vertical" },
 ];
 
-const ASPECT_OPTIONS: ReadonlyArray<SegmentedOption<DefaultAspect>> = [
-  { value: "auto", label: "Auto" },
-  { value: "16:9", label: "16:9" },
-  { value: "9:16", label: "9:16" },
-  { value: "1:1", label: "1:1" },
-  { value: "4:3", label: "4:3" },
+const ASPECTS: readonly Exclude<DefaultAspect, "auto">[] = ["16:9", "9:16", "1:1", "4:3"];
+
+const AUTOSAVE_OPTIONS: ReadonlyArray<{ value: string; labelKey: MessageKey }> = [
+  { value: "15", labelKey: "settings.editor.autosave.15" },
+  { value: "30", labelKey: "settings.editor.autosave.30" },
+  { value: "60", labelKey: "settings.editor.autosave.60" },
+  { value: "300", labelKey: "settings.editor.autosave.300" },
 ];
 
-const AUTOSAVE_OPTIONS: ReadonlyArray<SelectOption<string>> = [
-  { value: "15", label: "Every 15 seconds" },
-  { value: "30", label: "Every 30 seconds" },
-  { value: "60", label: "Every minute" },
-  { value: "300", label: "Every 5 minutes" },
-];
-
-const QUALITY_OPTIONS: ReadonlyArray<SegmentedOption<PreviewQuality>> = [
-  { value: "auto", label: "Auto" },
-  { value: "full", label: "Full" },
-  { value: "half", label: "Half" },
+const QUALITY_OPTIONS: ReadonlyArray<{ value: PreviewQuality; labelKey: MessageKey }> = [
+  { value: "auto", labelKey: "settings.editor.quality.auto" },
+  { value: "full", labelKey: "settings.editor.quality.full" },
+  { value: "half", labelKey: "settings.editor.quality.half" },
 ];
 
 export function EditorPage({ settings, onChange }: SettingsProps) {
+  const t = useT();
   const sliderId = useId();
-  const presets = FRAME_PRESETS.some((p) => p.value === settings.defaultFramePreset)
-    ? FRAME_PRESETS
+  const knownPresets: SelectOption<string>[] = FRAME_PRESETS.map((p) => ({
+    value: p.value,
+    label: t(p.labelKey),
+  }));
+  const presets = knownPresets.some((p) => p.value === settings.defaultFramePreset)
+    ? knownPresets
+    : [...knownPresets, { value: settings.defaultFramePreset, label: settings.defaultFramePreset }];
+  const knownAutosave: SelectOption<string>[] = AUTOSAVE_OPTIONS.map((o) => ({
+    value: o.value,
+    label: t(o.labelKey),
+  }));
+  const autosave = knownAutosave.some((o) => o.value === String(settings.autosaveIntervalSec))
+    ? knownAutosave
     : [
-        ...FRAME_PRESETS,
-        { value: settings.defaultFramePreset, label: settings.defaultFramePreset },
-      ];
-  const autosave = AUTOSAVE_OPTIONS.some((o) => o.value === String(settings.autosaveIntervalSec))
-    ? AUTOSAVE_OPTIONS
-    : [
-        ...AUTOSAVE_OPTIONS,
+        ...knownAutosave,
         {
           value: String(settings.autosaveIntervalSec),
-          label: `Every ${settings.autosaveIntervalSec}s`,
+          label: t("settings.editor.autosave.custom", {
+            seconds: String(settings.autosaveIntervalSec),
+          }),
         },
       ];
+  const aspectOptions: SegmentedOption<DefaultAspect>[] = [
+    { value: "auto", label: t("settings.editor.aspect.auto") },
+    ...ASPECTS.map((a) => ({ value: a, label: a })),
+  ];
+  const qualityOptions = QUALITY_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }));
+  const sensitivity = Math.round(settings.autoZoomSensitivity * 100);
 
   return (
-    <div>
-      <PageHeading>Editor</PageHeading>
-
-      <Select
-        label="Default frame preset"
-        value={settings.defaultFramePreset}
-        options={presets}
-        onChange={(defaultFramePreset) => onChange({ defaultFramePreset })}
-      />
-
-      <Row label="Default aspect">
-        <Segmented<DefaultAspect>
-          name="settings-aspect"
-          value={settings.defaultAspect}
-          options={ASPECT_OPTIONS}
-          onChange={(defaultAspect) => onChange({ defaultAspect })}
+    <Page title={t("settings.section.editor")}>
+      <Group title={t("settings.editor.defaults")}>
+        <Select
+          label={t("settings.editor.framePreset")}
+          value={settings.defaultFramePreset}
+          options={presets}
+          onChange={(defaultFramePreset) => onChange({ defaultFramePreset })}
         />
-      </Row>
-
-      <Select
-        label="Autosave"
-        value={String(settings.autosaveIntervalSec)}
-        options={autosave}
-        onChange={(v) => onChange({ autosaveIntervalSec: Number(v) })}
-      />
-
-      <Row label="Preview quality">
-        <Segmented<PreviewQuality>
-          name="settings-preview-quality"
-          value={settings.previewQuality}
-          options={QUALITY_OPTIONS}
-          onChange={(previewQuality) => onChange({ previewQuality })}
+        <Row label={t("settings.editor.aspect")}>
+          <Segmented<DefaultAspect>
+            name="settings-aspect"
+            value={settings.defaultAspect}
+            options={aspectOptions}
+            onChange={(defaultAspect) => onChange({ defaultAspect })}
+          />
+        </Row>
+        <Select
+          label={t("settings.editor.autosave")}
+          value={String(settings.autosaveIntervalSec)}
+          options={autosave}
+          onChange={(v) => onChange({ autosaveIntervalSec: Number(v) })}
         />
-      </Row>
+        <Row label={t("settings.editor.previewQuality")}>
+          <Segmented<PreviewQuality>
+            name="settings-preview-quality"
+            value={settings.previewQuality}
+            options={qualityOptions}
+            onChange={(previewQuality) => onChange({ previewQuality })}
+          />
+        </Row>
+      </Group>
 
-      <Switch
-        checked={settings.autoZoomOnNewRecording}
-        onChange={(autoZoomOnNewRecording) => onChange({ autoZoomOnNewRecording })}
-        label="Auto-zoom on new recordings"
-      />
-      <Row>
-        <label htmlFor={sliderId} style={labelStyle}>
-          Auto-zoom sensitivity
-        </label>
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+      <Group title={t("settings.editor.editing")}>
+        <Switch
+          checked={settings.autoZoomOnNewRecording}
+          onChange={(autoZoomOnNewRecording) => onChange({ autoZoomOnNewRecording })}
+          label={t("settings.editor.autoZoom")}
+        />
+        <Row
+          label={t("settings.editor.autoZoomSensitivity")}
+          htmlFor={sliderId}
+          disabled={!settings.autoZoomOnNewRecording}
+        >
           <input
             id={sliderId}
             type="range"
+            className="rf-set-range"
             min={0}
             max={1}
             step={0.05}
             value={settings.autoZoomSensitivity}
             disabled={!settings.autoZoomOnNewRecording}
             onChange={(e) => onChange({ autoZoomSensitivity: Number(e.target.value) })}
-            style={{ maxWidth: "240px", flex: 1, accentColor: "var(--accent)" }}
+            style={{
+              background: `linear-gradient(to right, var(--accent) ${sensitivity}%, var(--bg-panel-raised) ${sensitivity}%)`,
+            }}
           />
-          <span
-            style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--text-2)" }}
-          >
-            {Math.round(settings.autoZoomSensitivity * 100)}%
+          <span className="rf-set-value" style={{ minWidth: "36px", textAlign: "right" }}>
+            {sensitivity}%
           </span>
-        </div>
-      </Row>
-
-      <Switch
-        checked={settings.snapByDefault}
-        onChange={(snapByDefault) => onChange({ snapByDefault })}
-        label="Snap by default"
-      />
-      <Switch
-        checked={settings.inspectorAutoSwitch}
-        onChange={(inspectorAutoSwitch) => onChange({ inspectorAutoSwitch })}
-        label="Switch inspector tab to the selected item"
-      />
-      <NumberField
-        label="Undo history size"
-        value={settings.undoHistorySize}
-        min={10}
-        max={1000}
-        integer
-        suffix="steps"
-        onChange={(undoHistorySize) => onChange({ undoHistorySize })}
-      />
-    </div>
+        </Row>
+        <Switch
+          checked={settings.snapByDefault}
+          onChange={(snapByDefault) => onChange({ snapByDefault })}
+          label={t("settings.editor.snap")}
+        />
+        <Switch
+          checked={settings.inspectorAutoSwitch}
+          onChange={(inspectorAutoSwitch) => onChange({ inspectorAutoSwitch })}
+          label={t("settings.editor.inspectorAutoSwitch")}
+        />
+        <NumberField
+          label={t("settings.editor.undoHistory")}
+          value={settings.undoHistorySize}
+          min={10}
+          max={1000}
+          integer
+          suffix={t("settings.editor.steps")}
+          onChange={(undoHistorySize) => onChange({ undoHistorySize })}
+        />
+      </Group>
+    </Page>
   );
 }

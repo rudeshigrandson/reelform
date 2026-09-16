@@ -54,6 +54,10 @@ export const ProjectListEntry = z.object({
   id: z.string().nullable().default(null),
   /** `timeline.durationMs`; null when unreadable. */
   durationMs: z.number().nullable().default(null),
+  /** `reelform-media://` URL of the library thumbnail; null when absent or not servable. */
+  thumbnailUrl: z.string().nullable().default(null),
+  /** On-disk size of the project folder; null when missing or unreadable. */
+  sizeBytes: z.number().nonnegative().nullable().default(null),
 });
 export type ProjectListEntry = z.infer<typeof ProjectListEntry>;
 
@@ -64,6 +68,12 @@ export const MediaImport = z.object({
   fileName: z.string().min(1),
   /** Remove the source after the project is written (default: copy only). */
   move: z.boolean().optional(),
+  /**
+   * `media` (default) → `<project>/media/<fileName>`, listed in `mediaFiles`;
+   * `root` → `<project>/<fileName>` beside project.json (e.g. the library
+   * thumbnail), not listed in `mediaFiles`.
+   */
+  destination: z.enum(["media", "root"]).optional(),
 });
 
 const DocumentResult = z.object({
@@ -79,8 +89,146 @@ export const TrashedProjectEntry = z.object({
   id: z.string().nullable(),
   trashedAt: Iso.nullable(),
   thumbnailPath: z.string().nullable(),
+  thumbnailUrl: z.string().nullable().default(null),
 });
 export type TrashedProjectEntry = z.infer<typeof TrashedProjectEntry>;
+
+/** A timeline clip; extra fields pass through untouched. */
+export const TrimClip = z
+  .object({
+    id: z.string(),
+    sourceStartMs: z.number().finite().nonnegative(),
+    sourceEndMs: z.number().finite().nonnegative(),
+    timelineStartMs: z.number().finite().nonnegative(),
+  })
+  .passthrough();
+
+const TrimmedMedia = z.object({
+  /** New project-relative (posix) path. */
+  path: z.string(),
+  durationMs: z.number().nonnegative(),
+});
+
+export const TrimmedLinkedTracks = z.object({
+  mic: TrimmedMedia.optional(),
+  system: TrimmedMedia.optional(),
+  webcam: TrimmedMedia.optional(),
+  telemetry: z
+    .object({
+      path: z.string(),
+      pointCount: z.number().int().nonnegative(),
+      hasClicks: z.boolean(),
+      hasKeys: z.boolean(),
+    })
+    .optional(),
+});
+export type TrimmedLinkedTracks = z.infer<typeof TrimmedLinkedTracks>;
+
+const projectRef = <T extends z.ZodRawShape>(shape: T) =>
+  z
+    .object({
+      projectId: z.string().min(1).optional(),
+      /** Alternative to `projectId` when the caller holds the folder path. */
+      path: ProjectPath.optional(),
+      ...shape,
+    })
+    .refine((r) => r.projectId !== undefined || r.path !== undefined, {
+      message: "projectId or path is required",
+    });
+
+export const projectMediaContracts = {
+  /**
+   * §9.9 trim source to used range: `-c copy` cut with 1s handles into `media/`;
+   * the original moves to `<project>/.trash/<undoToken>/` until app quit.
+   * Clips passed in come back rewritten (source times minus `offsetMs`).
+   */
+  "project:trimSource": channel(
+    "project:trimSource",
+    projectRef({
+      usedRange: z.object({
+        startMs: z.number().finite().nonnegative(),
+        endMs: z.number().finite().positive(),
+      }),
+      /** Project-relative video path; defaults to `sources.video.path` in project.json. */
+      videoPath: z.string().min(1).optional(),
+      clips: z.array(TrimClip).max(10_000).optional(),
+      /**
+       * Mic/system/webcam/telemetry share the video's source time. Trimming only
+       * the video desyncs them, so it is refused (TRIM_LINKED_TRACKS) unless the
+       * caller shifts those tracks by `offsetMs` itself.
+       */
+      allowLinkedTracks: z.boolean().optional(),
+      /**
+       * Cut mic/system/webcam to the same range as the video and rewrite the
+       * telemetry shifted by `-offsetMs`; the new paths come back in `linked`.
+       */
+      trimLinkedTracks: z.boolean().optional(),
+    }),
+    z.object({
+      clips: z.array(TrimClip),
+      /** New project-relative (posix) video path. */
+      videoPath: z.string(),
+      videoDurationMs: z.number().nonnegative(),
+      savedBytes: z.number().int().nonnegative(),
+      offsetMs: z.number().nonnegative(),
+      undoToken: z.string(),
+      /** Linked tracks rewritten by `trimLinkedTracks` (absent keys were not present). */
+      linked: TrimmedLinkedTracks.optional(),
+    }),
+  ),
+  "project:restoreTrimmedSource": channel(
+    "project:restoreTrimmedSource",
+    projectRef({ undoToken: z.string().min(1).max(128) }),
+    z.object({ ok: z.literal(true), videoPath: z.string() }),
+  ),
+  /** §6.3: 1080p proxy for sources >1440p or >30 min; progress via `project:proxyProgress`. */
+  "project:ensureProxy": channel(
+    "project:ensureProxy",
+    z.object({ projectId: z.string().min(1) }),
+    /** `proxyPath` is project-relative (posix); null when no proxy is needed. */
+    z.object({ proxyPath: z.string().nullable(), generated: z.boolean() }),
+  ),
+  /** §6.7 filmstrip: cached JPEGs every `intervalMs` of source at `height` px. */
+  "project:ensureThumbnails": channel(
+    "project:ensureThumbnails",
+    z.object({
+      projectId: z.string().min(1),
+      intervalMs: z.number().int().min(250).max(60_000).optional(),
+      height: z.number().int().min(16).max(720).optional(),
+    }),
+    /** `path` is project-relative (posix). */
+    z.object({ items: z.array(z.object({ sourceMs: z.number(), path: z.string() })) }),
+  ),
+} as const;
+
+/** Main → renderer push events of the project domain. */
+export const projectEvents = {
+  "project:proxyProgress": {
+    name: "project:proxyProgress",
+    payload: z.object({ projectId: z.string(), progress: z.number().min(0).max(1) }),
+  },
+  /**
+   * `project:replaceSource` rewrote a source's file in `project.json`. Open
+   * editors patch their session (no undo step) so they never save the old path back.
+   */
+  "project:sourceReplaced": {
+    name: "project:sourceReplaced",
+    payload: z.object({
+      /** Project folder. */
+      path: z.string(),
+      projectId: z.string().nullable(),
+      source: z.enum(["video", "webcam"]),
+      /** Previous `sources.<source>.path`. */
+      from: z.string(),
+      /** New `sources.<source>.path` (project-relative, posix). */
+      to: z.string(),
+      codec: z.string().optional(),
+    }),
+  },
+} as const;
+export type SourceReplacedEvent = z.infer<
+  (typeof projectEvents)["project:sourceReplaced"]["payload"]
+>;
 
 export const projectContracts = {
   /** Editor windows are routed by project id; main maps it back to a folder (library + recents). */
@@ -112,6 +260,17 @@ export const projectContracts = {
     z.object({ path: ProjectPath }),
     z.object({ path: z.string() }),
   ),
+  /**
+   * "Auto-delete raw recordings after export (keep project)" (guide S02/S14):
+   * the raw capture files (`sources.video/mic/system/webcam` inside `media/`)
+   * and the preview proxy go to the OS trash; project.json, telemetry and
+   * `exports/` stay. `removed` lists project-relative (posix) paths.
+   */
+  "project:deleteRawSource": channel(
+    "project:deleteRawSource",
+    z.object({ path: ProjectPath }),
+    z.object({ removed: z.array(z.string()) }),
+  ),
   /** Drop every autosave backup (user chose "Don't save" / dismissed recovery). */
   "project:discardBackups": channel(
     "project:discardBackups",
@@ -129,7 +288,7 @@ export const projectContracts = {
       media: z.array(MediaImport).optional(),
     }),
     DocumentResult.extend({
-      /** Final `media/` file names, in request order. */
+      /** Final `media/` file names, in request order (`destination: "root"` imports are skipped). */
       mediaFiles: z.array(z.string()),
     }),
   ),
@@ -213,6 +372,40 @@ export const projectContracts = {
       probe: MediaProbe,
     }),
   ),
+  /**
+   * Background transcode relink (§5.2): validate `filePath`, bring it into
+   * `media/` and point `sources.<source>` at it in `project.json`, atomically
+   * under the project lock. Skipped (`applied: false`) when the saved source no
+   * longer is `replaces`. Later saves of a stale document keep the new path;
+   * the replaced original is trashed unless the project keeps raw recordings.
+   */
+  "project:replaceSource": channel(
+    "project:replaceSource",
+    z.object({
+      path: ProjectPath,
+      source: z.enum(["video", "webcam"]),
+      /** Absolute path of the replacement (e.g. the finished `.h264.mp4`). */
+      filePath: z.string().min(1),
+      /** The source `path` the document must still hold. */
+      replaces: z.string().min(1),
+      expected: z.object({
+        durationMs: z.number().nonnegative(),
+        width: z.number().int().positive().optional(),
+        height: z.number().int().positive().optional(),
+      }),
+      /** New `codec` for the source, when known. */
+      codec: z.string().min(1).optional(),
+    }),
+    z.object({
+      applied: z.boolean(),
+      /** New project-relative source path; null when skipped. */
+      path: z.string().nullable(),
+      modifiedAt: Iso.nullable(),
+      /** Project-relative files moved to the trash (the replaced original). */
+      removed: z.array(z.string()),
+    }),
+  ),
+  ...projectMediaContracts,
 } as const;
 
 export type ProjectContracts = typeof projectContracts;

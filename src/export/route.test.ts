@@ -61,9 +61,7 @@ describe("selectRoute — native-static fast path", () => {
 describe("selectRoute — software fallback", () => {
   it("HW unavailable for the chosen codec forces software-fallback (feature-rich project)", () => {
     const flags: ProjectFlags = { ...stylingOnly, hasZooms: true };
-    expect(selectRoute(config({ codec: "h264" }), flags, NO_HW)).toBe(
-      "software-fallback",
-    );
+    expect(selectRoute(config({ codec: "h264" }), flags, NO_HW)).toBe("software-fallback");
   });
 
   it("styling-only project without HW falls back to software (no fast path benefit)", () => {
@@ -74,13 +72,9 @@ describe("selectRoute — software fallback", () => {
     const caps: EncoderCaps = { h264: false, hevc: true, av1: true, vp9: true };
     const flags: ProjectFlags = { ...stylingOnly, hasCursor: true };
     // h264 has no HW → fallback
-    expect(selectRoute(config({ codec: "h264" }), flags, caps)).toBe(
-      "software-fallback",
-    );
+    expect(selectRoute(config({ codec: "h264" }), flags, caps)).toBe("software-fallback");
     // hevc has HW → webcodecs
-    expect(selectRoute(config({ codec: "hevc" }), flags, caps)).toBe(
-      "webcodecs",
-    );
+    expect(selectRoute(config({ codec: "hevc" }), flags, caps)).toBe("webcodecs");
   });
 });
 
@@ -137,13 +131,24 @@ describe("selectRoute — properties", () => {
     );
   });
 
+  it("GPU export off in Settings always picks the software route", () => {
+    fc.assert(
+      fc.property(codec, boolRec, caps, (c, flags, hw) => {
+        expect(selectRoute(config({ codec: c }), flags, hw, { gpuExport: "off" })).toBe(
+          "software-fallback",
+        );
+        expect(selectRoute(config({ codec: c }), flags, hw, { gpuExport: "auto" })).toBe(
+          selectRoute(config({ codec: c }), flags, hw),
+        );
+      }),
+    );
+  });
+
   it("no HW for the chosen codec is never webcodecs (always software-fallback)", () => {
     fc.assert(
       fc.property(codec, boolRec, caps, (c, flags, hw) => {
         if (!hw[c]) {
-          expect(selectRoute(config({ codec: c }), flags, hw)).toBe(
-            "software-fallback",
-          );
+          expect(selectRoute(config({ codec: c }), flags, hw)).toBe("software-fallback");
         }
       }),
     );

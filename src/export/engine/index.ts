@@ -2,11 +2,23 @@ export {
   AAC_LC_CODEC,
   AUDIO_BITRATE,
   chooseAudioPlan,
+  WAV_HEADER_BYTES,
+  bufferBlockSource,
   encodeAudioBuffer,
   encodeWav,
+  pcm16Interleaved,
   planarBlock,
+  streamWav,
+  wavHeader,
 } from "./audio";
-export type { AudioBufferLike, AudioEncoderLike, AudioPlan, EncodeAudioDeps } from "./audio";
+export type {
+  AudioBlock,
+  AudioBlockSource,
+  AudioBufferLike,
+  AudioEncoderLike,
+  AudioPlan,
+  EncodeAudioDeps,
+} from "./audio";
 export { ExportCancelledError, isCancelled } from "./cancel";
 export {
   BT709_LIMITED,

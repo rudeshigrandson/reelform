@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { HEADER_WIDTH_PX, Timeline, type TimelineProps } from "./Timeline";
+import { HEADER_WIDTH_PX, Timeline, type TimelineProps, laneIndexAt, laneTops } from "./Timeline";
 import type { TimelineTrack } from "./types";
 
 // jsdom lacks PointerEvent and layout. Polyfill the former so clientX/modifiers
@@ -276,6 +276,48 @@ describe("Timeline", () => {
     setup({ durationMs: 60_000, pxPerMs: 0.2, tracks: [far] }); // 5s visible
     expect(screen.getByRole("button", { name: /Caption near/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Caption far/ })).toBeNull();
+  });
+
+  it("lanes use per-track heights for hit-testing (video 44, zoom 26, effects 24)", () => {
+    const kinds = [{ kind: "video" }, { kind: "zoom" }, { kind: "captions" }] as const;
+    expect(laneTops(kinds)).toEqual([0, 44, 70]);
+    expect(laneIndexAt(kinds, -5)).toBe(0);
+    expect(laneIndexAt(kinds, 43)).toBe(0);
+    expect(laneIndexAt(kinds, 44)).toBe(1);
+    expect(laneIndexAt(kinds, 70)).toBe(2);
+    expect(laneIndexAt(kinds, 500)).toBe(2);
+    expect(laneIndexAt([], 10)).toBe(0);
+  });
+
+  it("trimming a clip edge shows the trimmed-out hatch and a readout until drop", () => {
+    const video: TimelineTrack = {
+      kind: "video",
+      label: "Video",
+      allowOverlap: false,
+      items: [{ id: "v1", startMs: 0, endMs: 5000, label: "Clip 1" }],
+    };
+    const { props } = setup({ tracks: [video] });
+    const clip = screen.getByRole("button", { name: /^Clip Clip 1/ });
+    const end = clip.querySelector('[data-handle="end"]');
+    if (!end) throw new Error("handle missing");
+    fireEvent.pointerDown(end, { clientX: 500, clientY: 0, button: 0 });
+    fireEvent.pointerMove(end, { clientX: 400, clientY: 0 });
+    expect(screen.getByTestId("timeline-trim-hatch").style.width).toBe("100px");
+    expect(screen.getByTestId("timeline-trim-handle").style.left).toBe("400px");
+    expect(screen.getByTestId("timeline-trim-readout")).toHaveTextContent("00:04.000 · −00:01.000");
+    fireEvent.pointerUp(end, { clientX: 400, clientY: 0 });
+    expect(screen.queryByTestId("timeline-trim-hatch")).toBeNull();
+    expect(screen.queryByTestId("timeline-trim-readout")).toBeNull();
+    expect(props.onItemChange).toHaveBeenCalledWith("video", { id: "v1", startMs: 0, endMs: 4000 });
+  });
+
+  it("moving an effect item shows no trim chrome", () => {
+    setup();
+    const z1 = screen.getByRole("button", { name: z1Name });
+    fireEvent.pointerDown(z1, { clientX: 300, clientY: 0, button: 0 });
+    fireEvent.pointerMove(z1, { clientX: 320, clientY: 0 });
+    expect(screen.queryByTestId("timeline-trim-handle")).toBeNull();
+    fireEvent.pointerUp(z1, { clientX: 320, clientY: 0 });
   });
 
   it("ctrl + wheel zooms around the cursor; shift + wheel pans", () => {

@@ -64,6 +64,20 @@ describe("createMetaUpdate", () => {
     expect(history.canUndo()).toBe(false);
   });
 
+  it("runs undo/redo side effects after the state change, never on the first apply", () => {
+    const history = makeHistory();
+    const calls: string[] = [];
+    createMetaUpdate(history)("Trim source", (m) => ({ ...m, name: "Trimmed" }), undefined, {
+      onUndo: () => calls.push(`undo:${useProjectSession.getState().meta?.name}`),
+      onRedo: () => calls.push(`redo:${useProjectSession.getState().meta?.name}`),
+    });
+    expect(calls).toEqual([]);
+    history.undo();
+    history.redo();
+    history.undo();
+    expect(calls).toEqual(["undo:Before", "redo:Trimmed", "undo:Before"]);
+  });
+
   it("does not mutate the previous meta object and is a no-op without a project", () => {
     const history = makeHistory();
     const original = useProjectSession.getState().meta;

@@ -21,8 +21,20 @@ export function windowQuery(params: WindowParams): Record<string, string> {
   return q;
 }
 
-export function buildLoadTarget(source: LoadSource, params: WindowParams): LoadTarget {
-  const query = windowQuery(params);
+/**
+ * Query flag telling the renderer the window has no native title bar and the
+ * macOS traffic lights sit inside its chrome: `?titleBar=inset`.
+ */
+export const TITLE_BAR_QUERY_KEY = "titleBar";
+export const TITLE_BAR_INSET = "inset";
+
+/** `extra` adds non-identifying flags (e.g. {@link TITLE_BAR_QUERY_KEY}); params win on clashes. */
+export function buildLoadTarget(
+  source: LoadSource,
+  params: WindowParams,
+  extra: Record<string, string> = {},
+): LoadTarget {
+  const query = { ...extra, ...windowQuery(params) };
   if (source.type === "file") return { type: "file", filePath: source.indexHtmlPath, query };
   const url = new URL(source.devServerUrl);
   for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);

@@ -3,6 +3,7 @@ import { usePlaybackStore } from "../../editor/playback/store";
 import { useEditorStore } from "../../editor/store";
 import {
   PROJECT_OPEN_ERRORS,
+  RESOLVE_RETRY_DELAYS_MS,
   bindCursorTrack,
   buildCursorTrack,
   derivedDurationMs,
@@ -36,6 +37,9 @@ describe("openProject: happy path", () => {
       "project:resolve",
       "project:open",
       "media:registerRoot",
+      // Background derived media starts once the session is ready.
+      "project:ensureProxy",
+      "project:ensureThumbnails",
     ]);
     expect(ipc.callsTo("project:resolve")).toEqual([{ projectId: "proj-1" }]);
     expect(ipc.callsTo("media:registerRoot")).toEqual([{ path: PROJECT_PATH }]);
@@ -175,13 +179,67 @@ describe("openProject: failures", () => {
         throw { code: "PROJECT_NOT_FOUND", message: "No project with that id" };
       },
     });
-    const res = await openProject("gone", { invoke: ipc.invoke, media: fakeMedia() });
+    const waits: number[] = [];
+    const res = await openProject("gone", {
+      invoke: ipc.invoke,
+      media: fakeMedia(),
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
     expect(res).toEqual({
       status: "not-found",
       error: { code: "PROJECT_NOT_FOUND", message: "No project with that id" },
     });
+    // Every back-off retry missed before giving up.
+    expect(waits).toEqual([...RESOLVE_RETRY_DELAYS_MS]);
+    expect(ipc.callsTo("project:resolve")).toHaveLength(RESOLVE_RETRY_DELAYS_MS.length + 1);
     expect(session()).toMatchObject({ status: "error", projectId: "gone" });
     expect(ipc.callsTo("media:registerRoot")).toEqual([]);
+  });
+
+  it("race: a project main does not know yet (just created) opens once resolve catches up", async () => {
+    let misses = 2;
+    const ipc = fakeIpc({
+      "project:resolve": () => {
+        if (misses-- > 0) throw { code: "PROJECT_NOT_FOUND", message: "No project with that id" };
+        return { path: PROJECT_PATH };
+      },
+    });
+    const res = await openProject("proj-1", {
+      invoke: ipc.invoke,
+      media: fakeMedia(),
+      resolveRetryDelaysMs: [1, 1, 1],
+    });
+    expect(res).toMatchObject({ status: "ready", path: PROJECT_PATH });
+    expect(ipc.callsTo("project:resolve")).toHaveLength(3);
+    expect(session().status).toBe("ready");
+  });
+
+  it("other resolve errors are not retried; aborting during a back-off stops", async () => {
+    const denied = fakeIpc({
+      "project:resolve": () => {
+        throw { code: "PERMISSION_DENIED", message: "nope" };
+      },
+    });
+    const res = await openProject("proj-1", { invoke: denied.invoke, media: fakeMedia() });
+    expect(res).toMatchObject({ status: "error", error: { code: "PERMISSION_DENIED" } });
+    expect(denied.callsTo("project:resolve")).toHaveLength(1);
+
+    const controller = new AbortController();
+    const missing = fakeIpc({
+      "project:resolve": () => {
+        throw { code: "PROJECT_NOT_FOUND", message: "No project with that id" };
+      },
+    });
+    const aborted = await openProject("proj-1", {
+      invoke: missing.invoke,
+      media: fakeMedia(),
+      signal: controller.signal,
+      sleep: async () => controller.abort(),
+    });
+    expect(aborted).toEqual({ status: "aborted" });
+    expect(missing.callsTo("project:resolve")).toHaveLength(1);
   });
 
   it("a document from a newer Reelform → PROJECT_INVALID error", async () => {

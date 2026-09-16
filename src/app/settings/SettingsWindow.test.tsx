@@ -8,6 +8,7 @@ import {
   AppShortcutsProvider,
   OnboardingGate,
   SettingsWindow,
+  hasInsetTitleBar,
   settingsErrorMessage,
 } from "./SettingsWindow";
 import { APPEARANCE_STYLE_ID, applyAppearance, clearAppearance, useAppearance } from "./appearance";
@@ -73,6 +74,28 @@ function renderWindow(
   return { store, ...utils };
 }
 
+describe("SettingsWindow — macOS inset title bar", () => {
+  it("reads the ?titleBar=inset flag", () => {
+    expect(hasInsetTitleBar("?window=settings&titleBar=inset")).toBe(true);
+    expect(hasInsetTitleBar("?window=settings")).toBe(false);
+  });
+
+  it("draws a 40px draggable title bar leaving room for the traffic lights, only when inset", async () => {
+    const inset = renderWindow(transport(), { insetTitleBar: true });
+    const bar = screen.getByTestId("settings-title-bar");
+    expect(bar).toHaveTextContent("Settings");
+    expect(bar.style.height).toBe("40px");
+    expect(bar.style.paddingLeft).toBe("80px");
+    expect(bar.style.borderBottom).toContain("var(--border)");
+    await screen.findByRole("navigation", { name: /settings sections/i });
+    inset.unmount();
+
+    renderWindow(transport(), { insetTitleBar: false });
+    await screen.findByRole("navigation", { name: /settings sections/i });
+    expect(screen.queryByTestId("settings-title-bar")).toBeNull();
+  });
+});
+
 describe("SettingsWindow", () => {
   it("shows loading, then the pages; writes go through settings:set", async () => {
     const t = transport();
@@ -95,12 +118,13 @@ describe("SettingsWindow", () => {
     });
     renderWindow(t, { initialSection: "appearance" });
     await screen.findByRole("navigation", { name: /settings sections/i });
-    fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
-    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    // Dark is the default theme, so switch to Light and expect the rollback to Dark.
+    fireEvent.click(screen.getByRole("radio", { name: "Light" }));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("already in use");
-    expect(screen.getByRole("radio", { name: "System" })).toBeChecked();
-    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+    expect(screen.getByRole("radio", { name: "Dark" })).toBeChecked();
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     fireEvent.click(within(alert).getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -223,6 +247,61 @@ describe("OnboardingGate", () => {
     expect(t.set).toHaveBeenCalledWith(expect.objectContaining({ onboardingCompleted: true }));
     fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
     expect(screen.getByText("Launcher")).toBeInTheDocument();
+  });
+});
+
+describe("global shortcut status", () => {
+  type Status = NonNullable<SettingsServices["globalStatus"]>;
+  const status = (failures: Status["failures"]): Status => ({
+    context: { hudOpen: true, recording: false, countdown: false },
+    registered: [],
+    failures,
+  });
+
+  it("loads shortcuts:globalStatus and follows globalStatusChanged pushes", async () => {
+    let push: ((s: Status) => void) | null = null;
+    const unsubscribe = vi.fn();
+    const port = {
+      get: vi.fn(async () =>
+        status([{ id: "record.toggle", accelerator: "⇧⌘R", reason: "os-conflict" }]),
+      ),
+      subscribe: vi.fn((cb: (s: Status) => void) => {
+        push = cb;
+        return unsubscribe;
+      }),
+    };
+    const { unmount } = renderWindow(transport(), {
+      globalStatusPort: port,
+      initialSection: "shortcuts",
+    });
+    expect(await screen.findByText(/⇧⌘R is taken by another app/)).toBeInTheDocument();
+    expect(port.get).toHaveBeenCalledTimes(1);
+    act(() => push?.(status([])));
+    await waitFor(() => expect(screen.queryByText(/taken by another app/)).toBeNull());
+    act(() => push?.(status([{ id: "record.pause", accelerator: "⇧⌘P", reason: "os-conflict" }])));
+    expect(await screen.findByText(/⇧⌘P is taken by another app/)).toBeInTheDocument();
+    unmount();
+    expect(unsubscribe).toHaveBeenCalled();
+  });
+
+  it("a push that arrives before the initial fetch is not overwritten by it", async () => {
+    let resolveGet: (s: Status) => void = () => {};
+    const port = {
+      get: () =>
+        new Promise<Status>((r) => {
+          resolveGet = r;
+        }),
+      subscribe: (cb: (s: Status) => void) => {
+        queueMicrotask(() => cb(status([])));
+        return () => {};
+      },
+    };
+    renderWindow(transport(), { globalStatusPort: port, initialSection: "shortcuts" });
+    await screen.findByRole("table", { name: "Keyboard shortcuts" });
+    await act(async () => {
+      resolveGet(status([{ id: "record.toggle", accelerator: "⇧⌘R", reason: "os-conflict" }]));
+    });
+    expect(screen.queryByText(/taken by another app/)).toBeNull();
   });
 });
 

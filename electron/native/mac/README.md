@@ -55,6 +55,16 @@ Outbound: `pong {version,caps}` (caps include `capture`, `listSources`), `ready`
 Replies echo the command `id`. The process exits after `stopped` (or a failed `start`).
 Disk below 500 MB free on the output volume (checked with each `stats`) interrupts with `diskLow`.
 
+Main-process integration (`electron/capture/helperBackend.ts`):
+
+- `start.audio` carries `micLabel` (the renderer's `MediaDeviceInfo.label`) next to the hashed Chromium
+  `mic` id, so `MicSelection` can resolve a non-default microphone.
+- The webcam is **not** captured by this helper: the renderer records it with a MediaRecorder and main
+  writes `webcam.webm` beside the helper's files, aligned by `meta.webcamOffsetMs`.
+- Mic mute: main sends `{"t":"setMicMuted","id":n,"muted":bool}` only when `pong.caps` includes `micMute`.
+  This helper does not advertise it yet; main then records the muted ranges and silences them in the
+  finalized mic track (`meta.micMutedRanges`, `electron/recording/remuxPostProcess.ts`).
+
 `sources`: displays `{id,name,bounds,scaleFactor,thumbnail?}` and on-screen layer-0 windows ≥ 50pt
 (excluding the helper's and its parent's) `{id,title,appName?,bundleId?,pid?,bounds,displayId?,thumbnail?}`.
 Ids are decimal strings (`CGDirectDisplayID` = Electron `Display.id` on macOS, `CGWindowID`); bounds are

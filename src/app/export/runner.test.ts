@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { bufferBlockSource } from "../../export/engine/audio";
 import { ExportCancelledError } from "../../export/engine/cancel";
 import { EncoderUnsupportedError } from "../../export/engine/encoderConfig";
 import { EncoderFailure } from "../../export/engine/engine";
+import { fakeAudioBuffer } from "../../export/engine/testFakes";
 import { type ExportFlowConfig, defaultFlowConfig } from "./config";
 import {
   type Caption,
@@ -14,6 +16,7 @@ import {
   createExportRunner,
   isLowDisk,
   progressPatchFor,
+  wavSidecarNotice,
 } from "./runner";
 import { FakeFlowSink, deferred, fakeSystemPort, progressAt } from "./testFakes";
 import { initialExportProgress, progressRingValue } from "./useExportProgress";
@@ -53,7 +56,7 @@ async function fakeVideo(args: VideoRouteArgs) {
     path,
     encoder: args.preferHardware ? ("hardware" as const) : ("software" as const),
     attempts: 1,
-    pcmWav: null,
+    pcmAudio: null,
   };
 }
 
@@ -61,6 +64,7 @@ function setup(overrides: Partial<ExportRunnerDeps> = {}, finishPath = "/exports
   const phases: ExportFlowPhase[] = [];
   const sinks: FakeFlowSink[] = [];
   const files: { name: string; container: string; text: string }[] = [];
+  const streamed: { name: string; container: string; chunks: Uint8Array[] }[] = [];
   const system = fakeSystemPort();
   const deps: ExportRunnerDeps = {
     runVideo: vi.fn(fakeVideo),
@@ -83,6 +87,14 @@ function setup(overrides: Partial<ExportRunnerDeps> = {}, finishPath = "/exports
       files.push({ name: target.finalName, container, text: new TextDecoder().decode(bytes) });
       return `/exports/${target.finalName}`;
     }),
+    streamFile: vi.fn(async (target, container, write) => {
+      const chunks: Uint8Array[] = [];
+      await write(async (bytes: Uint8Array) => {
+        chunks.push(bytes.slice());
+      });
+      streamed.push({ name: target.finalName, container, chunks });
+      return `/exports/${target.finalName}`;
+    }),
     system,
     onChange: (p) => phases.push(p),
     now: () => 1_700_000_000_000,
@@ -90,7 +102,7 @@ function setup(overrides: Partial<ExportRunnerDeps> = {}, finishPath = "/exports
     ...overrides,
   };
   const runner = createExportRunner(deps);
-  return { runner, deps, phases, sinks, files, system };
+  return { runner, deps, phases, sinks, files, streamed, system };
 }
 
 describe("export runner — video", () => {
@@ -165,16 +177,69 @@ describe("export runner — video", () => {
     expect(end.kind === "done" && end.notice).toMatch(/Captions file could not be written/);
   });
 
-  it("flags the PCM WAV fallback and writes the audio next to the video", async () => {
+  const pcmVideo = (frames = 2000) =>
+    vi.fn(async (args: VideoRouteArgs) => ({
+      ...(await fakeVideo(args)),
+      pcmAudio: bufferBlockSource(fakeAudioBuffer(frames), 480),
+    }));
+
+  it("streams the PCM WAV after the video and muxes it as AAC", async () => {
+    const muxAudio = vi.fn(async () => ({ path: "/exports/Demo.mp4", bytes: 5000 }));
+    const t = setup({ runVideo: pcmVideo(), muxAudio });
+    const end = await t.runner.start(request());
+    const wav = t.streamed[0];
+    expect(wav).toMatchObject({ name: "Demo.wav", container: "wav" });
+    // Header up front, then one chunk per render block.
+    // 2000 frames in 480-frame blocks: four full blocks and an 80-frame tail.
+    expect(wav?.chunks.map((c) => c.byteLength)).toEqual([44, ...Array(4).fill(480 * 4), 80 * 4]);
+    expect(new TextDecoder().decode(wav?.chunks[0]?.subarray(0, 4))).toBe("RIFF");
+    expect(muxAudio).toHaveBeenCalledWith({
+      videoPath: "/exports/Demo.mp4",
+      wavPath: "/exports/Demo.wav",
+      container: "mp4",
+    });
+    expect(end).toMatchObject({ kind: "done", bytes: 5000, sidecars: [], notice: null });
+    expect(t.phases.some((p) => p.kind === "running" && p.progress.label === "Adding audio")).toBe(
+      true,
+    );
+  });
+
+  it("keeps the WAV sidecar and notice when ffmpeg is unavailable", async () => {
+    const muxAudio = vi.fn(async () => {
+      throw Object.assign(new Error("ffmpeg missing"), { code: "FFMPEG_UNAVAILABLE" });
+    });
+    const t = setup({ runVideo: pcmVideo(), muxAudio });
+    const end = await t.runner.start(request({ format: "webm", codec: "vp9" }));
+    expect(muxAudio).toHaveBeenCalledWith(expect.objectContaining({ container: "webm" }));
+    expect(end).toMatchObject({ kind: "done", sidecars: ["/exports/Demo.wav"] });
+    expect(end.kind === "done" && end.notice).toBe(wavSidecarNotice());
+  });
+
+  it("other mux failures also keep the sidecar and explain why", async () => {
     const t = setup({
-      runVideo: vi.fn(async (args: VideoRouteArgs) => ({
-        ...(await fakeVideo(args)),
-        pcmWav: new Uint8Array([82, 73, 70, 70]),
-      })),
+      runVideo: pcmVideo(),
+      muxAudio: vi.fn(async () => Promise.reject(new Error("ffmpeg exited 1"))),
     });
     const end = await t.runner.start(request());
-    expect(t.files[0]).toMatchObject({ name: "Demo.wav", container: "wav", text: "RIFF" });
+    expect(end).toMatchObject({ kind: "done", sidecars: ["/exports/Demo.wav"] });
+    expect(end.kind === "done" && end.notice).toMatch(/ffmpeg exited 1.*WAV/);
+  });
+
+  it("without a mux step the WAV is a sidecar; write failures are a notice", async () => {
+    const t = setup({ runVideo: pcmVideo() });
+    const end = await t.runner.start(request());
+    expect(end).toMatchObject({ kind: "done", sidecars: ["/exports/Demo.wav"] });
     expect(end.kind === "done" && end.notice).toMatch(/WAV/);
+
+    const failing = setup({
+      runVideo: pcmVideo(),
+      muxAudio: vi.fn(),
+      streamFile: vi.fn(async () => Promise.reject(new Error("EACCES"))),
+    });
+    const res = await failing.runner.start(request());
+    expect(res).toMatchObject({ kind: "done", sidecars: [] });
+    expect(res.kind === "done" && res.notice).toMatch(/Audio could not be written: EACCES/);
+    expect(failing.deps.muxAudio).not.toHaveBeenCalled();
   });
 
   it("cancel aborts the route, cancels the sink and returns to cancelled", async () => {
@@ -301,7 +366,14 @@ describe("export runner — GIF", () => {
       request(
         {
           format: "gif",
-          gif: { sizePreset: 480, fps: 10, loop: false, dither: "none", colors: 64 },
+          gif: {
+            sizePreset: 480,
+            fps: 10,
+            loop: false,
+            dither: "none",
+            colors: 64,
+            palette: "global",
+          },
         },
         { sourceSize: { width: 1000, height: 500 } },
       ),
@@ -314,7 +386,13 @@ describe("export runner — GIF", () => {
       colors: 64,
       dither: "none",
       loop: false,
+      adaptivePalette: false,
     });
+    const adaptive = setup();
+    await adaptive.runner.start(
+      request({ format: "gif", gif: { ...defaultFlowConfig().gif, palette: "adaptive" } }),
+    );
+    expect(vi.mocked(adaptive.deps.runGif).mock.calls[0]?.[0].options.adaptivePalette).toBe(true);
     expect(t.phases[1]).toMatchObject({
       kind: "running",
       estimatedBytes: 123_456,
@@ -391,5 +469,111 @@ describe("helpers", () => {
     });
     expect(progressPatchFor({ kind: "cancelled" }).activity).toBe("cancelled");
     expect(progressRingValue({ activity: "running", fraction: Number.NaN })).toBe(0);
+  });
+});
+
+describe("export runner — non-fatal warnings (webcam)", () => {
+  const WARN = "Webcam footage couldn't be read — exported without the webcam bubble";
+
+  it("a route warning shows while running and on done, once, after the request notice", async () => {
+    const t = setup({
+      runVideo: vi.fn(async (args: VideoRouteArgs) => {
+        args.onWarning?.(WARN);
+        args.onWarning?.(WARN);
+        return fakeVideo(args);
+      }),
+    });
+    const end = await t.runner.start(request({}, { notice: "Using the software encoder" }));
+    expect(t.phases.some((p) => p.kind === "running" && p.notice?.includes(WARN))).toBe(true);
+    expect(end).toMatchObject({ kind: "done", notice: `Using the software encoder · ${WARN}` });
+  });
+
+  it("GIF exports surface the warning on done", async () => {
+    const t = setup({
+      runGif: vi.fn(async (args: GifRouteArgs) => {
+        await args.sink.begin({ container: "gif" });
+        args.onWarning?.(WARN);
+        const { path } = await args.sink.finish();
+        return { path, bytes: 10, frames: 1 };
+      }),
+    });
+    const end = await t.runner.start(request({ format: "gif" }));
+    expect(end).toMatchObject({ kind: "done", notice: WARN });
+  });
+
+  it("a failure after the warning keeps it on the failed phase; a clean retry drops it", async () => {
+    let calls = 0;
+    const t = setup({
+      runVideo: vi.fn(async (args: VideoRouteArgs) => {
+        calls++;
+        if (calls === 1) {
+          args.onWarning?.(WARN);
+          throw new Error("muxer exploded");
+        }
+        return fakeVideo(args);
+      }),
+    });
+    const failed = await t.runner.start(request());
+    expect(failed).toMatchObject({ kind: "failed", message: "muxer exploded", notice: WARN });
+    const done = await t.runner.retrySoftware();
+    expect(done).toMatchObject({ kind: "done", notice: "Using the software encoder" });
+  });
+});
+
+describe("export runner — auto-delete raw recordings", () => {
+  it("trashes the raw source after a successful export (after the mux step) when asked", async () => {
+    const order: string[] = [];
+    const deleteRawSource = vi.fn(async () => {
+      order.push("delete");
+    });
+    const t = setup({
+      deleteRawSource,
+      runVideo: vi.fn(async (args: VideoRouteArgs) => {
+        const res = await fakeVideo(args);
+        return {
+          ...res,
+          pcmAudio: bufferBlockSource(fakeAudioBuffer(480), 480),
+        };
+      }),
+      muxAudio: vi.fn(async (req) => {
+        order.push("mux");
+        return { path: req.videoPath, bytes: 7777 };
+      }),
+    });
+    const end = await t.runner.start(request({ audio: "aac" }, { deleteRawAfterExport: true }));
+    expect(end).toMatchObject({ kind: "done", bytes: 7777 });
+    expect(order).toEqual(["mux", "delete"]);
+    expect(deleteRawSource).toHaveBeenCalledOnce();
+  });
+
+  it("does nothing when the setting is off, and a failed delete never fails the export", async () => {
+    const off = setup({ deleteRawSource: vi.fn(async () => {}) });
+    await off.runner.start(request());
+    expect(off.deps.deleteRawSource).not.toHaveBeenCalled();
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const broken = setup({
+      deleteRawSource: vi.fn(async () => {
+        throw new Error("trash unavailable");
+      }),
+    });
+    const end = await broken.runner.start(request({}, { deleteRawAfterExport: true }));
+    expect(end).toMatchObject({ kind: "done", notice: null });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("trash unavailable"));
+    warn.mockRestore();
+  });
+
+  it("keeps the raw source when the export fails or is cancelled", async () => {
+    const deleteRawSource = vi.fn(async () => {});
+    const failing = setup({
+      deleteRawSource,
+      runVideo: vi.fn(async () => {
+        throw new Error("boom");
+      }),
+    });
+    expect((await failing.runner.start(request({}, { deleteRawAfterExport: true }))).kind).toBe(
+      "failed",
+    );
+    expect(deleteRawSource).not.toHaveBeenCalled();
   });
 });

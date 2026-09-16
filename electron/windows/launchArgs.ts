@@ -89,6 +89,46 @@ export function parseLaunchArgs(
   return out;
 }
 
+/**
+ * macOS `open-file` path → intent. Only absolute `.reelform` paths without
+ * control characters are accepted.
+ */
+export function parseOpenFile(filePath: string, platform: PlatformName): LaunchIntent | null {
+  if (!filePath || hasControlChars(filePath) || !isProjectPath(filePath)) return null;
+  const api = pathApi(platform);
+  if (!api.isAbsolute(filePath)) return null;
+  return { type: "open-project", path: api.normalize(filePath) };
+}
+
+export interface LaunchIntentQueue {
+  /** Queue (before boot) or dispatch (after boot) one intent. */
+  push(intent: LaunchIntent): void;
+  /** Boot finished: flush queued intents through `open`, then dispatch directly. */
+  start(open: (intent: LaunchIntent) => void): void;
+  /** Intents currently waiting for boot. */
+  pending(): readonly LaunchIntent[];
+}
+
+/**
+ * `open-file` / `open-url` can fire before `app.whenReady()` (macOS delivers
+ * the launching file that way), so intents are held until boot wires windows.
+ */
+export function createLaunchIntentQueue(): LaunchIntentQueue {
+  const queued: LaunchIntent[] = [];
+  let open: ((intent: LaunchIntent) => void) | null = null;
+  return {
+    push(intent) {
+      if (open) open(intent);
+      else if (!queued.some((q) => q.path === intent.path)) queued.push(intent);
+    },
+    start(fn) {
+      open = fn;
+      for (const intent of queued.splice(0)) fn(intent);
+    },
+    pending: () => [...queued],
+  };
+}
+
 export interface LaunchIntentHandlers {
   openProjectFile(path: string): void | Promise<void>;
   /** Nothing to open: bring the app forward (focus launcher). */

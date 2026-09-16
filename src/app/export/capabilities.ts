@@ -5,6 +5,7 @@ import {
   buildVideoEncoderConfig,
 } from "../../export/engine/encoderConfig";
 import type { EncoderCaps } from "../../export/route";
+import { t } from "../../i18n/format";
 
 /**
  * Renderer-side encoder capability probing (§10.1, guide S22 "Not supported on
@@ -83,7 +84,8 @@ export function hardwareCaps(caps: EncoderCapabilities): EncoderCaps {
   };
 }
 
-export const UNSUPPORTED_CODEC_REASON = "Not supported on this device";
+/** Reason shown next to an unusable codec, in the active window language. */
+export const unsupportedCodecReason = (): string => t("exportFlow.issue.codecUnsupported");
 
 export function unsupportedCodecs(
   caps: EncoderCapabilities | null,
@@ -91,7 +93,7 @@ export function unsupportedCodecs(
   if (!caps) return {};
   const out: Partial<Record<Codec, string>> = {};
   for (const codec of PROBE_CODECS) {
-    if (!isCodecUsable(caps, codec)) out[codec] = UNSUPPORTED_CODEC_REASON;
+    if (!isCodecUsable(caps, codec)) out[codec] = unsupportedCodecReason();
   }
   return out;
 }

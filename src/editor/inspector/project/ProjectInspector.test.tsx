@@ -116,7 +116,7 @@ describe("ProjectInspector", () => {
 
   it("relink is secondary when media is present", () => {
     setup();
-    expect(screen.getByRole("button", { name: "Relink media…" })).toHaveClass("btn-secondary");
+    expect(screen.getByRole("button", { name: "Relink media…" })).toHaveClass("btn-ghost");
     expect(screen.queryByText("Media offline")).toBeNull();
   });
 

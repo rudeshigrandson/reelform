@@ -17,16 +17,30 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type DiskStatus = "ok" | "low" | "critical";
 
-/** `ok` ≥ 2GB, `low` (warn) ≥ 500MB, `critical` (interrupt) below. Unknown/NaN counts as ok. */
-export function diskStatus(freeBytes: number): DiskStatus {
+/**
+ * `ok` ≥ the warning threshold (default 2GB), `low` (warn) ≥ 500MB, `critical`
+ * (interrupt) below. Unknown/NaN counts as ok.
+ */
+export function diskStatus(
+  freeBytes: number,
+  warnBelowBytes = MIN_FREE_BYTES_TO_START,
+): DiskStatus {
   if (!Number.isFinite(freeBytes)) return "ok";
   if (freeBytes < INTERRUPT_FREE_BYTES) return "critical";
-  if (freeBytes < MIN_FREE_BYTES_TO_START) return "low";
+  if (freeBytes < Math.max(INTERRUPT_FREE_BYTES, warnBelowBytes)) return "low";
   return "ok";
 }
 
+/** Settings `diskWarningThresholdGb` → bytes; invalid / missing falls back to 2GB. */
+export function diskWarningBytes(thresholdGb: number | null | undefined): number {
+  return typeof thresholdGb === "number" && Number.isFinite(thresholdGb) && thresholdGb > 0
+    ? thresholdGb * GIB
+    : MIN_FREE_BYTES_TO_START;
+}
+
+/** Starting always needs 2GB, independent of the (warning-only) threshold setting. */
 export function canStartWithFreeBytes(freeBytes: number): boolean {
-  return diskStatus(freeBytes) === "ok";
+  return diskStatus(freeBytes, MIN_FREE_BYTES_TO_START) === "ok";
 }
 
 /** Setting value → effective max length; invalid / non-positive falls back to the default. */

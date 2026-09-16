@@ -65,6 +65,7 @@ export const sampleSettings: SettingsState = {
   doNotDisturbWhileRecording: false,
   showClicksDuringCapture: false,
   hideCursorByDefault: false,
+  recordTypedTextBadges: false,
   autoDeleteRawAfterExport: false,
   maxLengthHours: 3,
   diskWarningThresholdGb: 2,
@@ -78,10 +79,11 @@ export const sampleSettings: SettingsState = {
   snapByDefault: true,
   undoHistorySize: 200,
   inspectorAutoSwitch: true,
+  frameUserPresets: [],
 
   shortcuts: {},
 
-  theme: "system",
+  theme: "dark",
   accentColor: "indigo",
   density: "comfortable",
   reduceMotion: false,

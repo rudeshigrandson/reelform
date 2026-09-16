@@ -31,6 +31,8 @@ export {
   UpdateBanner,
   UpdateReadyDialog,
   ipcUpdaterPort,
+  updateReadyNotice,
+  useLauncherUpdateNotices,
   useUpdater,
 } from "./updater";
 export type { UpdateBannerProps, UpdateReadyDialogProps, UpdaterPort } from "./updater";

@@ -2,12 +2,13 @@ import { spawn as nodeSpawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { open, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { desktopCapturer, screen } from "electron";
 import { type TrackWriter, createElectronBackend } from "./electronBackend";
 import { type HelperChild, type HelperDeps, HelperProcess } from "./helperProcess";
 import { verifyHelperBinary } from "./manifest";
 import { SCK_HELPER_NAME, createSckBackend } from "./sckBackend";
-import type { CaptureBackend, Sources } from "./types";
+import type { CaptureBackend, Rect, SourceRef, Sources } from "./types";
 import { WGC_HELPER_NAME, createWgcBackend } from "./wgcBackend";
 
 /** Thin, untested adapter: real Electron / node deps for the capture backends. */
@@ -75,6 +76,16 @@ export async function electronSources(): Promise<Sources> {
   return { displays, windows };
 }
 
+/**
+ * Windows: the display's bounds in virtual-desktop physical px for `source.bounds`
+ * (the WGC helper picks the HMONITOR by overlap; Electron ids are not HMONITORs).
+ */
+export function windowsPhysicalDisplayBounds(source: SourceRef): Rect | null {
+  if (source.kind !== "display") return null;
+  const d = screen.getAllDisplays().find((x) => String(x.id) === source.id);
+  return d ? screen.dipToScreenRect(null, d.bounds) : null;
+}
+
 export interface CaptureAdapterOptions {
   /** Directory containing `<platform-arch>/manifest.json` + helper binaries. */
   binDir: string;
@@ -87,12 +98,6 @@ export function createCaptureBackends(opts: CaptureAdapterOptions): CaptureBacke
     sha256: (b: Uint8Array) => createHash("sha256").update(b).digest("hex"),
     join,
   };
-  const native = (name: string) => ({
-    currentPlatform: process.platform,
-    verify: () => verifyHelperBinary({ binDir: opts.binDir, platformArch, name }, verifyDeps),
-    createHelper: (path: string) => new HelperProcess({ command: path }, nodeHelperDeps),
-    join,
-  });
   const writer = async (path: string): Promise<TrackWriter> => {
     const fh = await open(path, "w");
     return {
@@ -102,6 +107,19 @@ export function createCaptureBackends(opts: CaptureAdapterOptions): CaptureBacke
       close: () => fh.close(),
     };
   };
+  const native = (name: string) => ({
+    currentPlatform: process.platform,
+    verify: () => verifyHelperBinary({ binDir: opts.binDir, platformArch, name }, verifyDeps),
+    createHelper: (path: string) => new HelperProcess({ command: path }, nodeHelperDeps),
+    join,
+    // Renderer-recorded webcam next to the helper's screen capture (§5.7).
+    openWriter: writer,
+    timers: nodeHelperDeps.timers,
+    // Same epoch clock the renderer stamps its recorder timing with.
+    nowEpochMs: () => performance.timeOrigin + performance.now(),
+    resolveSourceBounds: (source: SourceRef) =>
+      process.platform === "win32" ? windowsPhysicalDisplayBounds(source) : null,
+  });
   return [
     createSckBackend(native(SCK_HELPER_NAME)),
     createWgcBackend(native(WGC_HELPER_NAME)),

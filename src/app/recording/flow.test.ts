@@ -95,6 +95,37 @@ async function toRecording(t: ReturnType<typeof harness>, setup: RecordingSetup 
   await drain();
 }
 
+describe("recording flow — project → editor handoff", () => {
+  it("opens the editor only after create resolved, with the id written into project.json", async () => {
+    const t = harness();
+    const create = t.projects.create.bind(t.projects);
+    t.projects.create = async (req) => {
+      await drain(5); // A slow main: the editor must not open before the folder exists.
+      const res = await create(req);
+      t.log.push("create.done");
+      return res;
+    };
+    const openEditor = t.windows.openEditor.bind(t.windows);
+    t.windows.openEditor = (projectId) => {
+      t.log.push(`openEditor:${projectId}`);
+      return openEditor(projectId);
+    };
+    await toRecording(t);
+    t.emit({ sessionId: "s1", type: "stopped", elapsedMs: 42_180, reason: "user" });
+    await drain(80);
+
+    expect(t.log.slice(-3)).toEqual(["create", "create.done", "openEditor:p1"]);
+    const doc = t.projects.created[0]?.document as {
+      id: string;
+      timeline: { clips: { sourceEndMs: number }[] };
+    };
+    // The id the editor window routes by is the one main indexes the folder under.
+    expect(doc.id).toBe("p1");
+    expect(doc.timeline.clips.map((c) => c.sourceEndMs)).toEqual([42_180]);
+    expect(t.state().result).toMatchObject({ projectId: "p1", openedEditor: true });
+  });
+});
+
 describe("recording flow — happy path", () => {
   it("start → countdown → capture → pause/resume → stop → flush → finalize → create → editor", async () => {
     const t = harness();
@@ -470,6 +501,7 @@ describe("recording flow — region + bus", () => {
         sourceLabel: "Studio Display",
         displayId: "d1",
         webcamDeviceId: null,
+        setup: SETUP,
       },
     });
   });
@@ -515,5 +547,396 @@ describe("recording flow — region + bus", () => {
     await drain();
     expect(t.state()).toMatchObject({ sessionId: "s2", warnings: [] });
     expect(t.otherSeen.filter((m) => m.type === "micLevel" || m.type === "warning")).toEqual([]);
+  });
+});
+
+describe("recording flow — pre-record HUD start requests", () => {
+  it("startRequest over the bus starts like the launcher's Record", async () => {
+    const t = harness();
+    t.other.post({ type: "startRequest", setup: SETUP });
+    await drain();
+    expect(t.port.lastStart).toMatchObject({ source: { kind: "display", id: "d1" }, fps: 60 });
+    expect(t.state()).toMatchObject({ phase: "countdown", sessionId: "s1" });
+    expect(t.otherSeen).toContainEqual(
+      expect.objectContaining({
+        type: "snapshot",
+        snapshot: expect.objectContaining({ phase: "starting" }),
+      }),
+    );
+  });
+
+  it("region startRequest opens the selection overlays first", async () => {
+    const t = harness();
+    t.other.post({ type: "startRequest", setup: { ...SETUP, mode: "region" } });
+    await drain();
+    expect(t.state().phase).toBe("selectingRegion");
+    expect(t.port.calls).not.toContain("start");
+    expect(t.windows.calls).toContain("openRegionOverlays");
+  });
+
+  it("a startRequest while a session is live is ignored", async () => {
+    const t = harness();
+    await toRecording(t);
+    const starts = t.port.calls.filter((c) => c === "start").length;
+    t.other.post({ type: "startRequest", setup: { ...SETUP, sourceId: "d2" } });
+    await drain();
+    expect(t.port.calls.filter((c) => c === "start")).toHaveLength(starts);
+    expect(t.state().phase).toBe("recording");
+  });
+
+  it("ignored after dispose", async () => {
+    const t = harness();
+    t.flow.dispose();
+    t.other.post({ type: "startRequest", setup: SETUP });
+    await drain();
+    expect(t.port.calls).not.toContain("start");
+  });
+});
+
+describe("recording flow — native webcam, mic label, mute, editor defaults", () => {
+  const nativeStart = async (t: ReturnType<typeof harness>, setup: RecordingSetup) => {
+    t.port.startResult = { sessionId: "s1", backend: "sck", backendReasons: [] };
+    await t.flow.start({ ...setup, countdown: 0 });
+    t.emit({ sessionId: "s1", type: "started", backend: "sck" });
+    await drain();
+  };
+
+  it("records the webcam in the renderer beside a native helper and flushes it before finalize", async () => {
+    const t = harness();
+    await nativeStart(t, { ...SETUP, webcam: true, webcamDeviceId: "cam-1", systemAudio: true });
+    expect(t.capture.sessions).toHaveLength(1);
+    expect(t.capture.sessions[0]?.options).toEqual({
+      sessionId: "s1",
+      platform: "darwin",
+      fps: 60,
+      systemAudio: false,
+      webcam: { deviceId: "cam-1" },
+    });
+    t.emit({ sessionId: "s1", type: "paused", elapsedMs: 10 });
+    await drain();
+    expect(t.log).toContain("capture.pause");
+    t.emit({ sessionId: "s1", type: "stopped", elapsedMs: 20, reason: "user" });
+    await drain(60);
+    expect(t.log.slice(-3)).toEqual(["capture.stop", "finalize", "create"]);
+    expect(t.state().phase).toBe("done");
+  });
+
+  it("a failed native webcam capture is a warning; the recording still finalizes", async () => {
+    const t = harness();
+    t.capture.fail({ code: "NotReadableError", message: "camera busy" });
+    await nativeStart(t, { ...SETUP, webcam: true });
+    expect(t.state().phase).toBe("recording");
+    expect(t.state().warnings.length).toBe(1);
+    expect(t.port.calls).not.toContain("discard:s1");
+    t.emit({ sessionId: "s1", type: "stopped", elapsedMs: 20, reason: "user" });
+    await drain(60);
+    expect(t.state().phase).toBe("done");
+  });
+
+  it("resolves the mic label before recording:start", async () => {
+    const t = harness({
+      enumerateDevices: async () => [
+        { deviceId: "default", kind: "audioinput", label: "Default - MacBook Pro Microphone" },
+        { deviceId: "mic-usb", kind: "audioinput", label: "Shure MV7" },
+      ],
+    });
+    await t.flow.start(SETUP);
+    expect(t.port.lastStart?.audio).toEqual({
+      system: false,
+      mic: "mic-usb",
+      micLabel: "Shure MV7",
+    });
+    expect(t.state().setup?.micLabel).toBe("Shure MV7");
+  });
+
+  it("starts without a label when devices cannot be listed", async () => {
+    const t = harness({
+      enumerateDevices: async () => {
+        throw new Error("denied");
+      },
+    });
+    await t.flow.start(SETUP);
+    expect(t.port.lastStart?.audio).toEqual({ system: false, mic: "mic-usb" });
+  });
+
+  it("HUD mute on the Electron backend disables the renderer mic, also when requested before capture", async () => {
+    const muted: boolean[] = [];
+    const base = fakeCaptureFactory([]);
+    const t = harness({
+      startCapture: async (options, hooks) => {
+        const session = await base.startCapture(options, hooks);
+        return Object.assign(session, { setMicMuted: (m: boolean) => muted.push(m) });
+      },
+    });
+    await t.flow.start(SETUP);
+    t.other.post({ type: "hud:setMicMuted", muted: true } as unknown as RecordingBusMessage);
+    await drain();
+    expect(muted).toEqual([]);
+    t.emit({ sessionId: "s1", type: "started", backend: "electron" });
+    await drain();
+    expect(muted).toEqual([true]);
+    t.other.post({ type: "hud:setMicMuted", muted: false } as unknown as RecordingBusMessage);
+    await drain();
+    expect(muted).toEqual([true, false]);
+  });
+
+  it("native mute goes through recording:setMicMuted once the helper started; failures warn", async () => {
+    const t = harness();
+    const calls: [string, boolean][] = [];
+    let fail = false;
+    Object.assign(t.port, {
+      setMicMuted: async (id: string, m: boolean) => {
+        calls.push([id, m]);
+        if (fail) throw { code: "MIC_MUTE_FAILED", message: "nope" };
+      },
+    });
+    t.port.startResult = { sessionId: "s1", backend: "sck", backendReasons: [] };
+    await t.flow.start(SETUP);
+    await t.flow.setMicMuted(true);
+    expect(calls).toEqual([]);
+    t.emit({ sessionId: "s1", type: "started", backend: "sck" });
+    await drain();
+    expect(calls).toEqual([["s1", true]]);
+    fail = true;
+    await t.flow.setMicMuted(false);
+    expect(calls).toEqual([
+      ["s1", true],
+      ["s1", false],
+    ]);
+    expect(t.state().warnings).toHaveLength(1);
+  });
+
+  it("applies the settings frame preset and aspect to the created project", async () => {
+    const t = harness({ editorDefaults: () => ({ framePreset: "minimal", aspect: "9:16" }) });
+    await toRecording(t);
+    t.emit({ sessionId: "s1", type: "stopped", elapsedMs: 5, reason: "user" });
+    await drain(60);
+    const doc = t.projects.created[0]?.document as {
+      frame: { aspect: { preset: string }; background: { kind: string } };
+    };
+    expect(projectV1Schema.safeParse(doc).success).toBe(true);
+    expect(doc.frame.aspect.preset).toBe("9:16");
+    expect(doc.frame.background.kind).toBe("color");
+  });
+
+  it("imports the finalize thumbnail with the project", async () => {
+    const t = harness();
+    t.port.finalizeResult = { ...finalizeFixture(), thumbnailPath: "/rec/s1/thumbnail.jpg" };
+    await toRecording(t);
+    t.emit({ sessionId: "s1", type: "stopped", elapsedMs: 5, reason: "user" });
+    await drain(60);
+    expect(t.projects.created[0]?.media?.at(-1)).toMatchObject({
+      sourcePath: "/rec/s1/thumbnail.jpg",
+      fileName: "thumbnail.jpg",
+    });
+    expect(t.state().phase).toBe("done");
+  });
+});
+
+describe("recording flow — HUD restart", () => {
+  it("snapshots carry the setup, so the pill can Restart a launcher-started recording", async () => {
+    const t = harness();
+    await toRecording(t);
+    await drain();
+    const last = t.otherSeen.filter((m) => m.type === "snapshot").at(-1);
+    expect(last).toMatchObject({ snapshot: { phase: "recording", setup: SETUP } });
+  });
+
+  it("hud:restart discards keeping the HUD open, then starts again with the same setup", async () => {
+    const t = harness();
+    await toRecording(t);
+    const firstStart = t.port.lastStart;
+    t.windows.calls.length = 0;
+    t.other.post({ type: "hud:restart" });
+    await drain();
+    expect(t.port.calls).toContain("discard:s1");
+    expect(t.port.calls.filter((c) => c === "start")).toHaveLength(1);
+    t.emit({ sessionId: "s1", type: "discarded" });
+    await drain();
+    expect(t.log).toEqual(["capture.start", "capture.discard"]);
+    expect(t.port.calls.filter((c) => c === "start")).toHaveLength(2);
+    expect(t.port.lastStart).toEqual(firstStart);
+    expect(t.windows.calls).not.toContain("closeKind:hud");
+    expect(t.windows.calls).toContain("closeKind:countdown");
+    expect(t.state()).toMatchObject({ phase: "countdown", sessionId: "s1", setup: SETUP });
+    // A plain discard of the new session closes the HUD again.
+    t.emit({ sessionId: "s1", type: "discarded" });
+    await drain();
+    expect(t.windows.calls).toContain("closeKind:hud");
+    expect(t.state().phase).toBe("idle");
+  });
+
+  it("restarting a region recording re-opens the region selection", async () => {
+    const t = harness();
+    const region = {
+      ...SETUP,
+      mode: "region" as const,
+      region: { x: 0, y: 0, width: 10, height: 10 },
+    };
+    await toRecording(t, region);
+    t.other.post({ type: "hud:restart" });
+    await drain();
+    t.emit({ sessionId: "s1", type: "discarded" });
+    await drain();
+    expect(t.state().phase).toBe("selectingRegion");
+    expect(t.windows.calls).toContain("openRegionOverlays");
+    expect(t.port.calls.filter((c) => c === "start")).toHaveLength(1);
+  });
+
+  it("a failed discard keeps the session and cancels the restart", async () => {
+    const t = harness();
+    await toRecording(t);
+    t.port.discardError = { code: "DISCARD_FAILED", message: "nope" };
+    t.other.post({ type: "hud:restart" });
+    await drain();
+    expect(t.state()).toMatchObject({ phase: "recording", error: { code: "DISCARD_FAILED" } });
+    t.emit({ sessionId: "s1", type: "discarded" });
+    await drain();
+    expect(t.state().phase).toBe("idle");
+    expect(t.port.calls.filter((c) => c === "start")).toHaveLength(1);
+  });
+
+  it("is ignored without a live session", async () => {
+    const t = harness();
+    t.other.post({ type: "hud:restart" });
+    await drain();
+    expect(t.port.calls).toEqual([]);
+  });
+});
+
+describe("recording flow — background transcode relink", () => {
+  const done = (outputPath: string | null, extra: { error?: string } = {}) => ({
+    sessionId: "s1",
+    progress: 1,
+    done: true,
+    outputPath,
+    ...extra,
+  });
+
+  async function recorded(t: ReturnType<typeof harness>) {
+    await toRecording(t);
+    t.emit({ sessionId: "s1", type: "stopped", elapsedMs: 42_180, reason: "user" });
+    await drain(60);
+    expect(t.state().phase).toBe("done");
+  }
+
+  it("asks main to replace the project's screen video with the H.264 file", async () => {
+    const t = harness();
+    await recorded(t);
+    expect(t.port.transcodeListeners.size).toBe(1);
+    const projectPath = t.state().result?.projectPath ?? "";
+    const created = t.projects.created[0]?.document as { sources: { video: { path: string } } };
+    t.port.emitTranscode({ sessionId: "s1", progress: 0.4, done: false, outputPath: null });
+    t.port.emitTranscode({ ...done(null), sessionId: "other" });
+    await drain();
+    expect(t.projects.replaced).toEqual([]);
+    const savedBefore = t.projects.saved.length;
+    t.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
+    await drain();
+    expect(t.projects.replaced).toEqual([
+      {
+        path: projectPath,
+        source: "video",
+        filePath: "/rec/s1/screen.h264.mp4",
+        replaces: created.sources.video.path,
+        expected: { durationMs: 42_180 },
+        codec: "h264",
+      },
+    ]);
+    // Main writes the document under its lock: the renderer never saves a copy over edits.
+    expect(t.projects.saved).toHaveLength(savedBefore);
+    expect(t.projects.relinked).toEqual([]);
+    expect(t.port.transcodeListeners.size).toBe(0);
+  });
+
+  it("logs a skipped swap when the screen video was replaced meanwhile", async () => {
+    const logged: string[] = [];
+    const u = harness({ log: (m) => logged.push(m) });
+    await recorded(u);
+    const uPath = u.state().result?.projectPath ?? "";
+    const base = u.projects.saved.at(-1)?.document ?? u.projects.created[0]?.document;
+    const b = base as { sources: { video: object } };
+    const replaced = {
+      ...b,
+      sources: { ...b.sources, video: { ...b.sources.video, path: "/x.mp4" } },
+    };
+    u.projects.saved.push({ path: uPath, document: replaced });
+    u.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
+    await drain();
+    expect(u.projects.replaced).toHaveLength(1);
+    expect(logged.at(-1)).toContain("replaced");
+  });
+
+  it("a transcode that finishes before the project exists relinks once it is created", async () => {
+    const t = harness();
+    const create = t.projects.create.bind(t.projects);
+    t.projects.create = async (req) => {
+      t.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
+      return create(req);
+    };
+    await recorded(t);
+    expect(t.projects.replaced).toHaveLength(1);
+  });
+
+  it("failed transcodes and failed relinks are logged; the project keeps its video", async () => {
+    const logged: string[] = [];
+    const t = harness({ log: (m) => logged.push(m) });
+    await recorded(t);
+    t.port.emitTranscode(done(null, { error: "ffmpeg exited 1" }));
+    await drain();
+    expect(t.projects.replaced).toEqual([]);
+    expect(t.port.transcodeListeners.size).toBe(0);
+    expect(logged).toEqual([expect.stringContaining("ffmpeg exited 1")]);
+
+    const u = harness({ log: (m) => logged.push(m) });
+    u.projects.replaceError = { code: "RELINK_DURATION_MISMATCH", message: "duration" };
+    await recorded(u);
+    u.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
+    await drain();
+    expect(u.projects.replaced).toHaveLength(1);
+    expect(logged.at(-1)).toContain("RELINK_DURATION_MISMATCH");
+  });
+
+  it("native recordings and H.264 captures are not watched", async () => {
+    const t = harness();
+    t.port.startResult = { sessionId: "s1", backend: "sck", backendReasons: [] };
+    t.port.finalizeResult = finalizeFixture({ backend: "sck" });
+    await t.flow.start(SETUP);
+    t.emit({ sessionId: "s1", type: "started", backend: "sck" });
+    t.emit({ sessionId: "s1", type: "stopped", elapsedMs: 5, reason: "user" });
+    await drain(60);
+    expect(t.port.transcodeListeners.size).toBe(0);
+
+    const u = harness({
+      startCapture: async (options, hooks) => {
+        const s = await fakeCaptureFactory([]).startCapture(options, hooks);
+        const stop = s.stop.bind(s);
+        s.stop = async () => {
+          const r = await stop();
+          return {
+            ...r,
+            tracks: [{ track: "screen", mimeType: "video/mp4;codecs=avc1", chunkCount: 1 }],
+          };
+        };
+        return s;
+      },
+    });
+    await recorded(u);
+    expect(u.port.transcodeListeners.size).toBe(0);
+  });
+
+  it("delete and dispose stop watching", async () => {
+    const t = harness();
+    await recorded(t);
+    await t.flow.deleteRecording();
+    expect(t.port.transcodeListeners.size).toBe(0);
+    t.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
+    await drain();
+    expect(t.projects.replaced).toEqual([]);
+
+    const u = harness();
+    await recorded(u);
+    u.flow.dispose();
+    expect(u.port.transcodeListeners.size).toBe(0);
   });
 });

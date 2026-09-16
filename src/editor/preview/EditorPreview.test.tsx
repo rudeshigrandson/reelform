@@ -7,7 +7,12 @@ import { useEditorStore } from "../store";
 import { EditorPreview } from "./EditorPreview";
 import { drag } from "./overlays/testPointer";
 import type { CreatePreviewStage, PreviewStage } from "./pixiStage";
-import type { SceneState } from "./scene";
+import { type SceneInput, type SceneState, evaluateScene } from "./scene";
+
+vi.mock("./scene", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./scene")>();
+  return { ...actual, evaluateScene: vi.fn(actual.evaluateScene) };
+});
 
 function fakeStage() {
   const stage = {
@@ -76,6 +81,17 @@ describe("EditorPreview", () => {
     expect(
       [...(comp?.annotations.frame ?? []), ...(comp?.annotations.content ?? [])].map((i) => i.id),
     ).toEqual(["t"]);
+  });
+
+  it("passes the project camera follow settings to the scene", async () => {
+    const { stage, create } = fakeStage();
+    const camera = { smoothing: 0.9, maxZoomSpeed: 1.5 };
+    const { zoom: zoomSettings } = useEditorStore.getState();
+    useEditorStore.getState().update({ zoom: { ...zoomSettings, camera } });
+    render(<EditorPreview createStage={create} fetchJson={noWallpapers} />);
+    await waitFor(() => expect(stage.render).toHaveBeenCalled());
+    const input = vi.mocked(evaluateScene).mock.lastCall?.[0] as SceneInput | undefined;
+    expect(input?.camera).toEqual(camera);
   });
 
   it("zoom reticle drag writes the focus through the injected update", async () => {
@@ -153,7 +169,38 @@ describe("EditorPreview", () => {
     await waitFor(() =>
       expect(stage.render.mock.lastCall?.[0].background.paint.kind).toBe("radial-gradient"),
     );
-    expect(fetchJson).toHaveBeenCalledWith("/wallpapers/wallpapers.json");
+    expect(fetchJson).toHaveBeenCalledWith("./wallpapers/wallpapers.json");
+  });
+
+  it("Auto/Half play the proxy when it exists; Full plays the original", async () => {
+    const { create } = fakeStage();
+    useProjectSession.getState().setSession({ proxyUrl: "file:///proxy.mp4" });
+    const src = () => document.querySelector("video")?.getAttribute("src");
+    const { rerender } = render(
+      <EditorPreview createStage={create} fetchJson={noWallpapers} quality="half" />,
+    );
+    await waitFor(() => expect(src()).toBe("file:///proxy.mp4"));
+    rerender(<EditorPreview createStage={create} fetchJson={noWallpapers} quality="auto" />);
+    expect(src()).toBe("file:///proxy.mp4");
+    rerender(<EditorPreview createStage={create} fetchJson={noWallpapers} quality="full" />);
+    await waitFor(() => expect(src()).toBe("file:///rec.mp4"));
+  });
+
+  it("canvas edits name their gesture for history", async () => {
+    const { create } = fakeStage();
+    useEditorStore.getState().update({ zoomRegions: [zoom], selectedZoomId: "z" });
+    const update = vi.fn();
+    render(<EditorPreview createStage={create} fetchJson={noWallpapers} update={update} />);
+    drag(await screen.findByTestId("zoom-reticle"), 0, 0, -50, 0);
+    expect(update.mock.calls.at(-2)?.[1]).toEqual({
+      label: "Move zoom focus",
+      coalesceKey: "canvas:zoomFocus:z",
+      commit: false,
+    });
+    expect(update.mock.lastCall?.[1]).toMatchObject({
+      coalesceKey: "canvas:zoomFocus:z",
+      commit: true,
+    });
   });
 
   it("media offline shows Locate…", async () => {

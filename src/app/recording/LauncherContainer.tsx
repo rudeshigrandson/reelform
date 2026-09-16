@@ -1,3 +1,4 @@
+import type { ResponseOf } from "@contracts";
 import { Button, Card, CardMeta, CardTitle } from "@design/components";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
@@ -7,12 +8,24 @@ import type {
   DeviceInfo,
   LauncherDefaults,
   LauncherNotice,
+  LauncherProject,
+  LauncherProjectAction,
   RecordOptions,
 } from "../../launcher/types";
+import { type ProjectActionTarget, useProjectActions } from "../../projects/useProjectActions";
 import type { Platform } from "../../recording/constraints";
 import { warningCopy } from "../../recording/sessionStore";
+import type { ProjectInvoke } from "../project/openProject";
 import { PostRecordCard } from "./PostRecordCard";
-import { sourceLabel, toSourceItems } from "./document";
+import {
+  FALLBACK_CAPTURE_COPY,
+  SYSTEM_AUDIO_UNSUPPORTED_COPY,
+  sourceLabel,
+  systemAudioSupported,
+  toPickerSources,
+  toSourceItems,
+  usesFallbackCapture,
+} from "./document";
 import type { FlowError, RecordingFlow } from "./flow";
 import type { AppRecordingPort, PermissionSettingsKind, SourcesResult, SystemPort } from "./port";
 
@@ -55,9 +68,62 @@ export interface LauncherContainerProps {
   refreshIntervalMs?: number | undefined;
   timers?: IntervalTimers | undefined;
   visibility?: VisibilitySource | undefined;
+  /** `project:*` channels for the S04 project shelf; no shelf when omitted. */
+  projectInvoke?: ProjectInvoke | undefined;
+  /** App version for the sidebar footer. */
+  version?: string | undefined;
+  /** macOS `hiddenInset` window: draggable top strip clearing the traffic lights. */
+  insetTitleBar?: boolean | undefined;
+  /** Notices from outside the recording flow (e.g. the update strip), shown first. */
+  extraNotices?: ReadonlyArray<LauncherNotice> | undefined;
 }
 
 export const SOURCES_REFRESH_MS = 2000;
+
+type ProjectEntry = ResponseOf<"project:list">["projects"][number];
+type TrashEntry = ResponseOf<"project:listTrash">["projects"][number];
+
+interface ShelfState {
+  status: "loading" | "ready" | "error";
+  projects: LauncherProject[];
+  trashed: LauncherProject[];
+  /** Shelf id (project path) → openable project id; missing/corrupt entries are absent. */
+  openable: Map<string, string>;
+  /** Shelf id (project path) → what the card menu acts on (library and trash). */
+  targets: Map<string, ProjectActionTarget>;
+}
+
+const LOADING_SHELF: ShelfState = {
+  status: "loading",
+  projects: [],
+  trashed: [],
+  openable: new Map(),
+  targets: new Map(),
+};
+
+/** Launcher without the project IPC: actions resolve to "unavailable". */
+const noProjectInvoke: ProjectInvoke = async () => null;
+
+export function toLauncherProject(entry: ProjectEntry): LauncherProject {
+  return {
+    id: entry.path,
+    name: entry.name,
+    modifiedAt: entry.modifiedAt ?? "",
+    durationMs: entry.durationMs ?? 0,
+    ...(entry.thumbnailUrl ? { thumbnailUrl: entry.thumbnailUrl } : {}),
+    ...(typeof entry.sizeBytes === "number" ? { sizeBytes: entry.sizeBytes } : {}),
+  };
+}
+
+export function toTrashedLauncherProject(entry: TrashEntry): LauncherProject {
+  return {
+    id: entry.path,
+    name: entry.name,
+    modifiedAt: entry.trashedAt ?? "",
+    durationMs: 0,
+    ...(entry.thumbnailUrl ? { thumbnailUrl: entry.thumbnailUrl } : {}),
+  };
+}
 
 const defaultTimers: IntervalTimers = {
   setInterval: (cb, ms) => setInterval(cb, ms),
@@ -158,6 +224,10 @@ export function LauncherContainer({
   refreshIntervalMs = SOURCES_REFRESH_MS,
   timers = defaultTimers,
   visibility = documentVisibility,
+  projectInvoke,
+  version,
+  insetTitleBar,
+  extraNotices,
 }: LauncherContainerProps) {
   const state = useStore(flow.store);
   const [sources, setSources] = useState<SourcesResult | null>(null);
@@ -213,6 +283,87 @@ export function LauncherContainer({
     return () => timers.clearInterval(handle);
   }, [visible, idleLike, refresh, timers, refreshIntervalMs]);
 
+  // Project shelf: loads on mount and again whenever the flow returns to idle,
+  // so a just-finished recording shows up.
+  const [shelf, setShelf] = useState<ShelfState | null>(projectInvoke ? LOADING_SHELF : null);
+  const [shelfReload, setShelfReload] = useState(0);
+  const reloadShelf = useCallback(() => setShelfReload((k) => k + 1), []);
+  const projectActions = useProjectActions({
+    invoke: projectInvoke ?? noProjectInvoke,
+    onChanged: reloadShelf,
+  });
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `shelfReload` is the post-action refresh trigger.
+  useEffect(() => {
+    if (!projectInvoke || !idleLike) return;
+    let live = true;
+    setShelf((s) => s ?? LOADING_SHELF);
+    Promise.all([
+      projectInvoke("project:list", {}),
+      projectInvoke("project:listTrash", {}).catch(() => null),
+    ]).then(
+      ([list, trash]) => {
+        if (!live) return;
+        if (!list) {
+          setShelf({ ...LOADING_SHELF, status: "error" });
+          return;
+        }
+        const openable = new Map<string, string>();
+        const targets = new Map<string, ProjectActionTarget>();
+        const trashed = trash?.projects ?? [];
+        for (const e of list.projects) {
+          if (e.id !== null && !e.missing && !e.corrupt) openable.set(e.path, e.id);
+          targets.set(e.path, { path: e.path, name: e.name });
+        }
+        for (const e of trashed) targets.set(e.path, { path: e.path, name: e.name });
+        setShelf({
+          status: "ready",
+          projects: list.projects.map(toLauncherProject),
+          trashed: trashed.map(toTrashedLauncherProject),
+          openable,
+          targets,
+        });
+      },
+      () => live && setShelf({ ...LOADING_SHELF, status: "error" }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [projectInvoke, idleLike, shelfReload]);
+
+  const onOpenProject = useCallback(
+    (path: string) => {
+      const projectId = shelf?.openable.get(path);
+      if (projectInvoke && projectId) void projectInvoke("windows:openEditor", { projectId });
+    },
+    [projectInvoke, shelf],
+  );
+
+  const onProjectMenu = (path: string, action: LauncherProjectAction) => {
+    const target = shelf?.targets.get(path);
+    if (!target) return;
+    switch (action) {
+      case "rename":
+        projectActions.rename(target);
+        break;
+      case "duplicate":
+        projectActions.duplicate(target);
+        break;
+      case "reveal":
+        void projectActions.reveal(target);
+        break;
+      case "trash":
+        void projectActions.moveToTrash(target);
+        break;
+      case "restore":
+        void projectActions.restore(target);
+        break;
+      case "deleteForever":
+        projectActions.deleteForever(target);
+        break;
+    }
+  };
+
   const deviceLists = useMemo(() => toDeviceLists(devices), [devices]);
 
   const onStart = useCallback(
@@ -224,14 +375,10 @@ export function LauncherContainer({
   );
 
   const openSettings = system?.openPermissionSettings;
-  const notices: LauncherNotice[] = [];
+  const notices: LauncherNotice[] = [...(extraNotices ?? [])];
   const backend = sources?.backend ?? null;
-  if (backend === "electron" && platform !== "linux") {
-    notices.push({
-      id: "fallback",
-      tone: "warning",
-      message: "Native capture unavailable — using fallback, cursor may be visible.",
-    });
+  if (usesFallbackCapture(platform, backend)) {
+    notices.push({ id: "fallback", tone: "warning", message: FALLBACK_CAPTURE_COPY });
   }
   if (
     state.phase === "error" &&
@@ -244,6 +391,14 @@ export function LauncherContainer({
         dismiss: () => flow.dismissError(),
       }),
     );
+  }
+  if (projectActions.error) {
+    notices.push({
+      id: "project-action",
+      tone: "danger",
+      message: projectActions.error,
+      onDismiss: () => projectActions.setError(null),
+    });
   }
   if (state.phase === "selectingRegion") {
     notices.push({
@@ -315,25 +470,42 @@ export function LauncherContainer({
     );
   }
 
-  const systemAudioSupported = !(platform === "darwin" && backend === "electron");
   const sourcesStatus = sourcesError ? "error" : sources ? "ready" : "loading";
 
   return (
-    <Launcher
-      sources={toSourceItems(sources, "screen").concat(toSourceItems(sources, "window"))}
-      micDevices={deviceLists.mic}
-      webcamDevices={deviceLists.webcam}
-      systemAudioSupported={systemAudioSupported}
-      systemAudioNote="Unavailable with fallback capture on macOS"
-      onStart={onStart}
-      onOpenSettings={onOpenSettings}
-      sourcesStatus={sourcesStatus}
-      sourcesError={sourcesError ?? undefined}
-      onRetrySources={() => void refresh()}
-      notices={notices}
-      busy={state.phase === "starting" || state.phase === "selectingRegion"}
-      busyLabel={state.phase === "selectingRegion" ? "Selecting region…" : "Starting…"}
-      defaults={defaults}
-    />
+    <>
+      <Launcher
+        sources={toSourceItems(sources, "screen").concat(toSourceItems(sources, "window"))}
+        micDevices={deviceLists.mic}
+        webcamDevices={deviceLists.webcam}
+        systemAudioSupported={systemAudioSupported(platform, backend)}
+        systemAudioNote={SYSTEM_AUDIO_UNSUPPORTED_COPY}
+        pickerSources={toPickerSources(sources)}
+        onStart={onStart}
+        onOpenSettings={onOpenSettings}
+        sourcesStatus={sourcesStatus}
+        sourcesError={sourcesError ?? undefined}
+        onRetrySources={() => void refresh()}
+        notices={notices}
+        busy={state.phase === "starting" || state.phase === "selectingRegion"}
+        busyLabel={state.phase === "selectingRegion" ? "Selecting region…" : "Starting…"}
+        defaults={defaults}
+        version={version}
+        platform={platform}
+        insetTitleBar={insetTitleBar}
+        {...(shelf
+          ? {
+              projects: shelf.projects,
+              projectsStatus: shelf.status,
+              trashedProjects: shelf.trashed,
+              onOpenProject,
+              onProjectMenu,
+              canRevealProjects: true,
+              onOpenProjectFile: () => void projectActions.openFromDisk(),
+            }
+          : {})}
+      />
+      {projectActions.dialogs}
+    </>
   );
 }

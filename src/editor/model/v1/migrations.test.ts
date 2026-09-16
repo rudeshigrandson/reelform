@@ -1,5 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_CURSOR_SETTINGS } from "../../inspector/cursor/types";
 import { DEFAULT_FRAME_SETTINGS } from "../../inspector/frame/types";
 import { parseProject } from "../schema";
 import { m0Fixture } from "./fixtures";
@@ -33,6 +34,18 @@ describe("migrate", () => {
     ]);
     expect(p.ui.selection).toEqual({ zoomId: null, annotationId: null, speedId: null });
     expect(p.sources.capture).toBeUndefined();
+  });
+
+  it("defaults cursor.scaleWithZoom to false on documents saved before it existed", () => {
+    const raw = m0Fixture() as Record<string, unknown>;
+    const { scaleWithZoom: _drop, ...legacyCursor } = structuredClone(DEFAULT_CURSOR_SETTINGS);
+    const r = migrate({ ...raw, cursor: { ...legacyCursor, size: 140 } });
+    if (!r.ok) throw r.error;
+    expect(r.project.cursor.scaleWithZoom).toBe(false);
+    expect(r.project.cursor.size).toBe(140);
+    const on = migrate({ ...raw, cursor: { ...legacyCursor, scaleWithZoom: true } });
+    if (!on.ok) throw on.error;
+    expect(on.project.cursor.scaleWithZoom).toBe(true);
   });
 
   it("defaults are fresh copies, never shared references", () => {

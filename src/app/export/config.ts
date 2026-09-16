@@ -3,6 +3,7 @@ import { AUDIO_BITRATE } from "../../export/engine/audio";
 import { containerSupports } from "../../export/engine/encoderConfig";
 import type { GifDither, GifFps, GifSizePreset } from "../../export/gif/types";
 import type { ExportConfig } from "../../export/route";
+import { t } from "../../i18n/format";
 import { type EncoderCapabilities, isCodecUsable } from "./capabilities";
 
 /**
@@ -14,6 +15,8 @@ export type ExportFormat = "mp4" | "webm" | "gif";
 export type RangeChoice = "entire" | "selection" | "in-out";
 export type CaptionsChoice = "none" | "burn-in" | "srt" | "vtt";
 export type AudioChoice = "aac" | "mute";
+/** §10.6: one median-cut palette from sampled frames, or a local palette per frame. */
+export type GifPalette = "global" | "adaptive";
 
 export interface GifOptions {
   sizePreset: GifSizePreset;
@@ -21,6 +24,7 @@ export interface GifOptions {
   loop: boolean;
   dither: GifDither;
   colors: number;
+  palette: GifPalette;
 }
 
 export interface ExportFlowConfig {
@@ -61,6 +65,7 @@ export const DEFAULT_GIF_OPTIONS: GifOptions = {
   loop: true,
   dither: "bayer4",
   colors: 256,
+  palette: "global",
 };
 
 export function defaultFlowConfig(fileName = "Export"): ExportFlowConfig {
@@ -171,31 +176,34 @@ export interface ConfigIssue {
 export function validateFlowConfig(c: ExportFlowConfig, ctx: ValidationContext): ConfigIssue[] {
   const issues: ConfigIssue[] = [];
   if (cleanName(c.fileName).replace(/^\.+/, "") === "") {
-    issues.push({ field: "fileName", message: "Enter a file name" });
+    issues.push({ field: "fileName", message: t("exportFlow.issue.fileName") });
   }
   if (!ctx.hasVideo || ctx.mediaOffline) {
-    issues.push({ field: "source", message: "The screen recording is missing — relink it first" });
+    issues.push({ field: "source", message: t("exportFlow.issue.sourceMissing") });
   }
   if (!resolveRange(c.range, ctx.range)) {
     issues.push({
       field: "range",
       message:
         c.range === "entire"
-          ? "The project is empty"
+          ? t("exportFlow.issue.emptyProject")
           : c.range === "selection"
-            ? "Select a range on the timeline first"
-            : "Set In and Out points first",
+            ? t("exportFlow.issue.selectRange")
+            : t("exportFlow.issue.setInOut"),
     });
   }
   if (c.captions !== "none" && ctx.captionCount === 0) {
-    issues.push({ field: "captions", message: "This project has no captions" });
+    issues.push({ field: "captions", message: t("exportFlow.issue.noCaptions") });
   }
   if (c.format === "gif") {
     if (c.captions === "srt" || c.captions === "vtt") {
       // Sidecars next to a GIF are allowed; nothing to validate.
     }
     if (!(c.gif.colors >= 32 && c.gif.colors <= 256)) {
-      issues.push({ field: "gif", message: "Colors must be between 32 and 256" });
+      issues.push({
+        field: "gif",
+        message: t("exportFlow.issue.gifColors", { min: 32, max: 256 }),
+      });
     }
     return issues;
   }
@@ -208,12 +216,15 @@ export function validateFlowConfig(c: ExportFlowConfig, ctx: ValidationContext):
     c.width % 2 !== 0 ||
     c.height % 2 !== 0
   ) {
-    issues.push({ field: "size", message: "Width and height must be positive even numbers" });
+    issues.push({ field: "size", message: t("exportFlow.issue.size") });
   }
   if (!containerSupports(engine.container, c.codec)) {
-    issues.push({ field: "codec", message: `${c.codec.toUpperCase()} can't be saved as WebM` });
+    issues.push({
+      field: "codec",
+      message: t("exportFlow.issue.codecNotWebm", { codec: c.codec.toUpperCase() }),
+    });
   } else if (ctx.caps && !isCodecUsable(ctx.caps, c.codec)) {
-    issues.push({ field: "codec", message: "Not supported on this device" });
+    issues.push({ field: "codec", message: t("exportFlow.issue.codecUnsupported") });
   }
   return issues;
 }
@@ -229,7 +240,8 @@ export function estimateVideoBytes(c: ExportFlowConfig, durationMs: number): num
 /**
  * Pre-export GIF guess (the live estimate from the first 2s replaces it once
  * encoding starts): ~0.12 bytes per pixel for the first frame, ~12% of that for
- * each differenced frame, scaled by palette size.
+ * each differenced frame, scaled by palette size. An adaptive palette adds a
+ * local color table (3 bytes per color) to every frame.
  */
 export function roughGifBytes(
   width: number,
@@ -237,12 +249,15 @@ export function roughGifBytes(
   fps: number,
   colors: number,
   durationMs: number,
+  palette: GifPalette = "global",
 ): number {
   if (!(durationMs > 0) || !(width > 0) || !(height > 0) || !(fps > 0)) return 0;
   const frames = Math.max(1, Math.ceil((durationMs * fps) / 1000));
-  const colorFactor = Math.log2(Math.max(2, Math.min(256, colors))) / 8;
+  const clamped = Math.max(2, Math.min(256, colors));
+  const colorFactor = Math.log2(clamped) / 8;
   const first = width * height * 0.12 * colorFactor;
-  return Math.round(800 + first + first * 0.12 * (frames - 1));
+  const localTables = palette === "adaptive" ? frames * clamped * 3 : 0;
+  return Math.round(800 + first + first * 0.12 * (frames - 1) + localTables);
 }
 
 export function formatBytes(bytes: number): string {

@@ -1,19 +1,27 @@
+import { BUILT_IN_FRAME_PRESETS, DEFAULT_FRAME_SETTINGS } from "../../editor/inspector/frame/types";
 import { projectV1Schema } from "../../editor/model/v1";
 import { migrate } from "../../editor/model/v1";
 import {
   type RecordingSetup,
+  THUMBNAIL_FILE_NAME,
+  applyFrameDefaults,
   buildRecordingDocument,
   captureOptionsFor,
   codecFromMime,
   displayIdFor,
   initialRegionCrop,
+  micLabelFor,
   planMedia,
   recordedPixelSize,
   recordingProjectName,
   resolvedFileNames,
   sourceLabel,
+  systemAudioSupported,
+  toPickerSources,
   toSourceItems,
   toStartRequest,
+  usesFallbackCapture,
+  webcamCaptureOptionsFor,
 } from "./document";
 import { SOURCES, finalizeFixture } from "./testFakes";
 
@@ -220,7 +228,10 @@ describe("finalized recording → project", () => {
       recordedFps: 60,
     });
     expect(doc.timeline.durationMs).toBe(42_180);
-    expect(doc.timeline.clips).toHaveLength(1);
+    // One clip over the whole recording, never the store's 92s placeholder.
+    expect(doc.timeline.clips).toEqual([
+      { id: "clip-1", sourceStartMs: 0, sourceEndMs: 42_180, timelineStartMs: 0 },
+    ]);
     expect(doc.frame.crop).toBeNull();
   });
 
@@ -296,5 +307,157 @@ describe("finalized recording → project", () => {
     expect(codecFromMime("audio/mp4;codecs=mp4a.40.2", "x")).toBe("aac");
     expect(codecFromMime(undefined, "vp9")).toBe("vp9");
     expect(recordingProjectName("not a date")).toBe("Recording");
+  });
+});
+
+describe("toPickerSources / capture capability helpers", () => {
+  it("maps displays then windows with titles, app grouping and minimized state", () => {
+    const sources = {
+      ...SOURCES,
+      windows: [
+        ...SOURCES.windows,
+        {
+          id: "window:7:0",
+          title: "Inbox",
+          thumbnail: "data:image/png;base64,",
+          appIcon: "data:icon",
+        },
+        { id: "window:8:0", title: "Notes", thumbnail: "data:image/png;base64,AAAA" },
+      ],
+    };
+    const items = toPickerSources(sources);
+    expect(items.map((i) => [i.id, i.kind, i.title, i.minimized])).toEqual([
+      ["d1", "display", "Studio Display", false],
+      ["d2", "display", "LG UltraFine", false],
+      ["window:42:0", "window", "Onboarding.fig", false],
+      ["window:7:0", "window", "Inbox", true],
+      ["window:8:0", "window", "Notes", false],
+    ]);
+    expect(items[2]).toMatchObject({ appName: "Figma", name: "Figma — Onboarding.fig" });
+    expect(items[3]?.thumbnailUrl).toBeUndefined();
+    expect(items[3]?.appIcon).toBe("data:icon");
+    expect(items[4]?.thumbnailUrl).toBe("data:image/png;base64,AAAA");
+    expect(toPickerSources(null)).toEqual([]);
+  });
+
+  it("fallback capture and system audio support by platform and backend", () => {
+    expect(usesFallbackCapture("darwin", "electron")).toBe(true);
+    expect(usesFallbackCapture("win32", "electron")).toBe(true);
+    expect(usesFallbackCapture("linux", "electron")).toBe(false);
+    expect(usesFallbackCapture("darwin", "sck")).toBe(false);
+    expect(usesFallbackCapture("darwin", null)).toBe(false);
+    expect(systemAudioSupported("darwin", "electron")).toBe(false);
+    expect(systemAudioSupported("win32", "electron")).toBe(true);
+    expect(systemAudioSupported("darwin", "sck")).toBe(true);
+    expect(systemAudioSupported("darwin", null)).toBe(true);
+  });
+});
+
+describe("native capture helpers", () => {
+  it("toStartRequest forwards the mic label with the mic only", () => {
+    expect(
+      toStartRequest({ ...setup, mic: true, micDeviceId: "hash", micLabel: "Shure MV7" }).audio,
+    ).toEqual({ system: false, mic: "hash", micLabel: "Shure MV7" });
+    expect(toStartRequest({ ...setup, mic: false, micLabel: "Shure MV7" }).audio).toEqual({
+      system: false,
+    });
+  });
+
+  it("micLabelFor matches the selected device, else the default entry", () => {
+    const devices = [
+      { deviceId: "default", kind: "audioinput", label: "Default - MacBook Pro Microphone" },
+      { deviceId: "hash-2", kind: "audioinput", label: "Shure MV7" },
+      { deviceId: "cam", kind: "videoinput", label: "FaceTime HD Camera" },
+    ];
+    expect(micLabelFor({ ...setup, mic: true, micDeviceId: "hash-2" }, devices)).toBe("Shure MV7");
+    expect(micLabelFor({ ...setup, mic: true }, devices)).toBe("Default - MacBook Pro Microphone");
+    expect(micLabelFor({ ...setup, mic: true, micDeviceId: "gone" }, devices)).toBe(
+      "Default - MacBook Pro Microphone",
+    );
+    expect(micLabelFor({ ...setup, mic: false }, devices)).toBeUndefined();
+    // Labels are empty until mic permission was granted.
+    expect(
+      micLabelFor({ ...setup, mic: true }, [
+        { deviceId: "default", kind: "audioinput", label: "" },
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("webcamCaptureOptionsFor records only the camera", () => {
+    expect(webcamCaptureOptionsFor("s1", { ...setup, webcam: false }, "darwin")).toBeNull();
+    expect(
+      webcamCaptureOptionsFor(
+        "s1",
+        { ...setup, mic: true, systemAudio: true, webcam: true, webcamDeviceId: "cam-1" },
+        "win32",
+      ),
+    ).toEqual({
+      sessionId: "s1",
+      platform: "win32",
+      fps: 60,
+      systemAudio: false,
+      webcam: { deviceId: "cam-1" },
+    });
+  });
+});
+
+describe("thumbnail and settings defaults", () => {
+  it("planMedia imports the thumbnail into the project root", () => {
+    const fin = { ...finalizeFixture(), thumbnailPath: "/rec/s1/thumbnail.jpg" };
+    const plan = planMedia(fin);
+    expect(plan.imports.at(-1)).toEqual({
+      sourcePath: "/rec/s1/thumbnail.jpg",
+      fileName: THUMBNAIL_FILE_NAME,
+      move: true,
+      destination: "root",
+    });
+    expect(Object.values(plan.fileNames)).not.toContain(THUMBNAIL_FILE_NAME);
+    expect(planMedia(finalizeFixture()).imports.some((m) => m.fileName === "thumbnail.jpg")).toBe(
+      false,
+    );
+  });
+
+  it("applies the default frame preset and aspect to the new document", () => {
+    const fin = finalizeFixture({ region: { x: 0, y: 0, width: 756, height: 491 } });
+    const base = {
+      fin,
+      sources: SOURCES,
+      fileNames: planMedia(fin).fileNames,
+      id: "p1",
+      name: "R",
+      nowIso: "2026-09-15T14:32:05.000Z",
+      appVersion: "1.0.0",
+    };
+    const frameOf = (doc: unknown) =>
+      (
+        doc as {
+          frame: { background: { kind: string }; aspect: { preset: string }; crop: unknown };
+        }
+      ).frame;
+    const plain = buildRecordingDocument(base);
+    const styled = buildRecordingDocument({
+      ...base,
+      defaults: { framePreset: "minimal", aspect: "1:1" },
+    });
+    expect(projectV1Schema.safeParse(styled).success).toBe(true);
+    const minimal = BUILT_IN_FRAME_PRESETS.find((p) => p.id === "minimal");
+    expect(frameOf(styled).background.kind).toBe(minimal?.settings.background.kind);
+    expect(frameOf(styled).aspect.preset).toBe("1:1");
+    // The region crop survives the preset.
+    expect(frameOf(styled).crop).toEqual(frameOf(plain).crop);
+    expect(frameOf(styled).crop).not.toBeNull();
+
+    const auto = buildRecordingDocument({
+      ...base,
+      defaults: { framePreset: "nope", aspect: "auto" },
+    });
+    expect(frameOf(auto)).toEqual(frameOf(plain));
+  });
+
+  it("applyFrameDefaults uses user presets and leaves the frame alone without defaults", () => {
+    const frame = structuredClone(DEFAULT_FRAME_SETTINGS);
+    expect(applyFrameDefaults(frame, undefined)).toBe(frame);
+    const user = { id: "mine", name: "Mine", builtIn: false, settings: { ...frame, radius: 40 } };
+    expect(applyFrameDefaults(frame, { framePreset: "mine", presets: [user] }).radius).toBe(40);
   });
 });

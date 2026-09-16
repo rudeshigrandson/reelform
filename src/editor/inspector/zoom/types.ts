@@ -1,4 +1,5 @@
 import type { AutoZoomOptions, EaseCurve, SuggestedZoom } from "../../autozoom";
+import type { InspectorMessageKey } from "../i18n";
 
 /**
  * Zoom inspector model (design guide S15, ENGINEERING_SPEC §6.5 / §8).
@@ -50,8 +51,13 @@ export const DEFAULT_ZOOM_SETTINGS: ZoomSettings = {
   camera: { smoothing: 0.5, maxZoomSpeed: 4 },
 };
 
-export const ZOOM_CURVES: ReadonlyArray<{ value: ZoomCurve; label: string }> = [
-  { value: "ease-out-cubic", label: "Ease" },
-  { value: "spring", label: "Spring" },
-  { value: "linear", label: "Linear" },
+/** `label` is the English name (non-UI callers); the inspector shows `labelKey`. */
+export const ZOOM_CURVES: ReadonlyArray<{
+  value: ZoomCurve;
+  label: string;
+  labelKey: InspectorMessageKey;
+}> = [
+  { value: "ease-out-cubic", label: "Ease", labelKey: "inspector.zoom.curve.ease" },
+  { value: "spring", label: "Spring", labelKey: "inspector.zoom.curve.spring" },
+  { value: "linear", label: "Linear", labelKey: "inspector.zoom.curve.linear" },
 ];

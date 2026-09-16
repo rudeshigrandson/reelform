@@ -1,8 +1,10 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
+import { makeMeta } from "../../editor/inspector/host/testFixtures";
 import { useEditorStore } from "../../editor/store";
 import { ExportCancelledError } from "../../export/engine/cancel";
 import { initialProjectSession, useProjectSession } from "../project/session";
+import { useAppSettings } from "../settings/store";
 import { ExportController } from "./ExportController";
 import { createEncoderCapabilityCache } from "./capabilities";
 import type { ExportRunnerDeps, GifRouteArgs, SinkTarget, VideoRouteArgs } from "./runner";
@@ -28,6 +30,8 @@ function harness() {
     gif: [] as GifRouteArgs[],
     targets: [] as SinkTarget[],
     sinks: [] as FakeFlowSink[],
+    deleteRaw: 0,
+    removed: [] as string[],
   };
   const createDeps = (_s: unknown, base: { system: ExportRunnerDeps["system"]; now(): number }) =>
     ({
@@ -53,7 +57,7 @@ function harness() {
         if (control.fail) throw control.fail;
         await args.sink.writeChunk(new Uint8Array(2_400_000));
         const { path } = await args.sink.finish();
-        return { path, encoder: "hardware" as const, attempts: 1, pcmWav: null };
+        return { path, encoder: "hardware" as const, attempts: 1, pcmAudio: null };
       },
       runGif: async (args: GifRouteArgs) => {
         control.gif.push(args);
@@ -68,6 +72,11 @@ function harness() {
         return sink;
       },
       writeFile: async (t: SinkTarget) => `/exports/${t.finalName}`,
+      streamFile: async (t: SinkTarget) => `/exports/${t.finalName}`,
+      deleteRawSource: async () => {
+        control.deleteRaw++;
+        return control.removed;
+      },
       system: base.system,
       onChange: () => undefined,
       now: base.now,
@@ -88,7 +97,7 @@ function harness() {
   return { control, system, props, view, onClose };
 }
 
-const exportButton = () => screen.getByRole("button", { name: "Export" });
+const exportButton = () => screen.getByRole("button", { name: /^Export(?! another)/ });
 
 beforeEach(() => {
   useEditorStore.getState().reset();
@@ -103,6 +112,74 @@ beforeEach(() => {
 });
 
 describe("ExportController", () => {
+  it("applies Settings → auto-delete raw recordings only after the export is done", async () => {
+    const before = useAppSettings.getState().settings;
+    useAppSettings.setState({ settings: { ...before, autoDeleteRawAfterExport: true } });
+    try {
+      const t = harness();
+      await screen.findByTestId("codec-unsupported-note");
+      fireEvent.click(exportButton());
+      await screen.findByTestId("export-progress");
+      expect(t.control.deleteRaw).toBe(0);
+      await act(async () => t.control.gate.resolve());
+      await screen.findByTestId("export-done");
+      expect(t.control.deleteRaw).toBe(1);
+    } finally {
+      useAppSettings.setState({ settings: before });
+    }
+  });
+
+  it("marks the session media offline once auto-delete trashed the video", async () => {
+    const before = useAppSettings.getState().settings;
+    useAppSettings.setState({ settings: { ...before, autoDeleteRawAfterExport: true } });
+    const meta = makeMeta();
+    useProjectSession.setState({ meta, projectPath: "/lib/Demo.reelform" });
+    try {
+      const t = harness();
+      t.control.removed = [meta.sources.video.path, "cache/proxy.mp4"];
+      await screen.findByTestId("codec-unsupported-note");
+      fireEvent.click(exportButton());
+      await act(async () => t.control.gate.resolve());
+      await screen.findByTestId("export-done");
+      expect(t.control.deleteRaw).toBe(1);
+      expect(useProjectSession.getState().mediaOffline).toBe(true);
+    } finally {
+      useAppSettings.setState({ settings: before });
+    }
+  });
+
+  it("keeps the media online when auto-delete removed nothing", async () => {
+    const before = useAppSettings.getState().settings;
+    useAppSettings.setState({ settings: { ...before, autoDeleteRawAfterExport: true } });
+    useProjectSession.setState({ meta: makeMeta(), projectPath: "/lib/Demo.reelform" });
+    try {
+      const t = harness();
+      await screen.findByTestId("codec-unsupported-note");
+      fireEvent.click(exportButton());
+      await act(async () => t.control.gate.resolve());
+      await screen.findByTestId("export-done");
+      expect(t.control.deleteRaw).toBe(1);
+      expect(useProjectSession.getState().mediaOffline).toBe(false);
+    } finally {
+      useAppSettings.setState({ settings: before });
+    }
+  });
+
+  it("keeps raw recordings when the setting is off", async () => {
+    const before = useAppSettings.getState().settings;
+    useAppSettings.setState({ settings: { ...before, autoDeleteRawAfterExport: false } });
+    try {
+      const t = harness();
+      await screen.findByTestId("codec-unsupported-note");
+      fireEvent.click(exportButton());
+      await act(async () => t.control.gate.resolve());
+      await screen.findByTestId("export-done");
+      expect(t.control.deleteRaw).toBe(0);
+    } finally {
+      useAppSettings.setState({ settings: before });
+    }
+  });
+
   it("greys codecs this device can't encode and keeps the selection valid", async () => {
     const t = harness();
     expect(await screen.findByTestId("codec-unsupported-note")).toHaveTextContent(
@@ -213,7 +290,9 @@ describe("ExportController", () => {
     expect(t.onClose.count).toBe(1);
     t.view.rerender(<ExportController {...t.props} open={false} />);
     const toast = screen.getByTestId("export-toast");
-    expect(toast).toHaveTextContent("Exporting 50% · 0:01 left");
+    expect(toast).toHaveAccessibleName("Exporting 50% · 0:01 left");
+    expect(toast).toHaveTextContent("Exporting 50%");
+    expect(toast).toHaveTextContent("0:01 left");
     expect(screen.queryByTestId("export-progress")).toBeNull();
     fireEvent.click(within(toast).getByText("Cancel"));
     await waitFor(() => expect(screen.queryByTestId("export-toast")).toBeNull());
@@ -226,8 +305,11 @@ describe("ExportController", () => {
     await screen.findByTestId("export-progress");
     t.view.rerender(<ExportController {...t.props} open={false} />);
     await act(async () => t.control.gate.resolve());
-    const toast = await screen.findByText("Exported · Export.mp4 (2 MB)");
-    fireEvent.click(within(toast.parentElement as HTMLElement).getByText("Reveal"));
+    await screen.findByText("Exported · Export.mp4");
+    const toast = screen.getByTestId("export-toast");
+    expect(toast).toHaveAccessibleName("Exported · Export.mp4 (2 MB)");
+    expect(toast).toHaveTextContent("2 MB");
+    fireEvent.click(within(toast).getByText("Reveal"));
     expect(t.system.calls[0]).toEqual(["reveal", "/exports/Export.mp4"]);
   });
 
@@ -253,7 +335,7 @@ describe("ExportController", () => {
   it("exports a GIF with the GIF options", async () => {
     const t = harness();
     fireEvent.click(screen.getByText("GIF"));
-    fireEvent.click(screen.getByText("Small 480p"));
+    fireEvent.click(screen.getByText("480p"));
     fireEvent.click(exportButton());
     await screen.findByTestId("export-done");
     expect(t.control.gif[0]?.options).toMatchObject({ width: 854, height: 480, fps: 15 });

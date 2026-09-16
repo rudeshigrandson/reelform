@@ -93,15 +93,15 @@ a {
   gap: 6px;
   cursor: pointer;
   text-decoration: none;
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: 14px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 13px;
   line-height: 1.2;
   white-space: nowrap;
   color: var(--text-1);
   background: transparent;
   border: 1px solid transparent;
-  padding: var(--space-2) calc(var(--space-3) * 1.2);
+  padding: 8px 16px;
   border-radius: 999px;
 }
 .btn svg {
@@ -120,21 +120,23 @@ a {
 }
 .btn-primary:active:not(:disabled) {
   background: var(--accent-pressed);
+  color: var(--text-1);
 }
-/* Secondary carries a soft fill + strong hairline so it reads on any panel. */
+/* Secondary: raised fill + strong hairline, regular weight (component sheet). */
 .btn-secondary {
-  background: color-mix(in srgb, var(--text-1) 6%, transparent);
+  font-weight: 400;
+  background: var(--bg-panel-raised);
   border-color: var(--border-strong);
 }
 .btn-secondary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--text-1) 11%, transparent);
+  background: color-mix(in srgb, var(--bg-panel-raised) 85%, var(--text-1));
 }
 .btn-secondary:active:not(:disabled) {
-  background: color-mix(in srgb, var(--text-1) 16%, transparent);
+  background: color-mix(in srgb, var(--bg-panel-raised) 75%, var(--text-1));
 }
 .btn-ghost {
-  color: var(--accent);
-  padding-inline: var(--space-1);
+  font-weight: 400;
+  color: var(--accent-hover);
 }
 .btn-ghost:hover:not(:disabled) {
   background: var(--accent-soft);
@@ -151,8 +153,8 @@ a {
   background: color-mix(in srgb, var(--danger) 20%, transparent);
 }
 .btn-icon {
-  width: 36px;
-  height: 36px;
+  width: var(--control-height);
+  height: var(--control-height);
   padding: 0;
 }
 .btn-block {
@@ -169,7 +171,7 @@ a {
 }
 .input {
   width: 100%;
-  min-height: 36px;
+  min-height: var(--control-height);
   padding: 6px 14px;
   font: inherit;
   font-size: 14px;
@@ -223,37 +225,37 @@ textarea.input {
   background: var(--accent);
   box-shadow: inset 0 0 0 4px var(--on-accent);
 }
-/* Never stretch: in a flex row the control keeps its intrinsic height. */
+/* Pills on a sunken track. Never stretch: in a flex row the control keeps its intrinsic height. */
 .seg {
   display: inline-flex;
   flex: 0 1 auto;
   align-self: center;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--border-strong);
+  padding: 3px;
+  background: var(--bg-sunken);
   border-radius: 999px;
 }
 .seg-opt {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 12px;
-  font-size: 13px;
+  padding: 6px 14px;
+  font-size: 12px;
   line-height: 1.2;
   white-space: nowrap;
-  color: var(--text-1);
+  color: var(--text-2);
+  border-radius: 999px;
   cursor: pointer;
 }
 .seg-sm .seg-opt {
-  padding: 4px 9px;
-  font-size: 12px;
-}
-.seg-opt + .seg-opt {
-  border-left: 1px solid var(--border-strong);
+  padding: 4px 10px;
+  font-size: 11px;
 }
 .seg-opt:has(input:checked) {
   background: var(--accent);
   color: var(--on-accent);
+  font-weight: 600;
 }
 .seg-opt input {
   position: absolute;
@@ -272,8 +274,9 @@ textarea.input {
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-3);
-  border-radius: calc(var(--radius-lg) * 1.15);
-  background: var(--bg-panel-raised);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
 }
 .card-kicker {
   font-size: 10px;
@@ -352,6 +355,7 @@ textarea.input {
   border-bottom: 1px solid var(--border-strong);
 }
 .table td {
+  height: var(--row-height);
   padding: var(--space-2);
   border-bottom: 1px solid var(--border);
 }
@@ -368,30 +372,180 @@ textarea.input {
   padding: var(--space-4);
   background: var(--scrim);
 }
+/* Dialogs (S27): 16 radius, 24 padding, actions right-aligned. */
 .dialog {
-  width: min(440px, 100%);
+  width: min(380px, 100%);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  border-radius: calc(var(--radius-lg) * 1.15);
-  background: var(--bg-panel-raised);
+  gap: 12px;
+  padding: 24px;
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
   color: var(--text-1);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-lg);
 }
+.dialog-danger {
+  border-color: color-mix(in srgb, var(--record) 45%, transparent);
+}
+.dialog-success {
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+}
 .dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-family: var(--font-heading);
   font-weight: var(--font-heading-weight);
   font-size: 20px;
+  line-height: 1.2;
 }
 .dialog-body {
-  font-size: 14px;
-  opacity: 0.85;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-2);
 }
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.dialog-actions .btn-primary,
+.dialog-actions .btn-danger-solid {
+  padding: 9px 20px;
+}
+.dialog-actions .btn-secondary {
+  font-size: 12px;
+}
+/* Quiet dismiss verb ("Cancel", "Later", "Skip"). */
+.dialog-actions .btn-ghost {
+  font-size: 12px;
+  color: var(--text-2);
+  padding-inline: 4px;
+}
+.btn-danger-solid {
+  background: var(--record);
+  color: var(--text-1);
+}
+.btn-danger-solid:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--record) 85%, var(--text-1));
+}
+/* Inset well inside dialog bodies: checkbox row (raised) or path (sunken mono). */
+.dialog-well {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg-panel-raised);
+  color: var(--text-1);
+}
+.dialog-well-mono {
+  background: var(--bg-sunken);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* — toasts (S28): stack bottom-right, never steal focus — */
+.toast-stack {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+.toast {
+  width: min(360px, calc(100vw - 32px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-panel-raised);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  color: var(--text-1);
+  font-size: 12px;
+  pointer-events: auto;
+}
+.toast-warning {
+  border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+  color: color-mix(in srgb, var(--warning) 35%, var(--text-1));
+}
+.toast-danger {
+  border-color: color-mix(in srgb, var(--record) 50%, transparent);
+}
+.toast-icon {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  font-size: 12px;
+  background: color-mix(in srgb, var(--accent-hover) 20%, transparent);
+  color: var(--accent-hover);
+}
+.toast-icon-success {
+  background: color-mix(in srgb, var(--success) 20%, transparent);
+  color: var(--success);
+}
+.toast-icon-danger {
+  background: color-mix(in srgb, var(--record) 20%, transparent);
+  color: color-mix(in srgb, var(--record) 45%, var(--text-1));
+}
+.toast-action {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-hover);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.toast-action-quiet {
+  font-weight: 400;
+  color: var(--text-2);
+}
+.toast-pill {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-panel-raised) 90%, transparent);
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+/*
+ * — reduced motion (guide §5 Accessibility, S24 Appearance) —
+ * The in-app toggle sets data-reduce-motion on <html>; the OS setting applies
+ * with no toggle. Durations collapse (not `none`) so transitionend/animationend
+ * listeners still fire. Exports render through the export engine, not CSS.
+ */
+:root[data-reduce-motion="true"] *,
+:root[data-reduce-motion="true"] *::before,
+:root[data-reduce-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

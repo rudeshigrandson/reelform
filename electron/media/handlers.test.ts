@@ -78,6 +78,38 @@ describe("media handlers", () => {
     });
   });
 
+  it("registerRoot consults isRootAllowed with the canonical dir", async () => {
+    const seen: string[] = [];
+    const { handlers, registry } = setup(undefined, {
+      isRootAllowed: async (dir) => {
+        seen.push(dir);
+        return dir.endsWith(".reelform");
+      },
+    });
+    await expect(handlers["media:registerRoot"]({ path: "/" })).rejects.toMatchObject({
+      code: "MEDIA_ROOT_FORBIDDEN",
+    });
+    await expect(handlers["media:registerRoot"]({ path: "/link" })).rejects.toMatchObject({
+      code: "MEDIA_ROOT_FORBIDDEN",
+    });
+    expect(seen).toEqual(["/", "/real/project"]);
+    expect(registry.list()).toEqual([]);
+    const ok = await handlers["media:registerRoot"]({ path: "/lib/Demo.reelform" });
+    expect(registry.get(ok.rootId)?.realPath).toBe("/lib/Demo.reelform");
+  });
+
+  it("registerRoot treats a throwing predicate as forbidden, even for a known root", async () => {
+    const { handlers, registry } = setup(undefined, {
+      isRootAllowed: async () => {
+        throw new Error("boom");
+      },
+    });
+    registry.add({ id: "known", realPath: "/p" });
+    await expect(handlers["media:registerRoot"]({ path: "/p" })).rejects.toMatchObject({
+      code: "MEDIA_ROOT_FORBIDDEN",
+    });
+  });
+
   it("unregisterRoot", async () => {
     const { handlers } = setup();
     const { rootId } = await handlers["media:registerRoot"]({ path: "/p" });

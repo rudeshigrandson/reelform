@@ -32,7 +32,7 @@ describe("ProjectBrowser", () => {
   it("shows the empty state and its CTA calls onNew", () => {
     const { onNew } = renderBrowser({ projects: [] });
     expect(screen.getByText("Nothing recorded yet")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Record something" }));
+    fireEvent.click(screen.getByRole("button", { name: "Record your first video" }));
     expect(onNew).toHaveBeenCalledTimes(1);
   });
 
@@ -83,8 +83,52 @@ describe("ProjectBrowser", () => {
       { id: "b", name: "Apple", modifiedAt: "2026-09-13T00:00:00.000Z", durationMs: 1000 },
     ];
     renderBrowser({ projects });
-    fireEvent.click(screen.getByRole("radio", { name: "Name" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Sort by" }), {
+      target: { value: "name" },
+    });
     const titles = screen.getAllByLabelText(/^Open /).map((el) => el.getAttribute("aria-label"));
     expect(titles).toEqual(["Open Apple", "Open Zebra"]);
+  });
+
+  it("list layout: columns, click selects, Open opens the selection", () => {
+    const { onOpen } = renderBrowser();
+    fireEvent.click(screen.getByRole("radio", { name: "List" }));
+    expect(screen.getByText("Duration")).toBeInTheDocument();
+    const open = screen.getByRole("button", { name: "Open" });
+    expect(open).toBeDisabled();
+    const row = screen.getByRole("option", { name: "Dashboard demo" });
+    fireEvent.click(row);
+    expect(row).toHaveAttribute("aria-selected", "true");
+    expect(onOpen).not.toHaveBeenCalled();
+    fireEvent.click(open);
+    expect(onOpen).toHaveBeenCalledWith("p2");
+    fireEvent.doubleClick(screen.getByRole("option", { name: "Bug repro capture" }));
+    expect(onOpen).toHaveBeenLastCalledWith("p3");
+  });
+
+  it("footer shows the library count, size when known, and Cancel", () => {
+    const onCancel = vi.fn();
+    renderBrowser({
+      projects: [
+        {
+          id: "a",
+          name: "A",
+          modifiedAt: "2026-09-14T00:00:00.000Z",
+          durationMs: 1,
+          sizeBytes: 2_000_000_000,
+        },
+        { id: "b", name: "B", modifiedAt: "2026-09-13T00:00:00.000Z", durationMs: 1 },
+      ],
+      onCancel,
+    });
+    expect(screen.getByTestId("projects-summary")).toHaveTextContent("2 projects · 2.0 GB on disk");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("cards show the duration timecode and edited time", () => {
+    renderBrowser();
+    expect(screen.getByText("02:12.000")).toBeInTheDocument();
+    expect(screen.getAllByText(/^Edited /).length).toBe(sampleProjects.length);
   });
 });

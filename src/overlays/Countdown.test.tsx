@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Countdown } from "./Countdown";
 
 describe("Countdown", () => {
@@ -25,5 +25,28 @@ describe("Countdown", () => {
     rerender(<Countdown count={0} total={3} onCancel={vi.fn()} />);
     expect(screen.getByTestId("countdown-number")).toHaveTextContent("Go");
     expect(screen.getByTestId("countdown-progress")).toHaveAttribute("data-progress", "1.000");
+    expect(screen.getByTestId("countdown-overlay")).toHaveAttribute("data-go", "true");
+    expect(screen.getByTestId("countdown-progress").style.display).toBe("none");
   });
+
+  it("pulses the ring normally and swaps to a static ring with a fade under reduce motion", () => {
+    const { unmount } = render(<Countdown count={3} onCancel={vi.fn()} />);
+    expect(screen.getByTestId("countdown-ring")).toHaveAttribute("data-motion", "full");
+    expect(screen.getByTestId("countdown-ring").style.animation).toContain(
+      "reelform-countdown-pulse",
+    );
+    unmount();
+    document.documentElement.dataset.reduceMotion = "true";
+    render(<Countdown count={3} onCancel={vi.fn()} />);
+    const ring = screen.getByTestId("countdown-ring");
+    expect(ring).toHaveAttribute("data-motion", "reduced");
+    expect(ring.style.animation).toBe("none");
+    expect(screen.getByTestId("countdown-number").style.animation).toContain(
+      "reelform-countdown-fade",
+    );
+  });
+});
+
+afterEach(() => {
+  delete document.documentElement.dataset.reduceMotion;
 });

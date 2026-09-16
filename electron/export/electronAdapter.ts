@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import { app } from "electron";
+import { nodeRunnerDeps, resolveElectronFfmpegPaths } from "../media/electronAdapter";
 import { EXPORTS_DIR } from "../project/paths";
 import type { ExportDeps } from "./handlers";
 
@@ -16,6 +17,7 @@ export function createElectronExportDeps(opts: {
   return {
     fs: fsp,
     newId: () => randomUUID(),
+    ffmpeg: { runner: nodeRunnerDeps, resolveBinaries: resolveElectronFfmpegPaths },
     defaultExportDir: async (projectId) => {
       const dir = await opts.resolveProjectDir(projectId);
       return dir ? path.join(dir, EXPORTS_DIR) : path.join(app.getPath("videos"), "Reelform");

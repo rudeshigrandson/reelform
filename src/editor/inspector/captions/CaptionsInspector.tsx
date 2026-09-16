@@ -1,8 +1,24 @@
-import { Button, Input, Segmented } from "@design/components";
-import type { SegmentedOption } from "@design/components";
+import { Button } from "@design/components";
 import { useLayoutEffect, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent, ReactElement } from "react";
-import { ColorField, EmptyState, NumberField, Section, Slider, Switch, clamp } from "../controls";
+import type { CSSProperties, KeyboardEvent, ReactElement, ReactNode } from "react";
+import {
+  Callout,
+  ChoiceRow,
+  ColorField,
+  EmptyState,
+  NumberField,
+  ProgressBar,
+  Section,
+  Slider,
+  Switch,
+  clamp,
+  hintStyle,
+  inspectorRootStyle,
+  monoStyle,
+  useInspectorControlStyles,
+  visuallyHidden,
+} from "../controls";
+import { type InspectorMessageKey, useInspectorT } from "../i18n";
 import {
   addCaptionAt,
   filterCaptions,
@@ -65,62 +81,132 @@ export interface CaptionsInspectorProps {
   exportNotice?: string | null | undefined;
 }
 
-const MONO = "ui-monospace, SFMono-Regular, Menlo, monospace";
 const ADD_FONT = "__add-custom-font__";
 
-const rootStyle: CSSProperties = {
+const columnStyle = (gap: string): CSSProperties => ({
   display: "flex",
   flexDirection: "column",
-  gap: "var(--space-1)",
-  color: "var(--text-1)",
-  fontFamily: "var(--font-body)",
-  fontSize: "13px",
-};
+  gap,
+  minWidth: 0,
+});
 
 const rowStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: "var(--space-2)",
-  minHeight: "28px",
-};
-const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--text-2)" };
-const hintStyle: CSSProperties = { fontSize: "11px", color: "var(--text-3)" };
-
-const selectStyle: CSSProperties = {
-  flex: "1 1 auto",
+  justifyContent: "space-between",
+  gap: "10px",
   minWidth: 0,
-  background: "var(--bg-sunken)",
-  color: "var(--text-1)",
-  border: "1px solid var(--border-strong)",
-  borderRadius: "var(--radius-sm)",
-  padding: "2px var(--space-1)",
-  fontFamily: "var(--font-body)",
-  fontSize: "12px",
 };
 
-const POSITION_OPTIONS: ReadonlyArray<SegmentedOption<CaptionPosition>> = [
-  { value: "bottom", label: "Bottom" },
-  { value: "top", label: "Top" },
-  { value: "custom", label: "Custom Y" },
+/** Design pill select: sunken, 999px, strong border, trailing ⌄. */
+const pillSelectStyle: CSSProperties = {
+  appearance: "none",
+  WebkitAppearance: "none",
+  width: "100%",
+  minWidth: 0,
+  boxSizing: "border-box",
+  padding: "6px 24px 6px 10px",
+  borderRadius: "999px",
+  background: "var(--bg-sunken)",
+  border: "1px solid var(--border-strong)",
+  color: "var(--text-1)",
+  fontFamily: "var(--font-body)",
+  fontSize: "11px",
+  cursor: "pointer",
+  textOverflow: "ellipsis",
+};
+
+const POSITION_OPTIONS: ReadonlyArray<{ value: CaptionPosition; labelKey: InspectorMessageKey }> = [
+  { value: "bottom", labelKey: "inspector.captions.position.bottom" },
+  { value: "top", labelKey: "inspector.captions.position.top" },
+  { value: "custom", labelKey: "inspector.captions.position.custom" },
 ];
 
-function ProgressBar({ value, label }: { value: number; label: string }): ReactElement {
-  const pct = Math.round(clamp(value, 0, 1) * 100);
+function PillSelect({
+  id,
+  label,
+  value,
+  disabled,
+  onChange,
+  children,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  disabled?: boolean | undefined;
+  onChange: (value: string) => void;
+  children: ReactNode;
+}): ReactElement {
+  return (
+    <span style={{ position: "relative", flex: "1 1 0", minWidth: 0, display: "flex" }}>
+      <label htmlFor={id} style={visuallyHidden}>
+        {label}
+      </label>
+      <select
+        id={id}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        style={{ ...pillSelectStyle, opacity: disabled ? 0.45 : 1 }}
+      >
+        {children}
+      </select>
+      <span
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          right: "10px",
+          top: "50%",
+          transform: "translateY(-55%)",
+          color: "var(--text-3)",
+          pointerEvents: "none",
+        }}
+      >
+        ⌄
+      </span>
+    </span>
+  );
+}
+
+/** Live style sample on a sunken 12px box. Caption colours are user data. */
+function CaptionPreview({ style, sample }: { style: CaptionStyle; sample: string }): ReactElement {
+  const text = style.uppercase ? sample.toUpperCase() : sample;
+  const space = text.indexOf(" ");
+  const first = space === -1 ? text : text.slice(0, space);
+  const rest = space === -1 ? "" : text.slice(space);
   return (
     <div
-      role="progressbar"
-      aria-label={label}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={pct}
+      aria-hidden="true"
       style={{
-        height: "4px",
-        borderRadius: "999px",
-        background: "var(--bg-active)",
+        padding: "12px",
+        borderRadius: "12px",
+        background: "var(--bg-sunken)",
+        display: "flex",
+        justifyContent: "center",
         overflow: "hidden",
       }}
     >
-      <div style={{ width: `${pct}%`, height: "100%", background: "var(--accent)" }} />
+      <div
+        style={{
+          maxWidth: "100%",
+          padding: "6px 14px",
+          borderRadius: "999px",
+          background: `color-mix(in srgb, ${style.bgColor} ${clamp(style.bgOpacity, 0, 100)}%, transparent)`,
+          fontFamily: `"${style.font}", var(--font-body)`,
+          fontSize: "13px",
+          fontWeight: 700,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          color: style.color,
+          WebkitTextStroke: style.outline ? `0.6px ${style.bgColor}` : undefined,
+        }}
+      >
+        <span style={{ color: style.wordHighlight ? style.highlightColor : style.color }}>
+          {first}
+        </span>
+        {rest}
+      </div>
     </div>
   );
 }
@@ -131,8 +217,10 @@ interface FocusRequest {
   caret: number;
 }
 
-/** Captions inspector tab (design guide S18). Presentational — all state via props. */
+/** Captions inspector tab (design S18 / S18b). Presentational — all state via props. */
 export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
+  useInspectorControlStyles();
+  const t = useInspectorT();
   const {
     captions,
     onCaptionsChange,
@@ -180,8 +268,19 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
   const active = findActiveCaption(captions, currentMs);
   const addAtPlayhead = addCaptionAt(captions, currentMs, { maxMs: durationMs });
   const hasExportable = captions.some((c) => c.text.trim() !== "");
+  const isEmpty = captions.length === 0;
   const set = <K extends keyof CaptionStyle>(key: K, value: CaptionStyle[K]): void =>
     onStyleChange({ ...style, [key]: value });
+
+  const languageEntry = languages.find((l) => l.code === language);
+  const languageLabel = languageEntry
+    ? languageEntry.labelKey
+      ? t(languageEntry.labelKey)
+      : languageEntry.label
+    : language;
+  const previewSample =
+    (active ?? captions.find((c) => c.text.trim() !== ""))?.text.split("\n")[0]?.trim() ||
+    t("inspector.captions.preview.sample");
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>, cap: Caption): void => {
     const el = e.currentTarget;
@@ -210,140 +309,155 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
     setFocusRequest({ id: addAtPlayhead.id, caret: 0 });
   };
 
-  return (
-    <div style={rootStyle} aria-label="Captions inspector">
-      {/* ── Generate ─────────────────────────────────────────── */}
-      <Section title="Generate">
+  const primaryAction = modelDownloaded ? (
+    <Button variant={isEmpty ? "primary" : "secondary"} block={!isEmpty} onClick={onGenerate}>
+      {t("inspector.captions.generateCaptions")}
+    </Button>
+  ) : (
+    <Button variant="primary" block={!isEmpty} onClick={onDownloadModel}>
+      {t("inspector.captions.download", { size: info.size })}
+    </Button>
+  );
+
+  const statusBlock =
+    status.kind === "downloading" ? (
+      <div role="status" style={columnStyle("10px")}>
         <div style={rowStyle}>
-          <label htmlFor="captions-language" style={labelStyle}>
-            Language
-          </label>
-          <select
+          <span style={{ fontSize: "12px", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+            {t("inspector.captions.downloading", {
+              model: t(info.labelKey),
+              percent: Math.round(clamp(status.progress, 0, 1) * 100),
+              size: info.size,
+            })}
+          </span>
+        </div>
+        <ProgressBar value={status.progress} label={t("inspector.captions.modelDownload")} />
+        <div style={{ ...rowStyle, justifyContent: "flex-start" }}>
+          <span style={{ ...hintStyle, flex: "1 1 auto" }}>
+            {CAPTION_MODELS.map((m) => `${t(m.labelKey)} ${m.size}`).join(" · ")}
+          </span>
+          {props.onCancelDownload && (
+            <Button variant="ghost" onClick={props.onCancelDownload}>
+              {t("inspector.common.cancel")}
+            </Button>
+          )}
+        </div>
+      </div>
+    ) : status.kind === "transcribing" ? (
+      <div role="status" style={columnStyle("10px")}>
+        <span style={{ fontSize: "12px", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+          {t("inspector.captions.transcribing", {
+            percent: Math.round(clamp(status.progress, 0, 1) * 100),
+            done: formatClock(status.doneMs),
+            total: formatClock(status.totalMs),
+          })}
+        </span>
+        <ProgressBar
+          value={status.progress}
+          label={t("inspector.captions.transcription")}
+          color="var(--track-captions)"
+        />
+        <span style={{ ...hintStyle, color: "var(--text-3)" }}>
+          {t("inspector.captions.keepEditing")}
+        </span>
+      </div>
+    ) : null;
+
+  return (
+    <div style={{ ...inspectorRootStyle, gap: "12px" }} aria-label={t("inspector.captions.label")}>
+      {/* ── Generate: language · model, privacy, progress ───────── */}
+      <div role="group" aria-label={t("inspector.captions.generate")} style={columnStyle("12px")}>
+        <div style={{ display: "flex", gap: "6px", minWidth: 0 }}>
+          <PillSelect
             id="captions-language"
+            label={t("inspector.captions.language")}
             value={language}
             disabled={busy}
-            onChange={(e) => onLanguageChange(e.target.value)}
-            style={selectStyle}
+            onChange={onLanguageChange}
           >
             {languages.map((l) => (
               <option key={l.code} value={l.code}>
-                {l.label}
+                {l.labelKey ? t(l.labelKey) : l.label}
               </option>
             ))}
-          </select>
-        </div>
-        <div style={rowStyle}>
-          <label htmlFor="captions-model" style={labelStyle}>
-            Model
-          </label>
-          <select
+          </PillSelect>
+          <PillSelect
             id="captions-model"
+            label={t("inspector.captions.model")}
             value={model}
             disabled={busy}
-            onChange={(e) => {
-              const next = CAPTION_MODELS.find((m) => m.id === e.target.value);
+            onChange={(v) => {
+              const next = CAPTION_MODELS.find((m) => m.id === v);
               if (next) onModelChange(next.id);
             }}
-            style={selectStyle}
           >
             {CAPTION_MODELS.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.label} · {m.size}
+                {t(m.labelKey)} · {m.size}
               </option>
             ))}
-          </select>
+          </PillSelect>
         </div>
+        <span style={{ color: "var(--text-3)" }}>{t("inspector.captions.onDevice")}</span>
 
-        {status.kind === "downloading" ? (
-          <div
-            role="status"
-            style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}
-          >
-            <span>
-              Downloading {info.label} model {Math.round(clamp(status.progress, 0, 1) * 100)}%… (
-              {info.size})
-            </span>
-            <ProgressBar value={status.progress} label="Model download" />
-            {props.onCancelDownload && (
-              <Button variant="ghost" onClick={props.onCancelDownload}>
-                Cancel
-              </Button>
-            )}
-          </div>
-        ) : status.kind === "transcribing" ? (
-          <div
-            role="status"
-            style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}
-          >
-            <span style={{ fontVariantNumeric: "tabular-nums" }}>
-              Transcribing {Math.round(clamp(status.progress, 0, 1) * 100)}%…{" "}
-              {formatClock(status.doneMs)}/{formatClock(status.totalMs)}
-            </span>
-            <ProgressBar value={status.progress} label="Transcription" />
-          </div>
-        ) : modelDownloaded ? (
-          <Button variant="primary" block onClick={onGenerate}>
-            Generate captions
-          </Button>
-        ) : (
-          <Button variant="primary" block onClick={onDownloadModel}>
-            Download ({info.size})
-          </Button>
-        )}
+        {statusBlock}
 
         {status.kind === "error" && (
-          <div
-            role="alert"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "var(--space-2)",
-              color: "var(--danger)",
-            }}
-          >
+          <Callout tone="danger" role="alert">
             <span>{status.message}</span>
             {modelDownloaded && (
-              <Button variant="ghost" onClick={onGenerate}>
-                Try again
-              </Button>
+              <span>
+                <Button variant="ghost" onClick={onGenerate}>
+                  {t("inspector.captions.tryAgain")}
+                </Button>
+              </span>
             )}
-          </div>
+          </Callout>
         )}
-        <span style={hintStyle}>Runs on-device. Nothing leaves your computer.</span>
-      </Section>
+
+        {!busy && !isEmpty && primaryAction}
+      </div>
 
       {/* ── Caption list ─────────────────────────────────────── */}
-      <Section title="Captions">
-        {captions.length === 0 ? (
-          status.kind === "transcribing" ? null : (
-            <EmptyState title="No captions yet">
-              Generate captions from your recording's audio, or add one at the playhead.
+      <div role="group" aria-label={t("inspector.captions.captions")} style={columnStyle("6px")}>
+        {isEmpty ? (
+          busy ? null : (
+            <EmptyState
+              icon={<span style={{ fontSize: "14px", fontWeight: 700 }}>CC</span>}
+              title={t("inspector.captions.empty.title")}
+              action={primaryAction}
+              footnote={t("inspector.captions.empty.footnote", {
+                language: languageLabel,
+                model: t(info.labelKey),
+              })}
+            >
+              {t("inspector.captions.empty.body")}
             </EmptyState>
           )
         ) : (
           <>
-            <Input
+            <input
               type="search"
-              aria-label="Search captions"
-              placeholder="Search captions"
+              aria-label={t("inspector.captions.search")}
+              placeholder={t("inspector.captions.search")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              style={{ ...pillSelectStyle, cursor: "text", padding: "6px 12px" }}
             />
             {visible.length === 0 ? (
               <span role="status" style={hintStyle}>
-                No captions match “{query.trim()}”.
+                {t("inspector.captions.noMatch", { query: query.trim() })}
               </span>
             ) : (
               <ul
-                aria-label="Caption list"
+                aria-label={t("inspector.captions.list")}
                 style={{
                   listStyle: "none",
                   margin: 0,
                   padding: 0,
                   display: "flex",
                   flexDirection: "column",
-                  gap: "2px",
+                  gap: "6px",
                 }}
               >
                 {visible.map((c) => {
@@ -357,33 +471,43 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
                       onClick={() => onSeek(c.startMs)}
                       style={{
                         display: "flex",
-                        flexDirection: "column",
-                        gap: "2px",
-                        padding: "var(--space-1) var(--space-2)",
-                        borderRadius: "var(--radius-sm)",
+                        alignItems: "flex-start",
+                        gap: "8px",
+                        padding: "9px 10px",
+                        borderRadius: "10px",
                         cursor: "pointer",
-                        border: `1px solid ${isEditing ? "var(--accent)" : "transparent"}`,
-                        background: isActive ? "var(--bg-active)" : "transparent",
+                        background: "var(--bg-panel-raised)",
+                        border: `1px solid ${
+                          isEditing
+                            ? "var(--accent)"
+                            : isActive
+                              ? "color-mix(in srgb, var(--accent) 45%, transparent)"
+                              : "transparent"
+                        }`,
                       }}
                     >
                       <span
+                        title={`${formatCueTime(c.startMs)} – ${formatCueTime(c.endMs)}`}
                         style={{
-                          fontFamily: MONO,
-                          fontSize: "11px",
-                          color: "var(--text-2)",
+                          ...monoStyle,
+                          flex: "none",
+                          lineHeight: "16px",
+                          color: "var(--track-captions)",
                         }}
                       >
-                        {formatCueTime(c.startMs)} – {formatCueTime(c.endMs)}
+                        {formatCueTime(c.startMs)}
                       </span>
                       <textarea
                         ref={(el) => {
                           if (el) inputs.current.set(c.id, el);
                           else inputs.current.delete(c.id);
                         }}
-                        aria-label={`Caption ${formatCueTime(c.startMs)}`}
+                        aria-label={t("inspector.captions.caption", {
+                          time: formatCueTime(c.startMs),
+                        })}
                         rows={Math.max(1, c.text.split("\n").length)}
                         value={c.text}
-                        placeholder="Type caption…"
+                        placeholder={t("inspector.captions.placeholder")}
                         onFocus={() => setEditingId(c.id)}
                         onBlur={() => setEditingId((id) => (id === c.id ? null : id))}
                         onChange={(e) =>
@@ -391,14 +515,18 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
                         }
                         onKeyDown={(e) => handleKeyDown(e, c)}
                         style={{
+                          flex: "1 1 auto",
+                          minWidth: 0,
                           resize: "none",
                           background: "transparent",
                           color: "var(--text-1)",
+                          caretColor: "var(--accent-hover)",
                           border: 0,
                           outline: "none",
                           padding: 0,
                           fontFamily: "var(--font-body)",
-                          fontSize: "13px",
+                          fontSize: "11px",
+                          lineHeight: "16px",
                         }}
                       />
                     </li>
@@ -412,98 +540,48 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
           variant="secondary"
           block
           disabled={!addAtPlayhead}
-          title={addAtPlayhead ? undefined : "Playhead is inside a caption"}
+          title={addAtPlayhead ? undefined : t("inspector.captions.playheadInside")}
           onClick={handleAdd}
         >
-          Add caption
+          {t("inspector.captions.add")}
         </Button>
-      </Section>
+      </div>
 
       {/* ── Style ────────────────────────────────────────────── */}
-      <Section title="Style">
-        <div
-          role="radiogroup"
-          aria-label="Caption preset"
-          style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-1)" }}
-        >
-          {CAPTION_PRESETS.map((p) => {
-            const selected = style.preset === p.id;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                onClick={() => onStyleChange(applyPreset(style, p.id))}
-                style={{
-                  appearance: "none",
-                  cursor: "pointer",
-                  padding: "2px var(--space-2)",
-                  borderRadius: "999px",
-                  fontSize: "12px",
-                  fontFamily: "var(--font-body)",
-                  border: `1px solid ${selected ? "var(--accent)" : "var(--border-strong)"}`,
-                  background: selected ? "var(--accent)" : "var(--bg-sunken)",
-                  color: selected ? "var(--on-accent)" : "var(--text-1)",
-                }}
-              >
-                {p.label}
-              </button>
-            );
-          })}
-        </div>
-        <div style={rowStyle}>
-          <label htmlFor="captions-font" style={labelStyle}>
-            Font
-          </label>
-          <select
-            id="captions-font"
-            value={style.font}
-            onChange={(e) => {
-              if (e.target.value === ADD_FONT) onAddCustomFont?.();
-              else set("font", e.target.value);
-            }}
-            style={selectStyle}
-          >
-            {(fonts.includes(style.font) ? fonts : [style.font, ...fonts]).map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-            {onAddCustomFont && <option value={ADD_FONT}>Add custom font…</option>}
-          </select>
-        </div>
-        <Slider
-          label="Size"
-          value={style.sizePx}
-          min={12}
-          max={120}
-          unit="px"
-          onChange={(v) => set("sizePx", v)}
+      <Section title={t("inspector.common.style")}>
+        <ChoiceRow
+          label={t("inspector.captions.preset")}
+          variant="chip"
+          value={style.preset}
+          options={CAPTION_PRESETS.map((p) => ({ value: p.id, label: t(p.labelKey) }))}
+          onChange={(id) => onStyleChange(applyPreset(style, id))}
         />
-        <ColorField label="Color" value={style.color} onChange={(v) => set("color", v)} />
-        <ColorField label="Background" value={style.bgColor} onChange={(v) => set("bgColor", v)} />
-        <Slider
-          label="Bg opacity"
-          value={style.bgOpacity}
-          min={0}
-          max={100}
-          unit="%"
-          onChange={(v) => set("bgOpacity", v)}
+        <CaptionPreview style={style} sample={previewSample} />
+        <Switch
+          label={t("inspector.captions.wordHighlight")}
+          hint={t("inspector.captions.wordHighlight.hint")}
+          checked={style.wordHighlight}
+          onChange={(v) => set("wordHighlight", v)}
         />
+        {style.wordHighlight && (
+          <ColorField
+            label={t("inspector.common.highlight")}
+            value={style.highlightColor}
+            onChange={(v) => set("highlightColor", v)}
+          />
+        )}
         <div style={rowStyle}>
-          <span style={labelStyle}>Position</span>
-          <Segmented
-            name="captions-position"
-            size="sm"
+          <span style={{ color: "var(--text-2)" }}>{t("inspector.common.position")}</span>
+          <ChoiceRow
+            label={t("inspector.common.position")}
             value={style.position}
-            options={POSITION_OPTIONS}
+            options={POSITION_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
             onChange={(v) => set("position", v)}
           />
         </div>
         {style.position === "custom" && (
           <Slider
-            label="Y"
+            label={t("inspector.common.y")}
             value={style.customY}
             min={0}
             max={100}
@@ -511,49 +589,122 @@ export function CaptionsInspector(props: CaptionsInspectorProps): ReactElement {
             onChange={(v) => set("customY", v)}
           />
         )}
+        <div style={rowStyle}>
+          <label htmlFor="captions-font" style={{ color: "var(--text-2)", flex: "0 0 66px" }}>
+            {t("inspector.common.font")}
+          </label>
+          <span style={{ position: "relative", flex: "1 1 auto", minWidth: 0, display: "flex" }}>
+            <select
+              id="captions-font"
+              value={style.font}
+              onChange={(e) => {
+                if (e.target.value === ADD_FONT) onAddCustomFont?.();
+                else set("font", e.target.value);
+              }}
+              style={pillSelectStyle}
+            >
+              {(fonts.includes(style.font) ? fonts : [style.font, ...fonts]).map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+              {onAddCustomFont && (
+                <option value={ADD_FONT}>{t("inspector.captions.addFont")}</option>
+              )}
+            </select>
+            <span
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                right: "10px",
+                top: "50%",
+                transform: "translateY(-55%)",
+                color: "var(--text-3)",
+                pointerEvents: "none",
+              }}
+            >
+              ⌄
+            </span>
+          </span>
+        </div>
+        <Slider
+          label={t("inspector.common.size")}
+          value={style.sizePx}
+          min={12}
+          max={120}
+          unit="px"
+          onChange={(v) => set("sizePx", v)}
+        />
+        <ColorField
+          label={t("inspector.common.color")}
+          value={style.color}
+          onChange={(v) => set("color", v)}
+        />
+        <ColorField
+          label={t("inspector.common.background")}
+          value={style.bgColor}
+          onChange={(v) => set("bgColor", v)}
+        />
+        <Slider
+          label={t("inspector.captions.bgOpacity")}
+          value={style.bgOpacity}
+          min={0}
+          max={100}
+          unit="%"
+          onChange={(v) => set("bgOpacity", v)}
+        />
         <NumberField
-          label="Max lines"
+          label={t("inspector.captions.maxLines")}
           value={style.maxLines}
           min={1}
           max={3}
           onChange={(v) => set("maxLines", Math.round(v))}
         />
         <Switch
-          label="Word highlight"
-          hint="Karaoke — highlights the current word"
-          checked={style.wordHighlight}
-          onChange={(v) => set("wordHighlight", v)}
+          label={t("inspector.captions.uppercase")}
+          checked={style.uppercase}
+          onChange={(v) => set("uppercase", v)}
         />
-        {style.wordHighlight && (
-          <ColorField
-            label="Highlight"
-            value={style.highlightColor}
-            onChange={(v) => set("highlightColor", v)}
-          />
-        )}
-        <Switch label="Uppercase" checked={style.uppercase} onChange={(v) => set("uppercase", v)} />
       </Section>
 
       {/* ── Export ───────────────────────────────────────────── */}
-      <Section title="Export">
-        <Switch label="Burn into video" checked={burnIn} onChange={onBurnInChange} />
-        <div style={{ display: "flex", gap: "var(--space-2)" }}>
-          <Button variant="secondary" disabled={!hasExportable} onClick={onExportSrt}>
-            Export .srt
+      <div
+        role="group"
+        aria-label={t("inspector.captions.export")}
+        style={{
+          ...columnStyle("12px"),
+          paddingTop: "8px",
+          borderTop: "1px solid var(--border)",
+        }}
+      >
+        <Switch label={t("inspector.captions.burnIn")} checked={burnIn} onChange={onBurnInChange} />
+        <div style={{ display: "flex", gap: "8px" }}>
+          <Button
+            variant="secondary"
+            disabled={!hasExportable}
+            onClick={onExportSrt}
+            style={{ flex: "1 1 0" }}
+          >
+            {t("inspector.captions.exportSrt")}
           </Button>
-          <Button variant="secondary" disabled={!hasExportable} onClick={onExportVtt}>
-            Export .vtt
+          <Button
+            variant="secondary"
+            disabled={!hasExportable}
+            onClick={onExportVtt}
+            style={{ flex: "1 1 0" }}
+          >
+            {t("inspector.captions.exportVtt")}
           </Button>
         </div>
         {props.onImportSidecar && (
           <Button variant="ghost" disabled={busy} onClick={props.onImportSidecar}>
-            Import .srt/.vtt…
+            {t("inspector.captions.importButton")}
           </Button>
         )}
         {props.exportNotice ? (
           <output style={{ ...hintStyle, display: "block" }}>{props.exportNotice}</output>
         ) : null}
-      </Section>
+      </div>
     </div>
   );
 }

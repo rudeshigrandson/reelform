@@ -56,9 +56,7 @@ export function scoreCandidates(
  * Returns survivors sorted by time.
  */
 export function nonMaxSuppress(scored: readonly ScoredCandidate[]): ScoredCandidate[] {
-  const byScore = scored
-    .slice()
-    .sort((a, b) => b.score - a.score || a.tMs - b.tMs);
+  const byScore = scored.slice().sort((a, b) => b.score - a.score || a.tMs - b.tMs);
   const kept: ScoredCandidate[] = [];
   for (const c of byScore) {
     let suppressed = false;

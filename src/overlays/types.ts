@@ -18,8 +18,17 @@ export interface RegionSelectorProps {
   onCancel: () => void;
   /** Minimum rect size in px (both axes). Defaults to 32. */
   minSize?: number;
-  /** Guidance above the selection (guide S07). */
+  /** Guidance above the selection (guide S07). Defaults to the localized drag/Esc hint. */
   hint?: string | undefined;
+  /** Window rects (display-local) the selection edges snap to while dragging / resizing. */
+  snapTargets?: ReadonlyArray<Bounds> | undefined;
+}
+
+export interface SourceOutlineProps {
+  /** Display-local rect of the selected window source. */
+  bounds: Bounds;
+  /** e.g. "Figma — Onboarding.fig". */
+  label?: string | undefined;
 }
 
 export interface CountdownProps {
@@ -38,8 +47,14 @@ export interface WebcamBubbleProps {
   shape: BubbleShape;
   /** Initial top-left position within the parent. Defaults to {0,0}. */
   initialPosition?: { x: number; y: number };
-  /** Live feed / state content; defaults to a camera glyph placeholder. */
+  /** Live feed / state content; defaults to the "No camera" placeholder. */
   children?: import("react").ReactNode;
+  /** Mirrored preview: accent rim (guide S09). */
+  mirrored?: boolean | undefined;
+  /** No live feed: dashed sunken look. Defaults to `children === undefined`. */
+  empty?: boolean | undefined;
+  /** Controls on a gradient bar along the bottom edge (mirror, size, shape). */
+  controls?: import("react").ReactNode;
 }
 
 /** Fixture props for RegionSelector previews/tests. */

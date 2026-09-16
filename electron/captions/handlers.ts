@@ -25,7 +25,6 @@ export interface CaptionsDeps extends TranscribeDeps {
   fetch: FetchLike;
   downloadFs: DownloadFs;
   createHash(): Hasher;
-  allowUnverified?: boolean | undefined;
   /** Resolved lazily so a missing runtime only fails transcription. */
   resolveWhisperBinary(): string | null;
   emit(event: CaptionsProgress): void;
@@ -87,7 +86,7 @@ export function createCaptionsHandlers(deps: CaptionsDeps): CaptionsHandlers {
           fetch: deps.fetch,
           fs: deps.downloadFs,
           createHash: deps.createHash,
-          allowUnverified: deps.allowUnverified,
+          // Every catalog entry pins a sha256; verification is never waived here.
         },
       );
       return {
@@ -129,12 +128,12 @@ export function createCaptionsHandlers(deps: CaptionsDeps): CaptionsHandlers {
       const existing = inFlight.get(spec.id);
       if (existing) return existing.promise;
       if (await deps.fs.exists(modelPath(spec))) {
-        // Files only land at the final path after verification, so this is
-        // verified exactly when the catalog pins a checksum.
+        // Files only land at the final path after sha256 verification, and
+        // every catalog entry pins a checksum.
         return {
           model: spec.id,
           path: modelPath(spec),
-          verified: spec.sha256 !== null,
+          verified: true,
           alreadyInstalled: true,
         };
       }

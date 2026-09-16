@@ -62,6 +62,8 @@ export interface BufferSourceLike extends AudioNodeLike {
   loopEnd: number;
   readonly playbackRate: AudioParamLike;
   start(when?: number, offset?: number, duration?: number): void;
+  /** Present on real sources; the live preview stops scheduled sources on pause. */
+  stop?(when?: number): void;
 }
 
 export interface CompressorLike extends AudioNodeLike {
@@ -87,6 +89,25 @@ export interface ProcessorSlot {
 }
 
 export type ProcessorFactory = (ctx: AudioContextLike) => ProcessorSlot;
+
+/**
+ * Processors backed by an AudioWorklet (RNNoise) must load their module into
+ * each context before the graph is built; until then they pass audio through.
+ * Resolves true when the factory is ready for `ctx` (or needs no preparation).
+ */
+export async function prepareProcessor(
+  factory: ProcessorFactory | null | undefined,
+  ctx: AudioContextLike,
+): Promise<boolean> {
+  const prepare = (factory as { prepare?: (c: AudioContextLike) => Promise<boolean> } | null)
+    ?.prepare;
+  if (!factory || typeof prepare !== "function") return true;
+  try {
+    return await prepare.call(factory, ctx);
+  } catch {
+    return false;
+  }
+}
 
 /** Extra region with the §4 source offset (ms into the file at startMs). */
 export type GraphAudioRegion = AudioRegion & { offsetMs?: number | undefined };

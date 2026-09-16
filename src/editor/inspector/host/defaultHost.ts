@@ -1,5 +1,6 @@
 import { useProjectSession } from "../../../app/project/session";
 import { useEditorStore } from "../../store";
+import { type InspectorMessageKey, ti } from "../i18n";
 import type { CaptionsPort, InspectorHost } from "./types";
 
 /**
@@ -10,20 +11,21 @@ import type { CaptionsPort, InspectorHost } from "./types";
 
 export class HostUnavailableError extends Error {
   readonly code = "host-unavailable";
+  /** `what` is the already-translated feature name, e.g. "Transcription". */
   constructor(what: string) {
-    super(`${what} isn't available in this window.`);
+    super(ti("inspector.host.unavailable", { what }));
     this.name = "HostUnavailableError";
   }
 }
 
-const unavailable = (what: string) => (): Promise<never> =>
-  Promise.reject(new HostUnavailableError(what));
+const unavailable = (what: InspectorMessageKey) => (): Promise<never> =>
+  Promise.reject(new HostUnavailableError(ti(what)));
 
 export const noopCaptionsPort: CaptionsPort = {
   models: () => Promise.resolve([]),
-  download: unavailable("Model download"),
+  download: unavailable("inspector.host.feature.modelDownload"),
   cancelDownload: () => Promise.resolve(),
-  transcribe: unavailable("Transcription"),
+  transcribe: unavailable("inspector.host.feature.transcription"),
   onProgress: () => () => {},
 };
 
@@ -38,12 +40,12 @@ export function createDefaultInspectorHost(overrides: Partial<InspectorHost> = {
   return {
     pickFile: () => Promise.resolve(null),
     saveFile: () => Promise.resolve(null),
-    readTextFile: unavailable("Reading files"),
+    readTextFile: unavailable("inspector.host.feature.readingFiles"),
     reveal: () => Promise.resolve(),
-    importMedia: unavailable("Importing media"),
-    relinkMedia: unavailable("Relinking media"),
+    importMedia: unavailable("inspector.host.feature.importingMedia"),
+    relinkMedia: unavailable("inspector.host.feature.relinkingMedia"),
     trimSource: () => Promise.resolve(null),
-    deleteProject: unavailable("Deleting projects"),
+    deleteProject: unavailable("inspector.host.feature.deletingProjects"),
     statSources: () => Promise.resolve({}),
     decodeAudio: () => Promise.resolve(null),
     captions: noopCaptionsPort,

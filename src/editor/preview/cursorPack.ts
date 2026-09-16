@@ -26,7 +26,7 @@ export const CURSOR_TYPES = [
 
 /** Pack box size when `pack.json` omits `size`. */
 export const DEFAULT_PACK_SIZE = 32;
-export const CURSOR_PACK_BASE_URL = "/cursors";
+export const CURSOR_PACK_BASE_URL = "./cursors";
 
 export interface CursorPack {
   id: string;

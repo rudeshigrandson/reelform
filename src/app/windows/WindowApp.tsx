@@ -9,7 +9,8 @@ import {
 import type { InspectorHost } from "../../editor/inspector/host/types";
 import { type History, createDocumentUpdate } from "../../editor/state";
 import type { EditorState } from "../../editor/store";
-import { ProjectsContainer } from "../../projects/ProjectsContainer";
+import { I18nProvider } from "../../i18n";
+import type { LauncherDefaults } from "../../launcher/types";
 import { browserCaptureDeps, startCapture } from "../../recording";
 import type { Platform } from "../../recording/constraints";
 import { WindowRoot } from "../../router";
@@ -18,27 +19,32 @@ import { ExportController, createIpcSystemPort as createExportSystemPort } from 
 import { createInspectorHost } from "../inspector/createInspectorHost";
 import { createMetaUpdate } from "../inspector/historyAdapters";
 import { getAppVersion, invoke } from "../ipc";
+import { EditorErrorBoundary } from "../project/EditorErrorBoundary";
 import { ProjectEditor } from "../project/ProjectEditor";
 import {
   CountdownContainer,
   HudContainer,
   LauncherContainer,
   RegionOverlayContainer,
+  SourceOutlineContainer,
   type SourcesResult,
   WebcamBubbleContainer,
   createBroadcastRecordingBus,
+  createBrowserPreRecordDeps,
   createIpcProjectPort,
   createIpcRecordingPort,
   createIpcWindowsPort,
   createRecordingFlow,
   createIpcSystemPort as createRecordingSystemPort,
+  launcherDefaultsFromSettings,
+  launcherDefaultsKey,
 } from "../recording";
 import {
   AppShortcutsProvider,
-  LauncherUpdateNotice,
   OnboardingGate,
   SettingsWindow,
   useAppSettings,
+  useLauncherUpdateNotices,
   useSyncedSettings,
   useUpdater,
 } from "../settings";
@@ -61,10 +67,19 @@ const glyphPlatform = (p: Platform): InspectorHost["platform"] =>
 
 const PLATFORM = detectPlatform(typeof navigator === "undefined" ? "" : navigator.userAgent);
 
-/** Settings sync + appearance for any window; renders children once settings exist. */
+/** Settings sync + appearance + UI language for any window. */
 function WithSettings({ children }: { children: ReactElement }): ReactElement {
-  useSyncedSettings();
-  return children;
+  const { settings } = useSyncedSettings();
+  return <I18nProvider language={settings.language}>{children}</I18nProvider>;
+}
+
+/** Recording choices from Settings (S05/S24), stable until one of them changes. */
+function useRecordingDefaults(): LauncherDefaults {
+  const settings = useAppSettings((s) => s.settings);
+  const defaults = launcherDefaultsFromSettings(settings);
+  const key = launcherDefaultsKey(defaults);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` is the identity of `defaults`
+  return useMemo(() => defaults, [key]);
 }
 
 function useAppVersion(): string | null {
@@ -85,22 +100,29 @@ function useAppVersion(): string | null {
   return version;
 }
 
-const launcherLayout: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-  gap: "var(--space-4)",
-  height: "100%",
+const launcherPane: CSSProperties = {
+  flex: "1 1 auto",
   minHeight: 0,
-  padding: "var(--space-4)",
-  boxSizing: "border-box",
+  overflow: "auto",
   background: "var(--bg-app)",
   color: "var(--text-1)",
 };
 
-const paneStyle: CSSProperties = { minHeight: 0, overflow: "auto" };
+/** Main adds `titleBar=inset` to a macOS `hiddenInset` window's URL (never on Windows/Linux). */
+export function hasInsetTitleBarQuery(search: string): boolean {
+  return new URLSearchParams(search).get("titleBar") === "inset";
+}
 
-function LauncherWindow({ appVersion }: { appVersion: string }): ReactElement {
+function LauncherWindow({
+  appVersion,
+  insetTitleBar,
+}: {
+  appVersion: string;
+  insetTitleBar: boolean;
+}): ReactElement {
   const updater = useUpdater();
+  const updateNotices = useLauncherUpdateNotices(updater);
+  const defaults = useRecordingDefaults();
   const deps = useMemo(() => {
     const port = createIpcRecordingPort();
     const windows = createIpcWindowsPort();
@@ -147,26 +169,34 @@ function LauncherWindow({ appVersion }: { appVersion: string }): ReactElement {
   return (
     <OnboardingGate appVersion={appVersion}>
       <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-        <LauncherUpdateNotice updater={updater} />
-        <div style={launcherLayout}>
-          <div style={paneStyle}>
-            <LauncherContainer
-              flow={deps.flow}
-              port={deps.port}
-              enumerateDevices={() => navigator.mediaDevices.enumerateDevices()}
-              platform={PLATFORM}
-              system={deps.system}
-              onSources={deps.setSources}
-              onOpenSettings={() => void invoke("windows:openSettings", undefined)}
-            />
-          </div>
-          <div style={paneStyle}>
-            <ProjectsContainer invoke={invoke} onNewRecording={() => {}} />
-          </div>
+        {/* S04: the launcher owns the whole window — sidebar + project shelf. The
+            update strip is one of its notices, so it sits inside the inset title bar. */}
+        <div style={launcherPane}>
+          <LauncherContainer
+            flow={deps.flow}
+            port={deps.port}
+            enumerateDevices={() => navigator.mediaDevices.enumerateDevices()}
+            platform={PLATFORM}
+            system={deps.system}
+            defaults={defaults}
+            onSources={deps.setSources}
+            onOpenSettings={() => void invoke("windows:openSettings", undefined)}
+            projectInvoke={invoke}
+            version={appVersion}
+            insetTitleBar={insetTitleBar}
+            extraNotices={updateNotices}
+          />
         </div>
       </div>
     </OnboardingGate>
   );
+}
+
+/** Error screen "Back to projects": bring up the launcher, then close this editor. */
+function editorBackToProjects(): void {
+  void invoke("windows:openLauncher", undefined)
+    .catch(() => null)
+    .finally(() => window.close());
 }
 
 function EditorRoute({ projectId }: { projectId: string }): ReactElement {
@@ -224,7 +254,11 @@ function useOverlayPorts() {
 
 function HudWindow(): ReactElement {
   const { port, bus } = useOverlayPorts();
-  return <HudContainer port={port} bus={bus} />;
+  const defaults = useRecordingDefaults();
+  // One set of Electron bindings (one HUD window port); defaults refresh on top of it.
+  const base = useMemo(() => createBrowserPreRecordDeps(), []);
+  const preRecord = useMemo(() => (base ? { ...base, defaults } : null), [base, defaults]);
+  return <HudContainer port={port} bus={bus} preRecord={preRecord} />;
 }
 
 function CountdownWindow(): ReactElement {
@@ -233,8 +267,20 @@ function CountdownWindow(): ReactElement {
 }
 
 function RegionOverlayWindow({ displayId }: { displayId: string }): ReactElement {
-  const { bus, windows } = useOverlayPorts();
-  return <RegionOverlayContainer displayId={displayId} bus={bus} windows={windows} />;
+  const { port, bus, windows } = useOverlayPorts();
+  return (
+    <RegionOverlayContainer
+      displayId={displayId}
+      bus={bus}
+      windows={windows}
+      listSources={() => port.listSources()}
+    />
+  );
+}
+
+function SourceOutlineWindow({ displayId }: { displayId: string }): ReactElement {
+  const { bus } = useOverlayPorts();
+  return <SourceOutlineContainer displayId={displayId} bus={bus} />;
 }
 
 function WebcamBubbleWindow(): ReactElement {
@@ -264,12 +310,24 @@ export function WindowApp({ search }: WindowAppProps): ReactElement {
       renderers={{
         launcher: () => (
           <WithSettings>
-            {appVersion === null ? <div /> : <LauncherWindow appVersion={appVersion} />}
+            {appVersion === null ? (
+              <div />
+            ) : (
+              <LauncherWindow
+                appVersion={appVersion}
+                insetTitleBar={hasInsetTitleBarQuery(
+                  search ?? (typeof window === "undefined" ? "" : window.location.search),
+                )}
+              />
+            )}
           </WithSettings>
         ),
         editor: (route) => (
           <WithSettings>
-            <EditorRoute projectId={route.projectId} />
+            {/* A render error must never leave the editor window blank. */}
+            <EditorErrorBoundary onBack={editorBackToProjects}>
+              <EditorRoute projectId={route.projectId} />
+            </EditorErrorBoundary>
           </WithSettings>
         ),
         settings: () => (
@@ -295,6 +353,11 @@ export function WindowApp({ search }: WindowAppProps): ReactElement {
         "webcam-bubble": () => (
           <WithSettings>
             <WebcamBubbleWindow />
+          </WithSettings>
+        ),
+        "source-outline": (route) => (
+          <WithSettings>
+            <SourceOutlineWindow displayId={route.displayId} />
           </WithSettings>
         ),
       }}

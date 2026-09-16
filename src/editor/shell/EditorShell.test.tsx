@@ -102,7 +102,10 @@ describe("EditorShell", () => {
         />,
       );
       expect(screen.getByTestId("playback-slot")).toBeInTheDocument();
-      expect(screen.getByTestId("editor-shell").style.gridTemplateRows).toBe("56px 1fr 44px 260px");
+      expect(screen.getByTestId("editor-shell").style.gridTemplateRows).toBe("48px 1fr 44px 260px");
+      expect(screen.getByTestId("editor-shell").style.gridTemplateColumns).toBe(
+        "minmax(0, 1fr) 320px",
+      );
       // Transport lives in the bar; the top bar must not duplicate Play.
       expect(screen.queryByRole("button", { name: "Play" })).toBeNull();
     });
@@ -214,7 +217,8 @@ describe("EditorShell", () => {
       );
       const shell = screen.getByTestId("editor-shell");
       expect(shell.dataset.layout).toBe("narrow");
-      expect(shell.style.gridTemplateRows).toBe("56px 1fr 44px 180px");
+      expect(shell.style.gridTemplateRows).toBe("44px 1fr 40px 180px");
+      expect(shell.style.gridTemplateColumns).toBe("minmax(0, 1fr) 48px");
       expect(screen.queryByRole("tabpanel")).toBeNull();
       expect(screen.getAllByRole("tab")).toHaveLength(9);
 
@@ -245,7 +249,7 @@ describe("EditorShell", () => {
       try {
         render(<EditorShell {...sampleEditorShellProps} />);
         expect(screen.getByTestId("editor-shell").dataset.layout).toBe("narrow");
-        expect(screen.getByTestId("editor-shell").style.gridTemplateRows).toBe("56px 1fr 180px");
+        expect(screen.getByTestId("editor-shell").style.gridTemplateRows).toBe("44px 1fr 180px");
       } finally {
         window.matchMedia = original;
       }

@@ -4,6 +4,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Heavy screens are stubbed: this test covers routing and wiring, not the screens.
 const projectEditorProps = vi.fn();
+const launcherProps = vi.fn();
+const hudProps = vi.fn();
+const i18nLanguages = vi.fn();
+const recordingSettings = {
+  undoHistorySize: 150,
+  defaultSource: "window",
+  defaultFps: 60,
+  defaultCountdown: 5,
+  defaultMicId: "mic-2",
+  defaultCameraId: null,
+  defaultSystemAudio: false,
+  hideCursorByDefault: true,
+};
 const exportControllerProps = vi.fn();
 
 vi.mock("../ipc", () => ({
@@ -13,14 +26,22 @@ vi.mock("../ipc", () => ({
   isBridged: () => true,
 }));
 
+vi.mock("../../i18n", () => ({
+  I18nProvider: ({ language, children }: { language: string; children: ReactNode }) => {
+    i18nLanguages(language);
+    return <div data-testid="i18n">{children}</div>;
+  },
+}));
+
 vi.mock("../settings", () => ({
-  useSyncedSettings: () => ({ settings: { theme: "system" } }),
+  useSyncedSettings: () => ({ settings: { theme: "system", language: "de" } }),
   useAppSettings: Object.assign(
-    (sel: (s: { settings: { undoHistorySize: number } }) => unknown) =>
-      sel({ settings: { undoHistorySize: 150 } }),
+    (sel: (s: { settings: typeof recordingSettings }) => unknown) =>
+      sel({ settings: recordingSettings }),
     { getState: () => ({ settings: { openEditorAfterRecording: true } }) },
   ),
   useUpdater: () => ({ state: null }),
+  useLauncherUpdateNotices: () => [{ id: "update", tone: "info", message: "update ready" }],
   LauncherUpdateNotice: () => <div data-testid="update-notice" />,
   OnboardingGate: ({ children }: { children: ReactNode }) => (
     <div data-testid="onboarding-gate">{children}</div>
@@ -36,6 +57,7 @@ vi.mock("../settings", () => ({
 vi.mock("../project/ProjectEditor", () => ({
   ProjectEditor: (props: Record<string, unknown>) => {
     projectEditorProps(props);
+    if (props.projectId === "p-crash") throw new Error("editor exploded");
     return <div data-testid="project-editor">editor {String(props.projectId)}</div>;
   },
 }));
@@ -52,11 +74,8 @@ vi.mock("../../shortcuts/ShortcutsOverlay", () => ({
   ShortcutsOverlayHost: () => <div data-testid="shortcuts-overlay" />,
 }));
 
-vi.mock("../../projects/ProjectsContainer", () => ({
-  ProjectsContainer: () => <div data-testid="projects" />,
-}));
-
 const flowDispose = vi.fn();
+const actualDefaults = await vi.hoisted(async () => import("../recording/settingsDefaults"));
 vi.mock("../recording", () => {
   const bus = () => ({ post: () => {}, subscribe: () => () => {}, close: () => {} });
   return {
@@ -66,8 +85,20 @@ vi.mock("../recording", () => {
     createIpcSystemPort: () => ({}),
     createBroadcastRecordingBus: bus,
     createRecordingFlow: () => ({ dispose: flowDispose }),
-    LauncherContainer: () => <div data-testid="launcher" />,
-    HudContainer: () => <div data-testid="hud" />,
+    LauncherContainer: (props: Record<string, unknown>) => {
+      launcherProps(props);
+      return <div data-testid="launcher" />;
+    },
+    HudContainer: (props: Record<string, unknown>) => {
+      hudProps(props);
+      return <div data-testid="hud" />;
+    },
+    SourceOutlineContainer: ({ displayId }: { displayId: string }) => (
+      <div data-testid="source-outline">outline {displayId}</div>
+    ),
+    createBrowserPreRecordDeps: () => ({ platform: "darwin", windows: {} }),
+    launcherDefaultsFromSettings: actualDefaults.launcherDefaultsFromSettings,
+    launcherDefaultsKey: actualDefaults.launcherDefaultsKey,
     CountdownContainer: () => <div data-testid="countdown" />,
     RegionOverlayContainer: ({ displayId }: { displayId: string }) => (
       <div data-testid="region-overlay">region {displayId}</div>
@@ -82,7 +113,7 @@ vi.mock("../inspector/createInspectorHost", () => ({
   createInspectorHost: vi.fn((deps: unknown) => ({ deps })),
 }));
 
-const { WindowApp, detectPlatform } = await import("./WindowApp");
+const { WindowApp, detectPlatform, hasInsetTitleBarQuery } = await import("./WindowApp");
 
 beforeEach(() => {
   projectEditorProps.mockClear();
@@ -90,12 +121,26 @@ beforeEach(() => {
 });
 
 describe("WindowApp routing", () => {
-  it("launcher: onboarding gate wraps the update notice, recorder and projects", async () => {
+  it("launcher: onboarding gate wraps the full-window launcher, which hosts the update notice", async () => {
     render(<WindowApp search="?window=launcher" />);
     const gate = await screen.findByTestId("onboarding-gate");
     expect(gate).toContainElement(screen.getByTestId("launcher"));
-    expect(gate).toContainElement(screen.getByTestId("projects"));
-    expect(gate).toContainElement(screen.getByTestId("update-notice"));
+    // The update strip goes through the launcher's notices, not a banner above it.
+    expect(screen.queryByTestId("update-notice")).toBeNull();
+    expect(launcherProps.mock.lastCall?.[0]).toMatchObject({
+      extraNotices: [{ id: "update", tone: "info" }],
+    });
+    // S04: the project shelf lives inside the launcher, not a second pane.
+    expect(screen.queryByTestId("projects")).toBeNull();
+    // No `titleBar=inset` query (Windows / Linux) → no inset strip.
+    expect(launcherProps.mock.lastCall?.[0]).toMatchObject({ insetTitleBar: false });
+  });
+
+  it("launcher: main's titleBar=inset query turns on the inset strip", async () => {
+    render(<WindowApp search="?window=launcher&titleBar=inset" />);
+    await screen.findByTestId("launcher");
+    expect(launcherProps.mock.lastCall?.[0]).toMatchObject({ insetTitleBar: true });
+    expect(hasInsetTitleBarQuery("?window=launcher&titleBar=hidden")).toBe(false);
   });
 
   it("unknown or missing window kinds fall back to the launcher", async () => {
@@ -123,6 +168,17 @@ describe("WindowApp routing", () => {
     expect(exportControllerProps.mock.lastCall?.[0]).toMatchObject({ open: false });
   });
 
+  it("editor: a render crash shows a visible error screen, not a blank window", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<WindowApp search="?window=editor&projectId=p-crash" />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Something went wrong in the editor");
+    expect(alert).toHaveTextContent("editor exploded");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back to projects" })).toBeInTheDocument();
+    error.mockRestore();
+  });
+
   it("editor inspector host factory is stable across re-renders", async () => {
     const { rerender } = render(<WindowApp search="?window=editor&projectId=p-1" />);
     await screen.findByTestId("project-editor");
@@ -145,6 +201,7 @@ describe("WindowApp routing", () => {
       ["?window=countdown", "countdown"],
       ["?window=region-overlay&displayId=d-2", "region-overlay"],
       ["?window=webcam-bubble", "webcam-bubble"],
+      ["?window=source-outline&displayId=d-3", "source-outline"],
     ];
     for (const [search, testId] of cases) {
       const { unmount } = render(<WindowApp search={search} />);
@@ -153,6 +210,46 @@ describe("WindowApp routing", () => {
     }
     render(<WindowApp search="?window=region-overlay&displayId=d-2" />);
     expect(await screen.findByText("region d-2")).toBeInTheDocument();
+  });
+});
+
+describe("WindowApp settings wiring", () => {
+  const expected = {
+    mode: "window",
+    fps: 60,
+    countdown: 5,
+    mic: true,
+    micDeviceId: "mic-2",
+    webcam: false,
+    systemAudio: false,
+    hideCursor: true,
+  };
+
+  it("mounts the i18n provider with the settings language", async () => {
+    render(<WindowApp search="?window=settings" />);
+    const provider = await screen.findByTestId("i18n");
+    expect(provider).toContainElement(screen.getByTestId("settings-window"));
+    expect(i18nLanguages).toHaveBeenLastCalledWith("de");
+  });
+
+  it("passes recording defaults from Settings to the launcher and the HUD pre-record deps", async () => {
+    render(<WindowApp search="?window=launcher" />);
+    await screen.findByTestId("launcher");
+    expect(launcherProps.mock.lastCall?.[0]).toMatchObject({ defaults: expected });
+
+    render(<WindowApp search="?window=hud" />);
+    await screen.findByTestId("hud");
+    const pre = (hudProps.mock.lastCall?.[0] as { preRecord: Record<string, unknown> }).preRecord;
+    expect(pre).toMatchObject({ platform: "darwin", defaults: expected });
+  });
+
+  it("keeps the same defaults object while settings are unchanged", async () => {
+    const { rerender } = render(<WindowApp search="?window=hud" />);
+    await screen.findByTestId("hud");
+    const first = (hudProps.mock.lastCall?.[0] as { preRecord: unknown }).preRecord;
+    rerender(<WindowApp search="?window=hud" />);
+    const second = (hudProps.mock.lastCall?.[0] as { preRecord: unknown }).preRecord;
+    expect(second).toBe(first);
   });
 });
 

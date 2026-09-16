@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { bufferBlockSource } from "../../export/engine/audio";
 import type { ExportProgress } from "../../export/engine/progress";
 import { StreamingDecoder } from "../../export/engine/streamingDecoder";
 import {
@@ -34,7 +35,9 @@ function setup(wc: FakeWebCodecsOptions = {}, withAudio = true) {
     videoUrl: "reelform-media://root/video.mp4",
     renderAudio: async (a) => {
       audioCalls.push(a);
-      return withAudio ? fakeAudioBuffer(Math.round((a.outputDurationMs * 48_000) / 1000)) : null;
+      return withAudio
+        ? bufferBlockSource(fakeAudioBuffer(Math.round((a.outputDurationMs * 48_000) / 1000)))
+        : null;
     },
     now: () => {
       clock += 2;
@@ -82,7 +85,7 @@ describe("video route wiring", () => {
     expect(t.audioCalls).toHaveLength(1);
     expect(t.audioCalls[0]?.outputDurationMs).toBeCloseTo(2500, 6);
     expect(res).toMatchObject({ path: "/exports/Demo.mp4", encoder: "hardware", attempts: 1 });
-    expect(res.pcmWav).toBeNull();
+    expect(res.pcmAudio).toBeNull();
     expect(sink.events).toEqual(["begin", "finish"]);
     expect(t.muxers[0]?.opts.audio).toMatchObject({ codec: "aac", numberOfChannels: 2 });
     expect(t.muxers[0]?.video).toHaveLength(75);
@@ -103,7 +106,7 @@ describe("video route wiring", () => {
   it("returns the PCM WAV fallback when AAC is unavailable", async () => {
     const t = setup({ aacSupported: false });
     const res = await t.route(args(new FakeFlowSink()));
-    expect(res.pcmWav?.byteLength).toBeGreaterThan(44);
+    expect(res.pcmAudio?.length).toBe(Math.round((2500 * 48_000) / 1000));
     expect(t.muxers[0]?.opts.audio).toBeNull();
   });
 

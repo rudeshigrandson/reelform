@@ -43,6 +43,8 @@ export interface RenderTimelineInput {
    * `durationMs` + post-roll.
    */
   build: (ctx: OfflineAudioContextLike, range: RenderRange) => void;
+  /** Awaited on each fresh block context before `build` (e.g. AudioWorklet module load). */
+  prepareContext?: ((ctx: OfflineAudioContextLike) => Promise<unknown>) | undefined;
   sampleRate?: number | undefined;
   blockMs?: number | undefined;
   /** Discarded lead-in rendered before each block (default {@link RENDER_PRE_ROLL_MS}). */
@@ -93,6 +95,10 @@ export async function* renderTimelineBlocks(
       startMs: (renderStart * 1000) / sampleRate,
       endMs: ((renderStart + renderLength) * 1000) / sampleRate,
     };
+    if (input.prepareContext) {
+      await input.prepareContext(ctx);
+      if (input.signal?.aborted) throw new DOMException("Audio render aborted", "AbortError");
+    }
     input.build(ctx, range);
     const buf = await ctx.startRendering();
     const left = new Float32Array(length);

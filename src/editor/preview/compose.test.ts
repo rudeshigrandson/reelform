@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_CURSOR_SETTINGS } from "../inspector/cursor/types";
 import { DEFAULT_EFFECTS_SETTINGS } from "../inspector/effects/types";
 import { DEFAULT_FRAME_SETTINGS } from "../inspector/frame/types";
+import { DEFAULT_ZOOM_SETTINGS } from "../inspector/zoom/types";
 import type { Clip } from "../model/schema";
+import { cameraFollowPath } from "./camera";
 import { grainSeed } from "./colorEffects";
 import { type ComposeInput, composeScene, createComposedSceneEvaluator } from "./compose";
 import { RIPPLE_MS, buildCursorMotion } from "./cursorEffects";
 import { buildSmoothedCursorTrack } from "./cursorSmoothing";
+import { sourceTimeAt } from "./timeMapping";
 
 // Cursor moves linearly across the source: x = tMs / 10_000.
 const points = Array.from({ length: 11 }, (_, i) => ({ tMs: i * 1000, x: i / 10, y: 0.5 }));
@@ -63,7 +66,55 @@ describe("composeScene", () => {
       source: "manual" as const,
     };
     const s = composeScene(input({ clips, zoomRegions: [zoom] }), 2500);
-    expect(s.camera.focus.x).toBeCloseTo(track.positionAt(6500).x, 3);
+    // Timeline 2500 = source 6500 inside clip b; the smoothed path lags only slightly.
+    expect(Math.abs(s.camera.focus.x - track.positionAt(6500).x)).toBeLessThan(0.02);
+    const followed = cameraFollowPath(zoom, track, DEFAULT_ZOOM_SETTINGS.camera, (t) =>
+      sourceTimeAt(clips, t),
+    ).positionAt(2500);
+    expect(s.camera.focus.x).toBeCloseTo(followed.x, 10);
+    // Repeated frames reuse the same cached path (stable per clips array).
+    expect(composeScene(input({ clips, zoomRegions: [zoom] }), 2500)).toEqual(s);
+  });
+
+  it("passes effects.motion and effects.transition through to the scene", () => {
+    const effects = structuredClone(DEFAULT_EFFECTS_SETTINGS);
+    effects.motion = { tilt3d: false, parallax: true };
+    effects.transition = { kind: "cross-dissolve", durationMs: 1000 };
+    const s = composeScene(input({ clips, effects }), 1500);
+    expect(s.background.scale).toBeGreaterThan(1);
+    expect(s.transition).toMatchObject({
+      kind: "cross-dissolve",
+      boundaryMs: 2000,
+      incomingClipId: "b",
+      incomingSourceMs: 6000,
+    });
+    expect(s.transition?.mix).toBeCloseTo(0.5, 10);
+    // Export evaluator sees the same transition.
+    expect(createComposedSceneEvaluator(input({ clips, effects }))(1500)).toEqual(s);
+    expect(composeScene(input({ clips }), 1500).transition).toBeNull();
+    expect(composeScene(input({ effects }), 1500).transition).toBeNull();
+  });
+
+  it("scale with zoom keeps click effects at unzoomed size", () => {
+    const zoom = {
+      id: "z",
+      startMs: 0,
+      endMs: 5000,
+      level: 2,
+      focus: { mode: "fixed" as const, x: 0.5, y: 0.5 },
+      easeInMs: 0,
+      easeOutMs: 0,
+      curve: "linear" as const,
+      source: "manual" as const,
+    };
+    const motion = buildCursorMotion({ points, clicks: [[1000, 0.5, 0.5, "left", "down"]] });
+    const cursor = { ...structuredClone(DEFAULT_CURSOR_SETTINGS), scaleWithZoom: true };
+    const grown = composeScene(input({ motion, cursor, zoomRegions: [zoom] }), 1100);
+    const kept = composeScene(input({ motion, zoomRegions: [zoom] }), 1100);
+    expect(grown.composition?.cursor.clicks[0]?.lineWidth).toBeCloseTo(
+      2 * (kept.composition?.cursor.clicks[0]?.lineWidth ?? 0),
+      10,
+    );
   });
 
   it("loop mode returns the cursor to its t=0 position at the end", () => {

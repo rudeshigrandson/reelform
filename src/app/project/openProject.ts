@@ -1,5 +1,7 @@
 import type { ChannelName, IpcError, RequestOf, ResponseOf } from "@contracts";
 import type { StoreApi, UseBoundStore } from "zustand";
+import { registerProjectFonts } from "../../editor/captions/fonts";
+import { peaksFromAudio } from "../../editor/inspector/host/audioPeaks";
 import type { MediaSourceV1, ProjectV1 } from "../../editor/model/v1";
 import { migrate } from "../../editor/model/v1";
 import {
@@ -38,7 +40,18 @@ export interface ProjectMediaPort {
   fetchBytes(url: string): Promise<Uint8Array>;
   /** gunzip (renderer: `DecompressionStream`). */
   decompress(bytes: Uint8Array): Promise<Uint8Array>;
+  /** Decode a media file's audio to PCM (timeline waveform); omitted → no waveform. */
+  decodeAudio?:
+    | ((url: string) => Promise<{ channels: readonly Float32Array[] } | null>)
+    | undefined;
 }
+
+/** Filmstrip thumbnails: one every 2s of source at 160px height (SPEC §6.7). */
+export const THUMBNAIL_INTERVAL_MS = 2000;
+export const THUMBNAIL_HEIGHT_PX = 160;
+/** Waveform resolution: one peak bucket per 10ms of source, capped. */
+export const WAVEFORM_BUCKET_MS = 10;
+export const WAVEFORM_MAX_BUCKETS = 200_000;
 
 export type RecoveryInfo = ResponseOf<"project:recovery">["recovery"];
 
@@ -60,7 +73,22 @@ export interface OpenProjectDeps {
   stores?: ProjectStores | undefined;
   /** Abort when the window navigates to another project mid-load. */
   signal?: AbortSignal | undefined;
+  /**
+   * Waits before re-asking `project:resolve` after PROJECT_NOT_FOUND. An editor
+   * opened right after a recording can reach main before the library knows the
+   * new folder; only when every retry misses is the project "not found".
+   * Defaults to {@link RESOLVE_RETRY_DELAYS_MS}; `[]` disables retries.
+   */
+  resolveRetryDelaysMs?: readonly number[] | undefined;
+  /** Timer for the retry waits (tests). */
+  sleep?: ((ms: number) => Promise<void>) | undefined;
 }
+
+/** Back-off between `project:resolve` retries (~1.7s in total before "not found"). */
+export const RESOLVE_RETRY_DELAYS_MS: readonly number[] = [200, 500, 1000];
+
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 export type OpenProjectResult =
   | {
@@ -251,6 +279,27 @@ async function isOnline(url: string | null, media: ProjectMediaPort): Promise<bo
   }
 }
 
+/** `project:resolve`, retried while main reports PROJECT_NOT_FOUND; null when aborted mid-wait. */
+async function resolveProjectPath(
+  projectId: string,
+  deps: OpenProjectDeps,
+  aborted: () => boolean,
+): Promise<{ path: string } | null> {
+  const delays = deps.resolveRetryDelaysMs ?? RESOLVE_RETRY_DELAYS_MS;
+  const sleep = deps.sleep ?? defaultSleep;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return required(await deps.invoke("project:resolve", { projectId }), "Opening projects");
+    } catch (err) {
+      const delay = delays[attempt];
+      if (delay === undefined || err instanceof OpenError) throw err;
+      if (!NOT_FOUND_CODES.has(toIpcErrorShape(err).code)) throw err;
+      await sleep(delay);
+      if (aborted()) return null;
+    }
+  }
+}
+
 export async function openProject(
   projectId: string,
   deps: OpenProjectDeps,
@@ -262,11 +311,9 @@ export async function openProject(
   session.getState().setSession({ status: "loading", projectId });
   const rootIds: string[] = [];
   try {
-    const { path } = required(
-      await deps.invoke("project:resolve", { projectId }),
-      "Opening projects",
-    );
-    if (aborted()) return { status: "aborted" };
+    const resolved = await resolveProjectPath(projectId, deps, aborted);
+    if (resolved === null || aborted()) return { status: "aborted" };
+    const { path } = resolved;
     const opened = required(await deps.invoke("project:open", { path }), "Opening projects");
     if (aborted()) return { status: "aborted" };
 
@@ -292,6 +339,12 @@ export async function openProject(
       status: "ready",
       error: null,
     });
+    void registerProjectFonts(
+      media.mediaBaseUrl,
+      stores.editor.getState().captionStyle.customFonts ?? [],
+    );
+    // Proxy, filmstrip and waveform never block opening (§6.1).
+    void loadDerivedMedia(project.id, { ...deps, stores });
     return {
       status: "ready",
       path: opened.path,
@@ -307,6 +360,130 @@ export async function openProject(
     return NOT_FOUND_CODES.has(error.code)
       ? { status: "not-found", error }
       : { status: "error", error };
+  }
+}
+
+/**
+ * Background media derived from the source (SPEC §6.1 boot, §6.3, §6.7): the
+ * preview proxy, filmstrip thumbnails and waveform peaks. Each piece lands in
+ * the session on its own as soon as it is ready; failures leave it empty. A
+ * piece that finishes after the window moved to another project is dropped.
+ */
+export async function loadDerivedMedia(
+  projectId: string,
+  deps: Pick<OpenProjectDeps, "invoke" | "media" | "stores" | "signal">,
+): Promise<void> {
+  const session = (deps.stores ?? defaultProjectStores()).session;
+  const current = () => deps.signal?.aborted !== true && session.getState().projectId === projectId;
+  const base = session.getState().mediaBaseUrl;
+
+  const proxy = (async () => {
+    if (base === null) return;
+    const res = await deps.invoke("project:ensureProxy", { projectId });
+    if (res?.proxyPath && current()) {
+      session.getState().setSession({ proxyUrl: mediaUrl(base, res.proxyPath) });
+    }
+  })();
+
+  const thumbnails = (async () => {
+    if (base === null) return;
+    const res = await deps.invoke("project:ensureThumbnails", {
+      projectId,
+      intervalMs: THUMBNAIL_INTERVAL_MS,
+      height: THUMBNAIL_HEIGHT_PX,
+    });
+    if (!res || !current()) return;
+    const items = [...res.items]
+      .filter((i) => Number.isFinite(i.sourceMs))
+      .sort((a, b) => a.sourceMs - b.sourceMs)
+      .map((i) => ({ sourceMs: i.sourceMs, url: mediaUrl(base, i.path) }));
+    session.getState().setSession({ thumbnails: items });
+  })();
+
+  const waveform = (async () => {
+    const { micUrl, systemAudioUrl, videoUrl, meta, mediaOffline } = session.getState();
+    const url = micUrl ?? systemAudioUrl ?? (mediaOffline ? null : videoUrl);
+    const durationMs = meta?.sources.video.durationMs ?? 0;
+    if (url === null || !deps.media.decodeAudio || !(durationMs > 0)) return;
+    const audio = await deps.media.decodeAudio(url);
+    if (!audio || !current()) return;
+    const buckets = Math.min(WAVEFORM_MAX_BUCKETS, Math.ceil(durationMs / WAVEFORM_BUCKET_MS));
+    const peaks = peaksFromAudio(audio, buckets);
+    if (peaks.length > 0)
+      session.getState().setSession({ waveformPeaks: Float32Array.from(peaks) });
+  })();
+
+  await Promise.all([proxy, thumbnails, waveform].map((p) => p.catch(() => undefined)));
+}
+
+export interface RenameResult {
+  path: string;
+  /** Media roots registered for the new folder (the old ones are released). */
+  mediaRootIds: string[];
+}
+
+/**
+ * Top-bar rename of the open project (S12, §9.9): `project:rename` renames the
+ * folder and the document name; the session follows the folder (its media roots
+ * are re-registered and every media URL rebased) and keeps the new name in
+ * `meta` so the next save writes it. Throws `{ code, message }`.
+ */
+export async function renameOpenProject(
+  name: string,
+  deps: Pick<OpenProjectDeps, "invoke" | "stores"> & { mediaRootIds: readonly string[] },
+): Promise<RenameResult> {
+  const stores = deps.stores ?? defaultProjectStores();
+  const session = stores.session;
+  const { projectPath, meta } = session.getState();
+  if (projectPath === null || meta === null) {
+    throw { code: "PROJECT_NOT_OPEN", message: "No project is open" };
+  }
+  try {
+    const res = required(
+      await deps.invoke("project:rename", { path: projectPath, name }),
+      "Renaming projects",
+    );
+    // The rename rewrote project.json: keep the session's modifiedAt in step with disk.
+    const renamed = {
+      ...meta,
+      name: name.trim(),
+      ...(typeof res.modifiedAt === "string" ? { modifiedAt: res.modifiedAt } : {}),
+    };
+    if (res.path === projectPath) {
+      session.getState().setSession({ meta: renamed });
+      return { path: res.path, mediaRootIds: [...deps.mediaRootIds] };
+    }
+    const rootIds: string[] = [];
+    try {
+      const media = await resolveMedia(
+        res.path,
+        renamed,
+        stores.editor.getState().cursorPointCount,
+        deps.invoke,
+        rootIds,
+      );
+      const { mediaBaseUrl: oldBase, thumbnails, proxyUrl } = session.getState();
+      const rebase = (url: string): string =>
+        oldBase !== null && media.mediaBaseUrl !== null && url.startsWith(oldBase)
+          ? media.mediaBaseUrl + url.slice(oldBase.length)
+          : url;
+      session.getState().setSession({
+        projectPath: res.path,
+        meta: renamed,
+        ...media.urls,
+        mediaRootId: media.mediaRootId,
+        mediaBaseUrl: media.mediaBaseUrl,
+        proxyUrl: proxyUrl === null ? null : rebase(proxyUrl),
+        thumbnails: thumbnails.map((t) => ({ ...t, url: rebase(t.url) })),
+      });
+    } catch (err) {
+      await releaseMediaRoots(rootIds, deps.invoke);
+      throw err;
+    }
+    await releaseMediaRoots(deps.mediaRootIds, deps.invoke);
+    return { path: res.path, mediaRootIds: rootIds };
+  } catch (err) {
+    throw err instanceof OpenError ? err.ipc : toIpcErrorShape(err);
   }
 }
 
@@ -397,5 +574,18 @@ export const browserMediaPort: ProjectMediaPort = {
       .stream()
       .pipeThrough(new DecompressionStream("gzip"));
     return new Uint8Array(await new Response(stream).arrayBuffer());
+  },
+  async decodeAudio(url) {
+    const Ctx = (globalThis as { OfflineAudioContext?: typeof OfflineAudioContext })
+      .OfflineAudioContext;
+    if (!Ctx) return null;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    // Sample rate only matters for decoding; 8kHz keeps a long recording small.
+    const ctx = new Ctx(1, 1, 8000);
+    const buffer = await ctx.decodeAudioData(await res.arrayBuffer());
+    return {
+      channels: Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i)),
+    };
   },
 };

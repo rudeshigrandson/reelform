@@ -16,6 +16,12 @@ const realStreams = new WeakMap<MediaStreamLike, MediaStream>();
 function wrapTrack(track: MediaStreamTrack): MediaStreamTrackLike {
   return {
     kind: track.kind,
+    get enabled() {
+      return track.enabled;
+    },
+    set enabled(value: boolean | undefined) {
+      track.enabled = value !== false;
+    },
     stop: () => track.stop(),
     onEnded: (listener) => {
       track.addEventListener("ended", listener);

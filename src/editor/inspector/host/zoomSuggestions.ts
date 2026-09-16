@@ -1,6 +1,7 @@
 import { type SuggestedZoom, suggestZooms } from "../../autozoom";
 import type { Telemetry } from "../../autozoom";
 import type { Clip } from "../../model/schema";
+import { ti } from "../i18n";
 import type { AutoZoomSettings, ZoomRegion } from "../zoom/types";
 
 /**
@@ -115,6 +116,6 @@ export function reviewDone(state: ReviewState): boolean {
 }
 
 export function suggestionsToastText(n: number): string {
-  if (n === 0) return "No zoom suggestions found";
-  return `We suggested ${n} ${n === 1 ? "zoom" : "zooms"}`;
+  if (n === 0) return ti("inspector.zoom.suggestions.none");
+  return ti("inspector.zoom.suggestions.count", { count: n });
 }

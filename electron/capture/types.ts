@@ -68,7 +68,17 @@ export type Track = z.infer<typeof Track>;
 export const StartRequest = z.object({
   source: SourceRef,
   region: Rect.optional(),
-  audio: z.object({ mic: z.string().optional(), system: z.boolean() }),
+  audio: z.object({
+    mic: z.string().optional(),
+    /**
+     * `MediaDeviceInfo.label` of the chosen mic. Chromium deviceIds are hashed and
+     * never match a native device, so the helpers resolve the mic by label (§5.3/§5.4).
+     */
+    micLabel: z.string().optional(),
+    /** Windows `IMMDevice::GetId`, when known (exact match before the label). */
+    micEndpointId: z.string().optional(),
+    system: z.boolean(),
+  }),
   webcam: z.string().optional(),
   fps: z.union([z.literal(30), z.literal(60)]),
   countdown: z.union([z.literal(0), z.literal(3), z.literal(5), z.literal(10)]),
@@ -111,11 +121,20 @@ export interface StopResult {
   /** Backend-measured duration (paused time excluded) when known. */
   durationMs: number | null;
   paths: Partial<Record<Track, string>>;
-  /** Electron backend: tracks the renderer never ended (`recording:endTrack`) before close. */
+  /** Renderer-streamed tracks never ended (`recording:endTrack`) before close. */
   incompleteTracks?: Track[] | undefined;
+  /**
+   * Native backends: start of a renderer-recorded track (webcam) relative to the
+   * helper's first frame, in ms (positive = the track starts later).
+   */
+  trackOffsetsMs?: Partial<Record<Track, number>> | undefined;
 }
 
-/** Timing sent by the renderer with the first screen chunk (Electron backend, §5.6). */
+/**
+ * Timing sent by the renderer with the first chunk of the track it aligns on:
+ * the screen track (Electron backend) or the webcam track recorded next to a
+ * native helper (§5.6).
+ */
 export const ChunkTiming = z.object({
   /** `performance.timeOrigin` in the renderer (epoch ms). */
   timeOriginMs: z.number(),
@@ -138,8 +157,15 @@ export interface Session {
   /** Flush + close writers and report the files on disk. Idempotent. */
   close(): Promise<StopResult>;
   /**
-   * Electron backend only: the renderer streams encoded chunks to main. `seq` is
-   * 0-based per track and must arrive without gaps (see `electronBackend.ts`).
+   * Mute / unmute the microphone mid-recording (§5.7). Resolves `true` when the
+   * mute is applied live, `false` when the backend cannot (the controller then
+   * silences the muted ranges after stop).
+   */
+  setMicMuted?: ((muted: boolean) => Promise<boolean>) | undefined;
+  /**
+   * The renderer streams encoded chunks to main: every track on the Electron
+   * backend, the webcam track on native backends. `seq` is 0-based per track and
+   * must arrive without gaps (see `chunkTracks.ts`).
    */
   writeChunk?:
     | ((
@@ -150,7 +176,7 @@ export interface Session {
       ) => Promise<void>)
     | undefined;
   /**
-   * Electron backend only: the renderer wrote its last chunk for `track`.
+   * The renderer wrote its last chunk for `track`.
    * Resolves with the chunk count on disk; rejects `CHUNK_COUNT_MISMATCH` (after
    * still ending the track) when it differs from `chunkCount`.
    */

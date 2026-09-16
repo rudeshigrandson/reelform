@@ -117,7 +117,7 @@ jobs:
           done
           chmod +x resources/whisper/*/whisper-cli* || true
 
-      # Fails with a clear message until PINS in scripts/fetch-ffmpeg.mjs are filled.
+      # Downloads the pinned FFmpeg 9.0.1 builds (sha256-verified before extraction).
       - name: Fetch pinned ffmpeg
         shell: bash
         run: |
@@ -130,6 +130,10 @@ jobs:
           set -euo pipefail
           npx tsc --noEmit
           npx vite build
+
+      - name: Generate third-party licenses
+        shell: bash
+        run: node scripts/generate-licenses.mjs
 
       # electron-builder wants APPLE_API_KEY as a path to the .p8 key file.
       - name: Write App Store Connect API key

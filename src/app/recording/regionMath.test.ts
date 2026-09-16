@@ -1,5 +1,6 @@
 import fc from "fast-check";
-import { defaultRegionBounds, toRegionSelection } from "./regionMath";
+import { defaultRegionBounds, snapRect, toRegionSelection, windowSnapTargets } from "./regionMath";
+import { SOURCES } from "./testFakes";
 
 describe("toRegionSelection", () => {
   it("rounds to DIP and scales to device pixels", () => {
@@ -70,5 +71,105 @@ describe("defaultRegionBounds", () => {
     const tall = defaultRegionBounds({ width: 3000, height: 500 });
     expect(tall.height).toBeLessThanOrEqual(400);
     expect(tall.x).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("snapRect", () => {
+  const win = { x: 100, y: 100, width: 400, height: 300 };
+
+  it("moves the rect onto the nearest window edge within 8px, keeping its size", () => {
+    expect(snapRect({ x: 106, y: 95, width: 200, height: 100 }, [win])).toEqual({
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 100,
+    });
+    // Right edge 497 → 500; the closer of left / right wins.
+    expect(snapRect({ x: 297, y: 150, width: 200, height: 100 }, [win])).toEqual({
+      x: 300,
+      y: 150,
+      width: 200,
+      height: 100,
+    });
+    // Outer edges snap too: the rect's left meets the window's right.
+    expect(snapRect({ x: 505, y: 150, width: 50, height: 50 }, [win]).x).toBe(500);
+  });
+
+  it("leaves edges beyond the threshold alone and honours a custom threshold", () => {
+    const far = { x: 120, y: 150, width: 100, height: 100 };
+    expect(snapRect(far, [win])).toEqual(far);
+    expect(snapRect(far, [win], 20).x).toBe(100);
+    expect(snapRect(far, [win], 0)).toEqual(far);
+    expect(snapRect(far, [])).toEqual(far);
+  });
+
+  it("ignores windows that don't overlap on the other axis", () => {
+    const below = { x: 104, y: 900, width: 50, height: 50 };
+    expect(snapRect(below, [win])).toEqual(below);
+  });
+
+  it("resizing snaps only the dragged edges", () => {
+    expect(
+      snapRect({ x: 150, y: 150, width: 346, height: 100 }, [win], 8, { right: true }),
+    ).toEqual({ x: 150, y: 150, width: 350, height: 100 });
+    expect(
+      snapRect({ x: 104, y: 150, width: 200, height: 146 }, [win], 8, { top: true, left: true }),
+    ).toEqual({ x: 100, y: 150, width: 204, height: 146 });
+    expect(
+      snapRect({ x: 104, y: 150, width: 200, height: 246 }, [win], 8, { bottom: true }),
+    ).toEqual({ x: 104, y: 150, width: 200, height: 250 });
+  });
+
+  it("never collapses a rect and ignores invalid targets", () => {
+    const thin = { x: 497, y: 150, width: 2, height: 50 };
+    expect(snapRect(thin, [win], 8, { left: true, right: true }).width).toBeGreaterThanOrEqual(1);
+    const bad = { x: Number.NaN, y: 0, width: 10, height: 10 };
+    expect(snapRect({ x: 3, y: 3, width: 10, height: 10 }, [bad])).toEqual({
+      x: 3,
+      y: 3,
+      width: 10,
+      height: 10,
+    });
+  });
+
+  it("property: moving never changes the size and moves at most the threshold", () => {
+    const r = fc.record({
+      x: fc.integer({ min: -2000, max: 2000 }),
+      y: fc.integer({ min: -2000, max: 2000 }),
+      width: fc.integer({ min: 1, max: 2000 }),
+      height: fc.integer({ min: 1, max: 2000 }),
+    });
+    fc.assert(
+      fc.property(r, fc.array(r, { maxLength: 6 }), (rect, targets) => {
+        const out = snapRect(rect, targets);
+        expect(out.width).toBe(rect.width);
+        expect(out.height).toBe(rect.height);
+        expect(Math.abs(out.x - rect.x)).toBeLessThanOrEqual(8);
+        expect(Math.abs(out.y - rect.y)).toBeLessThanOrEqual(8);
+      }),
+    );
+  });
+});
+
+describe("windowSnapTargets", () => {
+  it("keeps windows with bounds on the display, converted to display-local DIP", () => {
+    expect(windowSnapTargets(SOURCES, "d1")).toEqual([
+      { x: 100, y: 100, width: 1280, height: 720 },
+    ]);
+    expect(windowSnapTargets(SOURCES, "d2")).toEqual([]);
+    expect(windowSnapTargets(SOURCES, "nope")).toEqual([]);
+    expect(windowSnapTargets(null, "d1")).toEqual([]);
+  });
+
+  it("uses bounds overlap when a window has no displayId and skips windows without bounds", () => {
+    const sources = {
+      ...SOURCES,
+      windows: [
+        { id: "w1", title: "Terminal", bounds: { x: 1600, y: 40, width: 800, height: 500 } },
+        { id: "w2", title: "desktopCapturer window" },
+      ],
+    };
+    expect(windowSnapTargets(sources, "d2")).toEqual([{ x: 88, y: 40, width: 800, height: 500 }]);
+    expect(windowSnapTargets(sources, "d1")).toEqual([]);
   });
 });

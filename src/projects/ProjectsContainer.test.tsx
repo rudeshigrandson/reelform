@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectInvoke } from "../app/project/openProject";
 import { type FakeHandlers, fakeIpc } from "../app/project/testing";
-import { ProjectsContainer, type ProjectsView } from "./ProjectsContainer";
+import { ProjectsContainer, type ProjectsView, toSummary } from "./ProjectsContainer";
 
 type ListEntry = ResponseOf<"project:list">["projects"][number];
 type TrashEntry = ResponseOf<"project:listTrash">["projects"][number];
@@ -18,6 +18,8 @@ const entry = (over: Partial<ListEntry> = {}): ListEntry => ({
   recent: true,
   id: "alpha",
   durationMs: 5000,
+  thumbnailUrl: null,
+  sizeBytes: null,
   ...over,
 });
 
@@ -27,6 +29,7 @@ const trashed = (over: Partial<TrashEntry> = {}): TrashEntry => ({
   id: "old",
   trashedAt: "2026-09-10T10:00:00.000Z",
   thumbnailPath: null,
+  thumbnailUrl: null,
   ...over,
 });
 
@@ -90,13 +93,13 @@ describe("ProjectsContainer: lists", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Loading projects…");
     expect(await screen.findByRole("button", { name: "Open Alpha" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open Beta" })).toBeNull();
-    fireEvent.click(screen.getByRole("radio", { name: "All projects" }));
+    fireEvent.click(screen.getByRole("button", { name: "All projects" }));
     expect(await screen.findByRole("button", { name: "Open Beta" })).toBeInTheDocument();
   });
 
   it("empty library → record CTA", async () => {
     const { onNewRecording } = setup({ projects: [] });
-    fireEvent.click(await screen.findByRole("button", { name: "Record something" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Record your first video" }));
     expect(onNewRecording).toHaveBeenCalledTimes(1);
   });
 
@@ -230,12 +233,36 @@ describe("ProjectsContainer: actions", () => {
   });
 });
 
+describe("ProjectsContainer: thumbnails and sizes", () => {
+  it("toSummary carries the thumbnail URL and size only when known", () => {
+    expect(
+      toSummary(entry({ thumbnailUrl: "reelform-media://p-1/thumbnail.jpg?v=1", sizeBytes: 5 })),
+    ).toMatchObject({ thumbnailUrl: "reelform-media://p-1/thumbnail.jpg?v=1", sizeBytes: 5 });
+    const bare = toSummary(entry());
+    expect("thumbnailUrl" in bare).toBe(false);
+    expect("sizeBytes" in bare).toBe(false);
+  });
+
+  it("the list layout shows sizes and the on-disk footer total", async () => {
+    setup({
+      projects: [
+        entry({ sizeBytes: 3_000_000 }),
+        entry({ path: "/lib/Beta.reelform", name: "Beta", id: "beta", sizeBytes: 2_000_000 }),
+      ],
+    });
+    await screen.findByRole("button", { name: "Open Alpha" });
+    fireEvent.click(screen.getByRole("radio", { name: "List" }));
+    expect(screen.getByText("3 MB")).toBeInTheDocument();
+    expect(screen.getByText(/5 MB on disk/)).toBeInTheDocument();
+  });
+});
+
 describe("ProjectsContainer: trash (S23)", () => {
   it("empty trash state", async () => {
     setup({ view: "trash" });
     expect(await screen.findByText("Trash is empty")).toBeInTheDocument();
     // Controlled: no internal view tabs.
-    expect(screen.queryByRole("radio", { name: "All projects" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "All projects" })).toBeNull();
   });
 
   it("restore and delete forever", async () => {
@@ -260,7 +287,7 @@ describe("ProjectsContainer: trash (S23)", () => {
     const onViewChange = vi.fn();
     setup({ onViewChange });
     await screen.findByRole("button", { name: "Open Alpha" });
-    fireEvent.click(screen.getByRole("radio", { name: "Trash" }));
+    fireEvent.click(screen.getByRole("button", { name: "Trash" }));
     expect(onViewChange).toHaveBeenCalledWith("trash");
     expect(await screen.findByText("Trash is empty")).toBeInTheDocument();
   });

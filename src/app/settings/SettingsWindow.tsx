@@ -1,10 +1,23 @@
 import { Button } from "@design/components";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { I18nProvider } from "../../i18n";
 import { Onboarding } from "../../onboarding/Onboarding";
 import type { OnboardingPort } from "../../onboarding/types";
 import { Settings } from "../../settings/Settings";
 import type { SectionId } from "../../settings/sections";
-import type { DeviceOption, SettingsServices, SystemPort } from "../../settings/services";
+import type {
+  DeviceOption,
+  GlobalShortcutStatus,
+  SettingsServices,
+  SystemPort,
+} from "../../settings/services";
 import type { SettingsPatch } from "../../settings/types";
 import { ShortcutsProvider } from "../../shortcuts/ShortcutsProvider";
 import type { ShortcutPlatform } from "../../shortcuts/accelerator";
@@ -12,10 +25,12 @@ import type { ShortcutScope } from "../../shortcuts/registry";
 import { getAppVersion } from "../ipc";
 import { useAppearance } from "./appearance";
 import {
+  type GlobalStatusPort,
   browserEnumerateDevices,
   copyDiagnosticsViaIpc,
   createIpcOnboardingPort,
   detectShortcutPlatform,
+  ipcGlobalStatusPort,
   ipcSystemPort,
   pickFolderViaIpc,
 } from "./ports";
@@ -34,6 +49,34 @@ export function settingsErrorMessage(error: SettingsSyncError): string {
     default:
       return `Couldn't save settings: ${error.message}`;
   }
+}
+
+/**
+ * Live global shortcut status: fetched once, then replaced by every
+ * `shortcuts:globalStatusChanged` push. A push that lands before the initial
+ * fetch resolves wins (it is newer).
+ */
+export function useGlobalShortcutStatus(port: GlobalStatusPort): GlobalShortcutStatus | null {
+  const [status, setStatus] = useState<GlobalShortcutStatus | null>(null);
+  useEffect(() => {
+    let live = true;
+    let pushed = false;
+    const unsubscribe = port.subscribe((next) => {
+      pushed = true;
+      if (live) setStatus(next);
+    });
+    port.get().then(
+      (initial) => {
+        if (live && !pushed && initial) setStatus(initial);
+      },
+      () => undefined,
+    );
+    return () => {
+      live = false;
+      unsubscribe();
+    };
+  }, [port]);
+  return status;
 }
 
 /** Load settings once for this window; returns the live state. */
@@ -58,6 +101,70 @@ export interface SettingsWindowProps {
   /** Where "Run setup again" goes; defaults to showing onboarding inside this window. */
   onRunOnboarding?: (() => void) | undefined;
   onboardingPort?: OnboardingPort | undefined;
+  /** Global shortcut registration status; defaults to IPC. */
+  globalStatusPort?: GlobalStatusPort | undefined;
+  /**
+   * The window has no native title bar (macOS `hiddenInset`): draw the 40px
+   * in-app one. Defaults to the `?titleBar=inset` flag main puts on the URL.
+   */
+  insetTitleBar?: boolean | undefined;
+}
+
+/**
+ * `?titleBar=inset` (set by main for the launcher and Settings on macOS): the
+ * traffic lights sit inside the app chrome, so the renderer draws a draggable
+ * top bar leaving {@link TRAFFIC_LIGHTS_INSET} px on the left.
+ */
+export function hasInsetTitleBar(
+  search: string = typeof window === "undefined" ? "" : window.location.search,
+): boolean {
+  return new URLSearchParams(search).get("titleBar") === "inset";
+}
+
+/** Room left of the in-app title bar content for the macOS traffic lights. */
+export const TRAFFIC_LIGHTS_INSET = 80;
+export const TITLE_BAR_HEIGHT = 40;
+
+function SettingsTitleBar() {
+  return (
+    <div
+      data-testid="settings-title-bar"
+      style={
+        {
+          height: TITLE_BAR_HEIGHT,
+          flex: "none",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: `0 ${TRAFFIC_LIGHTS_INSET}px`,
+          borderBottom: "1px solid var(--border)",
+          background: "var(--bg-app)",
+          color: "var(--text-2)",
+          fontFamily: "var(--font-body)",
+          fontSize: "13px",
+          fontWeight: 600,
+          userSelect: "none",
+          WebkitAppRegion: "drag",
+        } as CSSProperties
+      }
+    >
+      Settings
+    </div>
+  );
+}
+
+/** S24 Settings window; adds the in-app title bar when the native one is hidden. */
+export function SettingsWindow({ insetTitleBar, ...props }: SettingsWindowProps) {
+  const [inset] = useState(() => insetTitleBar ?? hasInsetTitleBar());
+  if (!inset) return <SettingsWindowBody {...props} />;
+  return (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      <SettingsTitleBar />
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <SettingsWindowBody {...props} />
+      </div>
+    </div>
+  );
 }
 
 function Centered({ children }: { children: ReactNode }) {
@@ -87,7 +194,7 @@ function Centered({ children }: { children: ReactNode }) {
 }
 
 /** S24 Settings window wired to settings/updater/system IPC. Route: `?window=settings`. */
-export function SettingsWindow({
+function SettingsWindowBody({
   store = useAppSettings,
   updaterPort = ipcUpdaterPort,
   system = ipcSystemPort,
@@ -99,10 +206,12 @@ export function SettingsWindow({
   initialSection,
   onRunOnboarding,
   onboardingPort,
-}: SettingsWindowProps) {
+  globalStatusPort = ipcGlobalStatusPort,
+}: Omit<SettingsWindowProps, "insetTitleBar">) {
   const { status, settings, lastError, patch, reset, clearError } = useSyncedSettings(store);
   useAppearance(settings);
   const updater = useUpdater(updaterPort);
+  const globalStatus = useGlobalShortcutStatus(globalStatusPort);
   const [appVersion, setAppVersion] = useState<string | null>(appVersionProp ?? null);
   const [onboarding, setOnboarding] = useState(false);
 
@@ -127,6 +236,7 @@ export function SettingsWindow({
     enumerateDevices: devices,
     system,
     updater,
+    globalStatus,
     copyDiagnostics,
     resetAll: async () => (await reset()).ok,
     runOnboarding: onRunOnboarding ?? (() => setOnboarding(true)),
@@ -206,16 +316,18 @@ export function SettingsWindow({
         </output>
       ) : null}
       <div style={{ flex: 1, minHeight: 0 }}>
-        <Settings
-          settings={settings}
-          onChange={onChange}
-          services={services}
-          initialSection={initialSection}
-          onChangeRecordingsFolder={async () => {
-            const picked = await pickFolder(settings.recordingsFolder).catch(() => null);
-            if (picked) void patch({ recordingsFolder: picked });
-          }}
-        />
+        <I18nProvider language={settings.language}>
+          <Settings
+            settings={settings}
+            onChange={onChange}
+            services={services}
+            initialSection={initialSection}
+            onChangeRecordingsFolder={async () => {
+              const picked = await pickFolder(settings.recordingsFolder).catch(() => null);
+              if (picked) void patch({ recordingsFolder: picked });
+            }}
+          />
+        </I18nProvider>
       </div>
     </div>
   );

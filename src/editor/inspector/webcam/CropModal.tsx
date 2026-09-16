@@ -8,7 +8,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { Slider } from "../controls";
+import { Slider, monoStyle } from "../controls";
+import { useInspectorT } from "../i18n";
 import { type Size, cropFromZoom, cropToView, shapeAspect } from "./logic";
 import { type CropRect, WEBCAM_LIMITS, type WebcamShape } from "./types";
 
@@ -37,8 +38,10 @@ export interface CropModalProps {
 }
 
 const ZOOM = WEBCAM_LIMITS.cropZoom;
+const STAGE_HEIGHT = 200;
 
 export function CropModal(props: CropModalProps): ReactElement | null {
+  const t = useInspectorT();
   const { open, shape, sourceSize, value, preview, onCenterOnFace, onApply, onClose } = props;
   const aspect = shapeAspect(shape);
   const [zoom, setZoom] = useState(1);
@@ -56,6 +59,8 @@ export function CropModal(props: CropModalProps): ReactElement | null {
     setDetecting(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seed only on open
   }, [open]);
+
+  if (!open) return null;
 
   const crop = cropFromZoom(sourceSize, aspect, zoom, center);
   const pct = (n: number, of: number) => `${(n / of) * 100}%`;
@@ -102,25 +107,25 @@ export function CropModal(props: CropModalProps): ReactElement | null {
 
   const frameStyle: CSSProperties = {
     position: "relative",
-    width: "100%",
+    height: `${STAGE_HEIGHT}px`,
     aspectRatio: `${sourceSize.width} / ${sourceSize.height}`,
     maxWidth: "100%",
-    background: "var(--bg-sunken)",
-    borderRadius: "var(--radius-md)",
+    margin: "0 auto",
     overflow: "hidden",
     userSelect: "none",
   };
 
   const overlayStyle: CSSProperties = {
     position: "absolute",
+    boxSizing: "border-box",
     left: pct(crop.x, sourceSize.width),
     top: pct(crop.y, sourceSize.height),
     width: pct(crop.w, sourceSize.width),
     height: pct(crop.h, sourceSize.height),
     borderRadius: shape === "square" ? 0 : shape === "rounded" ? "18%" : "999px",
-    border: "2px solid var(--accent)",
+    border: "2px solid var(--text-1)",
     // Dim everything outside the crop.
-    boxShadow: "0 0 0 9999px color-mix(in srgb, var(--color-neutral-900) 60%, transparent)",
+    boxShadow: "0 0 0 9999px color-mix(in srgb, var(--bg-sunken) 55%, transparent)",
     cursor: "move",
   };
 
@@ -128,24 +133,48 @@ export function CropModal(props: CropModalProps): ReactElement | null {
     <Dialog
       open={open}
       onClose={onClose}
-      title="Crop / reframe"
+      width={420}
+      title={t("inspector.webcam.crop")}
+      closeLabel={t("inspector.webcam.closeCrop")}
+      focusPanelOnOpen
       actions={
         <>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              minWidth: 0,
+              marginRight: "auto",
+            }}
+          >
+            <Button
+              variant="secondary"
+              onClick={() => void centerOnFace()}
+              disabled={detecting}
+              style={{ padding: "8px 14px" }}
+            >
+              {detecting ? t("inspector.webcam.detectingFace") : t("inspector.webcam.centerOnFace")}
+            </Button>
+            <span style={{ ...monoStyle, color: "var(--text-3)" }}>
+              {Math.round(crop.w)}×{Math.round(crop.h)}
+            </span>
+          </div>
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t("inspector.common.cancel")}
           </Button>
           <Button variant="primary" onClick={() => onApply(crop)}>
-            Apply
+            {t("inspector.common.apply")}
           </Button>
         </>
       }
     >
       <div
         style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-3)",
-          minWidth: "min(480px, 100%)",
+          height: `${STAGE_HEIGHT}px`,
+          borderRadius: "12px",
+          background: "linear-gradient(160deg, var(--text-3), var(--bg-panel))",
+          overflow: "hidden",
         }}
       >
         <div
@@ -160,42 +189,22 @@ export function CropModal(props: CropModalProps): ReactElement | null {
           <div
             data-testid="crop-overlay"
             data-shape={shape}
-            aria-label="Crop area"
+            aria-label={t("inspector.webcam.cropArea")}
             style={overlayStyle}
             onMouseDown={onMouseDown}
           />
         </div>
-        <Slider
-          label="Zoom"
-          value={zoom}
-          min={ZOOM.min}
-          max={ZOOM.max}
-          step={0.05}
-          unit="×"
-          onChange={setZoom}
-        />
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: "var(--space-2)",
-          }}
-        >
-          <Button variant="secondary" onClick={() => void centerOnFace()} disabled={detecting}>
-            {detecting ? "Detecting face…" : "Center on face"}
-          </Button>
-          <span
-            style={{
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              fontSize: "12px",
-              color: "var(--text-2)",
-            }}
-          >
-            {Math.round(crop.w)}×{Math.round(crop.h)}
-          </span>
-        </div>
       </div>
+      <Slider
+        label={t("inspector.common.zoom")}
+        labelWidth={44}
+        value={zoom}
+        min={ZOOM.min}
+        max={ZOOM.max}
+        step={0.05}
+        unit="×"
+        onChange={setZoom}
+      />
     </Dialog>
   );
 }

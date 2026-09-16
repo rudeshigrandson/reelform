@@ -1,3 +1,5 @@
+import { type InspectorMessageKey, translatedRecord } from "../i18n";
+
 /**
  * Audio inspector settings (design guide S17, engineering spec §9.5).
  *
@@ -10,10 +12,13 @@ export type TrackKind = "mic" | "system";
 
 export const TRACK_KINDS: readonly TrackKind[] = ["mic", "system"] as const;
 
-export const TRACK_LABELS: Readonly<Record<TrackKind, string>> = {
-  mic: "Microphone",
-  system: "System audio",
+export const TRACK_LABEL_KEYS: Readonly<Record<TrackKind, InspectorMessageKey>> = {
+  mic: "inspector.audio.track.mic",
+  system: "inspector.audio.track.system",
 };
+
+/** Track names in the active window language (non-React callers). */
+export const TRACK_LABELS: Readonly<Record<TrackKind, string>> = translatedRecord(TRACK_LABEL_KEYS);
 
 export const AUDIO_LIMITS = {
   /** Slider floor; values ≤ this are treated as silent (−∞). */

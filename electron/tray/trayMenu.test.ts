@@ -1,10 +1,13 @@
 import fc from "fast-check";
+import { type MainMessageKey, createMainTranslator } from "../i18n";
 import {
+  DEFAULT_TRAY_LABELS,
   MAX_RECENT_ITEMS,
   type TrayAction,
   type TrayMenuItem,
   type TrayRecordingState,
   buildTrayMenu,
+  formatTrayElapsed,
   toNativeTemplate,
   trayIconState,
 } from "./trayMenu";
@@ -81,6 +84,83 @@ describe("buildTrayMenu", () => {
     });
   });
 
+  it("English fallback labels match the en catalog", () => {
+    const { t } = createMainTranslator("en", []);
+    for (const [key, text] of Object.entries(DEFAULT_TRAY_LABELS)) {
+      expect(t(key as MainMessageKey)).toBe(text);
+    }
+    const plain = buildTrayMenu({ recording: "paused", recent: [] });
+    const translated = buildTrayMenu({ recording: "paused", recent: [], t });
+    expect(translated).toEqual(plain);
+  });
+
+  it("labels every item through the translator when given", () => {
+    const t = (key: MainMessageKey) => `[${key}]`;
+    const m = buildTrayMenu({
+      recording: "recording",
+      recent: [{ projectId: "p1", name: "" }],
+      t,
+    });
+    const labels = m.flatMap((i) =>
+      i.kind === "separator"
+        ? []
+        : i.kind === "submenu"
+          ? [i.label, ...i.items.map((c) => (c.kind === "separator" ? "-" : c.label))]
+          : [i.label],
+    );
+    expect(labels).toEqual([
+      "[main.tray.newRecording]",
+      "[main.tray.recent]",
+      "[main.tray.untitled]",
+      "[main.tray.openEditor]",
+      "[main.tray.statusRecording]",
+      "[main.tray.pause]",
+      "[main.tray.stopRecording]",
+      "[main.tray.settings]",
+      "[main.tray.quit]",
+    ]);
+    const empty = buildTrayMenu({ recording: "idle", recent: [], t });
+    const sub = empty.find((i) => i.kind === "submenu");
+    expect(sub?.kind === "submenu" && sub.items[0]).toMatchObject({
+      label: "[main.tray.noRecent]",
+    });
+  });
+
+  it("status row: disabled, after the separator, shows elapsed time; absent when idle", () => {
+    const rec = buildTrayMenu({ recording: "recording", recent: [], elapsedMs: 42_130 });
+    expect(ids(rec)).toEqual([
+      "new-recording",
+      "recent",
+      "open-editor",
+      "-",
+      "status",
+      "pause",
+      "stop-recording",
+      "-",
+      "settings",
+      "quit",
+    ]);
+    expect(find(rec, "status")).toMatchObject({ label: "● Recording · 00:42.1", enabled: false });
+    expect(toNativeTemplate(rec, () => {}).find((i) => i.id === "status")?.enabled).toBe(false);
+
+    const later = buildTrayMenu({ recording: "recording", recent: [], elapsedMs: 43_130 });
+    expect(find(later, "status")?.label).toBe("● Recording · 00:43.1");
+
+    const paused = buildTrayMenu({ recording: "paused", recent: [], elapsedMs: 42_130 });
+    expect(find(paused, "status")?.label).toBe("Paused · 00:42.1");
+
+    expect(ids(buildTrayMenu({ recording: "idle", recent: [], elapsedMs: 5000 }))).not.toContain(
+      "status",
+    );
+  });
+
+  it("status row passes the formatted time to the translator", () => {
+    const t = (key: MainMessageKey, vars?: Readonly<Record<string, string | number>>) =>
+      `${key}|${String(vars?.time)}`;
+    const m = buildTrayMenu({ recording: "paused", recent: [], elapsedMs: 61_000, t });
+    expect(find(m, "status")?.label).toBe("main.tray.statusPaused|01:01.0");
+  });
+
   it("property: pause/resume present iff recording is active; exactly one of them", () => {
     fc.assert(
       fc.property(
@@ -101,6 +181,30 @@ describe("trayIconState", () => {
     expect(trayIconState("idle")).toMatchObject({ redDot: false, template: true });
     expect(trayIconState("recording")).toMatchObject({ redDot: true, template: false });
     expect(trayIconState("paused").redDot).toBe(true);
+  });
+
+  it("tooltips come from the main catalog and follow the translator", () => {
+    const { t } = createMainTranslator("en", []);
+    expect(trayIconState("idle", t).tooltip).toBe("Reelform");
+    expect(trayIconState("recording", t).tooltip).toBe("Reelform — Recording");
+    expect(trayIconState("paused").tooltip).toBe("Reelform — Paused");
+
+    // A language switch hands the tray a new translator; tooltips re-render through it.
+    const other = (key: MainMessageKey) => `xx:${key}`;
+    expect(trayIconState("idle", other).tooltip).toBe("xx:main.tray.tooltip");
+    expect(trayIconState("recording", other).tooltip).toBe("xx:main.tray.tooltipRecording");
+    expect(trayIconState("paused", other).tooltip).toBe("xx:main.tray.tooltipPaused");
+  });
+});
+
+describe("formatTrayElapsed", () => {
+  it("formats mm:ss.t with floored tenths", () => {
+    expect(formatTrayElapsed(0)).toBe("00:00.0");
+    expect(formatTrayElapsed(42_199)).toBe("00:42.1");
+    expect(formatTrayElapsed(599_999)).toBe("09:59.9");
+    expect(formatTrayElapsed(3_723_400)).toBe("62:03.4");
+    expect(formatTrayElapsed(-5)).toBe("00:00.0");
+    expect(formatTrayElapsed(Number.NaN)).toBe("00:00.0");
   });
 });
 

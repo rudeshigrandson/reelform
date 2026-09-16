@@ -4,6 +4,7 @@ import type { Caption } from "../inspector/captions/types";
 import type { SpeedRegionEdit } from "../inspector/effects/types";
 import type { ZoomRegion } from "../inspector/zoom/types";
 import type { Clip } from "../model/schema";
+import { type TimelineMessageKey, tt } from "./i18n";
 
 /**
  * Timeline view model (ENGINEERING_SPEC §6.7, design guide S12 region E).
@@ -20,10 +21,32 @@ export interface TimeSpan {
   readonly endMs: number;
 }
 
+/** One cached filmstrip frame (SPEC §6.7: every 2s of source at 160px height). */
+export interface TimelineThumb {
+  readonly sourceMs: number;
+  readonly url: string;
+}
+
+/** Source media drawn inside video clip items: filmstrip + mini waveform. */
+export interface TimelineMedia {
+  /** Sorted by `sourceMs`. */
+  readonly thumbs: readonly TimelineThumb[];
+  /** Peak |amplitude| 0..1 per bucket, evenly spread over `sourceDurationMs`. */
+  readonly peaks?: Float32Array | undefined;
+  /** Source length the peaks span; required to place peaks. */
+  readonly sourceDurationMs?: number | undefined;
+  /** Frame width / height; 16:9 when unknown. */
+  readonly aspect?: number | undefined;
+}
+
 export interface TimelineItem extends TimeSpan {
   readonly label: string;
   /** Auto-zoom suggestion not yet accepted: drawn dashed at 50% opacity. */
   readonly ghost?: boolean | undefined;
+  /** Video clips: source ms at the item's start (filmstrip/waveform alignment). */
+  readonly sourceStartMs?: number | undefined;
+  /** Captions: word start/end times (timeline ms), extra snap targets while dragging. */
+  readonly wordBoundaries?: readonly number[] | undefined;
 }
 
 export interface TimelineTrack {
@@ -32,24 +55,43 @@ export interface TimelineTrack {
   readonly items: readonly TimelineItem[];
   /** Zooms and speeds may not overlap on their own track; annotations/captions may. */
   readonly allowOverlap: boolean;
+  /** Video track: thumbnails + peaks for its clips. */
+  readonly media?: TimelineMedia | undefined;
 }
 
-export const TRACK_LABELS: Readonly<Record<TrackKind, string>> = {
-  video: "Video",
-  zoom: "Zoom",
-  speed: "Speed",
-  annotations: "Annotations",
-  captions: "Captions",
+const TRACK_KINDS: readonly TrackKind[] = ["video", "zoom", "speed", "annotations", "captions"];
+
+export const TRACK_LABEL_KEYS: Readonly<Record<TrackKind, TimelineMessageKey>> = {
+  video: "timeline.track.video",
+  zoom: "timeline.track.zoom",
+  speed: "timeline.track.speed",
+  annotations: "timeline.track.annotations",
+  captions: "timeline.track.captions",
 };
 
-/** Singular noun used in item accessible names, e.g. "Zoom 1.8× 00:02.000–00:04.500". */
-export const ITEM_NOUNS: Readonly<Record<TrackKind, string>> = {
-  video: "Clip",
-  zoom: "Zoom",
-  speed: "Speed",
-  annotations: "Annotation",
-  captions: "Caption",
+export const ITEM_NOUN_KEYS: Readonly<Record<TrackKind, TimelineMessageKey>> = {
+  video: "timeline.item.video",
+  zoom: "timeline.item.zoom",
+  speed: "timeline.item.speed",
+  annotations: "timeline.item.annotations",
+  captions: "timeline.item.captions",
 };
+
+/** A kind → string map whose values translate on each read (active window language). */
+function translatedRecord(
+  keys: Readonly<Record<TrackKind, TimelineMessageKey>>,
+): Readonly<Record<TrackKind, string>> {
+  const record = {} as Record<TrackKind, string>;
+  for (const kind of TRACK_KINDS) {
+    Object.defineProperty(record, kind, { enumerable: true, get: () => tt(keys[kind]) });
+  }
+  return Object.freeze(record);
+}
+
+export const TRACK_LABELS: Readonly<Record<TrackKind, string>> = translatedRecord(TRACK_LABEL_KEYS);
+
+/** Singular noun used in item accessible names, e.g. "Zoom 1.8× 00:02.000–00:04.500". */
+export const ITEM_NOUNS: Readonly<Record<TrackKind, string>> = translatedRecord(ITEM_NOUN_KEYS);
 
 export const TRACK_ALLOWS_OVERLAP: Readonly<Record<TrackKind, boolean>> = {
   video: false,
@@ -77,13 +119,20 @@ export function truncateLabel(text: string, max = CAPTION_LABEL_MAX): string {
   return flat.length > max ? `${flat.slice(0, Math.max(0, max - 1)).trimEnd()}…` : flat;
 }
 
-export function zoomToItems(regions: readonly ZoomRegion[]): TimelineItem[] {
+/**
+ * Only suggestions still awaiting Keep / Review / Dismiss (`pending`, editor UI
+ * state) are ghosts; a kept `auto` region draws like any other (§8).
+ */
+export function zoomToItems(
+  regions: readonly ZoomRegion[],
+  pending: ReadonlySet<string> = new Set(),
+): TimelineItem[] {
   return regions.map((r) => ({
     id: r.id,
     startMs: r.startMs,
     endMs: r.endMs,
     label: formatMultiplier(r.level),
-    ghost: r.source === "auto",
+    ghost: r.source === "auto" && pending.has(r.id),
   }));
 }
 
@@ -113,6 +162,7 @@ export function captionsToItems(captions: readonly Caption[]): TimelineItem[] {
     startMs: c.startMs,
     endMs: c.endMs,
     label: truncateLabel(c.text),
+    wordBoundaries: c.words.flatMap((w) => [w.t0, w.t1]),
   }));
 }
 
@@ -121,6 +171,7 @@ export function clipsToItems(clips: readonly Clip[]): TimelineItem[] {
     id: c.id,
     startMs: c.timelineStartMs,
     endMs: c.timelineStartMs + (c.sourceEndMs - c.sourceStartMs),
-    label: `Clip ${i + 1}`,
+    label: tt("timeline.clipLabel", { index: i + 1 }),
+    sourceStartMs: c.sourceStartMs,
   }));
 }
