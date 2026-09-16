@@ -206,7 +206,7 @@ describe("preview audio player", () => {
   });
 
   it("schedules click sounds from telemetry through the selected pack", async () => {
-    const h = harness({ "/sounds/mechanical/click.wav": 0.08 });
+    const h = harness({ "./sounds/mechanical/click.wav": 0.08 });
     h.player.setArgs(
       args({
         micUrl: null,
@@ -222,7 +222,7 @@ describe("preview audio player", () => {
       }),
     );
     await h.player.idle();
-    expect(h.fetched).toEqual(["/sounds/mechanical/click.wav"]);
+    expect(h.fetched).toEqual(["./sounds/mechanical/click.wav"]);
     h.player.sync(playing(2000));
     // Source 4000 → timeline 1000 (already past), source 9000 → timeline 6000.
     const clicks = h.liveSources();

@@ -6,9 +6,9 @@
  */
 
 import { cursorAt } from "./normalize.js";
-import { clamp } from "./util.js";
 import type { Sample } from "./normalize.js";
 import type { Telemetry, TelemetryClick } from "./types.js";
+import { clamp } from "./util.js";
 
 export type CandidateKind = "click" | "typing" | "dwell" | "scroll" | "selection";
 
@@ -68,10 +68,7 @@ export function clickCandidates(clicks: readonly TelemetryClick[]): Candidate[] 
  * Typing bursts: >=3 keys within 1.5s → one candidate at burst start, focused
  * at the last click position at/ before that time (fallback: cursor).
  */
-export function typingCandidates(
-  telemetry: Telemetry,
-  samples: readonly Sample[],
-): Candidate[] {
+export function typingCandidates(telemetry: Telemetry, samples: readonly Sample[]): Candidate[] {
   const keys = telemetry.keys.slice().sort((a, b) => a[0] - b[0]);
   const downClicks = telemetry.clicks
     .filter((c) => c[4] === "down")
@@ -85,7 +82,7 @@ export function typingCandidates(
     let j = i;
     while (
       j + 1 < keys.length &&
-      (keys[j + 1]?.[0] ?? Infinity) - (keys[i]?.[0] ?? 0) <= TYPING_BURST_WINDOW_MS
+      (keys[j + 1]?.[0] ?? Number.POSITIVE_INFINITY) - (keys[i]?.[0] ?? 0) <= TYPING_BURST_WINDOW_MS
     ) {
       j++;
     }
@@ -168,10 +165,7 @@ export function dwellCandidates(samples: readonly Sample[]): Candidate[] {
 }
 
 /** Scroll bursts: scrolls clustered with <=400ms gaps → candidate at cursor. */
-export function scrollCandidates(
-  telemetry: Telemetry,
-  samples: readonly Sample[],
-): Candidate[] {
+export function scrollCandidates(telemetry: Telemetry, samples: readonly Sample[]): Candidate[] {
   const scrolls = telemetry.scrolls.slice().sort((a, b) => a[0] - b[0]);
   const out: Candidate[] = [];
   let i = 0;
@@ -179,7 +173,8 @@ export function scrollCandidates(
     let j = i;
     while (
       j + 1 < scrolls.length &&
-      (scrolls[j + 1]?.[0] ?? Infinity) - (scrolls[j]?.[0] ?? 0) <= SCROLL_BURST_GAP_MS
+      (scrolls[j + 1]?.[0] ?? Number.POSITIVE_INFINITY) - (scrolls[j]?.[0] ?? 0) <=
+        SCROLL_BURST_GAP_MS
     ) {
       j++;
     }

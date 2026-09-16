@@ -119,6 +119,14 @@ describe("FrameInspector — presets", () => {
     expect(onSavePreset).toHaveBeenCalledTimes(1);
   });
 
+  it("routes preset clicks to onApplyPreset when the host provides it", () => {
+    const onApplyPreset = vi.fn();
+    const { onChange } = setup({ onApplyPreset });
+    fireEvent.click(screen.getByRole("button", { name: "Minimal" }));
+    expect(onApplyPreset).toHaveBeenCalledWith(expect.objectContaining({ id: "minimal" }));
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("save button is disabled without a handler", () => {
     setup();
     expect(screen.getByRole("button", { name: "Save current as preset…" })).toBeDisabled();

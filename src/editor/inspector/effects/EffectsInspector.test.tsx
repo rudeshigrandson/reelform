@@ -57,9 +57,10 @@ function setup(over: Partial<EffectsInspectorProps> = {}) {
 describe("EffectsInspector — default", () => {
   it("renders all sections and an empty speed state", () => {
     setup();
-    for (const t of ["Speed", "Transitions", "Intro / Outro", "Color", "Motion"]) {
+    for (const t of ["Speed region", "Transitions", "Intro / Outro", "Color"]) {
       expect(screen.getByRole("button", { name: new RegExp(t) })).toBeInTheDocument();
     }
+    expect(screen.getByRole("group", { name: "Motion" })).toBeInTheDocument();
     expect(screen.getByText("No speed region selected")).toBeInTheDocument();
     expect(screen.queryByLabelText("Ramp in")).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -149,6 +150,16 @@ describe("RemoveSilenceDialog", () => {
     render(<RemoveSilenceDialog open onClose={onClose} envelope={envelope} onApply={vi.fn()} />);
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("is named by its title, and backdrop click closes but panel click does not", () => {
+    const onClose = vi.fn();
+    render(<RemoveSilenceDialog open onClose={onClose} envelope={envelope} onApply={vi.fn()} />);
+    const dialog = screen.getByRole("dialog", { name: "Remove silence" });
+    fireEvent.click(dialog);
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(dialog.parentElement as HTMLElement);
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });
 

@@ -24,29 +24,29 @@ type TrackHue = TrackKind | keyof typeof FUTURE_TRACK_COLORS;
 /** Concrete hex per theme — keep in sync with tokens.css. Light = same hues, darker. */
 export const TRACK_HEX: Readonly<Record<"dark" | "light", Readonly<Record<TrackHue, string>>>> = {
   dark: {
-    video: "#8a93a6",
-    zoom: "#6e7bff",
-    speed: "#ffb84d",
-    annotations: "#3dd68c",
-    captions: "#4dd0ff",
-    audio: "#b57bff",
-    webcam: "#ff8ab3",
+    video: "#82796a",
+    zoom: "#f6a06b",
+    speed: "#d67f48",
+    annotations: "#aebf92",
+    captions: "#8fb0a0",
+    audio: "#c0b6a5",
+    webcam: "#e0a0a8",
   },
   light: {
-    video: "#6b7385",
-    zoom: "#4f5be6",
-    speed: "#c77a00",
-    annotations: "#1f9a5c",
-    captions: "#1692c2",
-    audio: "#8a4fd9",
-    webcam: "#d2517f",
+    video: "#82796a",
+    zoom: "#b2622d",
+    speed: "#8c491a",
+    annotations: "#728157",
+    captions: "#5b8575",
+    audio: "#82796a",
+    webcam: "#b8697a",
   },
 };
 
 /** Invalid-drop outline (spec §6.7 "red outline") — the destructive `--danger` token. */
 export const INVALID_COLOR = "var(--danger)";
 
-/** Item fill: the track hue at 8% (guide §2.6). */
-export function itemFill(hue: string): string {
-  return `color-mix(in srgb, ${hue} 8%, transparent)`;
+/** Item fill: the track hue at 16% (design S12 segments); ghosts use 10%. */
+export function itemFill(hue: string, percent = 16): string {
+  return `color-mix(in srgb, ${hue} ${percent}%, transparent)`;
 }

@@ -48,16 +48,49 @@ import {
  */
 
 export const HEADER_WIDTH_PX = 140;
-export const RULER_HEIGHT_PX = 24;
-export const LANE_HEIGHT_PX = 36;
+export const RULER_HEIGHT_PX = 26;
+/** Effect-track lane height (design S12: annotations / captions rows). */
+export const LANE_HEIGHT_PX = 24;
+/** Per-track lane heights (design S12 timeline: video 44, zoom/speed 26, others 24). */
+export const LANE_HEIGHTS: Readonly<Record<TrackKind, number>> = {
+  video: 44,
+  zoom: 26,
+  speed: 26,
+  annotations: LANE_HEIGHT_PX,
+  captions: LANE_HEIGHT_PX,
+};
 /** Pointer travel before a press on an item becomes a drag instead of a click. */
 export const DRAG_THRESHOLD_PX = 3;
 const EDGE_GRAB_PX = 6;
 const OVERSCAN_PX = 120;
 const WHEEL_ZOOM_SENSITIVITY = 0.002;
-const ITEM_HEIGHT_PX = LANE_HEIGHT_PX - 9;
-const WAVEFORM_HEIGHT_PX = 9;
+/** Vertical inset of an item inside its lane (video clips sit a little deeper). */
+const itemInsetPx = (kind: TrackKind): number => (kind === "video" ? 6 : 4);
+/** Clip body height (lane minus insets and hairlines) — filmstrip tile height. */
+const VIDEO_ITEM_HEIGHT_PX = LANE_HEIGHTS.video - 2 * itemInsetPx("video") - 2;
+const WAVEFORM_HEIGHT_PX = 14;
 const WAVEFORM_BAR_PX = 2;
+
+/** Top offset of each lane, in track order. */
+export function laneTops(tracks: readonly Pick<TimelineTrack, "kind">[]): number[] {
+  const tops: number[] = [];
+  let y = 0;
+  for (const t of tracks) {
+    tops.push(y);
+    y += LANE_HEIGHTS[t.kind];
+  }
+  return tops;
+}
+
+/** Index of the lane under `y` (px from the top of the lanes), clamped to the tracks. */
+export function laneIndexAt(tracks: readonly Pick<TimelineTrack, "kind">[], y: number): number {
+  let bottom = 0;
+  for (let i = 0; i < tracks.length; i++) {
+    bottom += LANE_HEIGHTS[(tracks[i] as Pick<TimelineTrack, "kind">).kind];
+    if (y < bottom) return i;
+  }
+  return Math.max(0, tracks.length - 1);
+}
 
 export interface TimelineProps {
   durationMs: number;
@@ -119,9 +152,18 @@ interface PreviewSpan {
   valid: boolean;
 }
 
+/** A clip edge being dragged: the original span, for the trimmed-out hatch and readout. */
+interface TrimPreview {
+  id: string;
+  mode: "start" | "end";
+  originStartMs: number;
+  originEndMs: number;
+}
+
 interface Preview {
   spans: ReadonlyMap<string, PreviewSpan>;
   snappedTo: number | null;
+  trim?: TrimPreview | undefined;
 }
 
 /** Group move: every member shifted by `delta`, validity checked against non-moving siblings. */
@@ -246,7 +288,7 @@ function ClipMedia({
     visibleEndMs,
   };
   const aspect = media.aspect !== undefined && media.aspect > 0 ? media.aspect : 16 / 9;
-  const tiles = visibleFilmstrip(media.thumbs, placement, ITEM_HEIGHT_PX * aspect);
+  const tiles = visibleFilmstrip(media.thumbs, placement, VIDEO_ITEM_HEIGHT_PX * aspect);
   const bars = visibleWaveform(media.peaks, media.sourceDurationMs, placement, WAVEFORM_BAR_PX);
   const path = bars
     .map((b) => {
@@ -275,20 +317,30 @@ function ClipMedia({
             height: "100%",
             objectFit: "cover",
             objectPosition: "left center",
-            opacity: 0.55,
           }}
         />
       ))}
       {bars.length > 0 && (
-        <svg
-          data-testid="clip-waveform"
-          width="100%"
-          height={WAVEFORM_HEIGHT_PX}
-          style={{ position: "absolute", left: 0, bottom: 0, color: "var(--text-1)", opacity: 0.6 }}
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: `${WAVEFORM_HEIGHT_PX}px`,
+            background: "color-mix(in srgb, var(--bg-sunken) 55%, transparent)",
+          }}
         >
-          <title>{waveformTitle}</title>
-          <path d={path} fill="currentColor" />
-        </svg>
+          <svg
+            data-testid="clip-waveform"
+            width="100%"
+            height={WAVEFORM_HEIGHT_PX}
+            style={{ display: "block", color: "var(--text-1)", opacity: 0.4 }}
+          >
+            <title>{waveformTitle}</title>
+            <path d={path} fill="currentColor" />
+          </svg>
+        </div>
       )}
     </div>
   );
@@ -330,9 +382,11 @@ const rulerStyle: CSSProperties = {
   position: "relative",
   flex: "1 1 auto",
   overflow: "hidden",
-  background: "var(--bg-panel)",
+  background: "var(--bg-sunken)",
   cursor: "col-resize",
 };
+
+const MONO = 'ui-monospace, "JetBrains Mono", monospace';
 
 const bodyStyle: CSSProperties = {
   display: "flex",
@@ -346,32 +400,38 @@ const headerColStyle: CSSProperties = {
   width: `${HEADER_WIDTH_PX}px`,
   flex: "0 0 auto",
   borderRight: "1px solid var(--border)",
+  background: "var(--bg-panel)",
 };
 
-const headerRowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-2)",
-  height: `${LANE_HEIGHT_PX}px`,
-  padding: "0 var(--space-2) 0 var(--space-3)",
-  boxSizing: "border-box",
-  borderBottom: "1px solid var(--border)",
-  fontSize: "12px",
-  color: "var(--text-2)",
-};
+function headerRowStyle(kind: TrackKind): CSSProperties {
+  const video = kind === "video";
+  return {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    height: `${LANE_HEIGHTS[kind]}px`,
+    padding: "0 10px",
+    boxSizing: "border-box",
+    borderBottom: "1px solid var(--border)",
+    fontSize: "11px",
+    color: video ? "var(--text-1)" : "var(--text-2)",
+    fontWeight: video ? 600 : 400,
+  };
+}
 
 const addButtonStyle: CSSProperties = {
   appearance: "none",
   marginLeft: "auto",
-  width: "24px",
-  height: "24px",
+  flex: "none",
+  width: "20px",
+  height: "20px",
   padding: 0,
-  borderRadius: "var(--radius-sm)",
-  border: "1px solid transparent",
+  borderRadius: "6px",
+  border: "none",
   background: "transparent",
-  color: "var(--text-2)",
+  color: "var(--text-3)",
   fontFamily: "var(--font-body)",
-  fontSize: "16px",
+  fontSize: "12px",
   lineHeight: 1,
   cursor: "pointer",
 };
@@ -380,16 +440,19 @@ const lanesColStyle: CSSProperties = {
   position: "relative",
   flex: "1 1 auto",
   minWidth: 0,
-};
-
-const laneStyle: CSSProperties = {
-  position: "relative",
-  height: `${LANE_HEIGHT_PX}px`,
-  boxSizing: "border-box",
-  overflow: "hidden",
-  borderBottom: "1px solid var(--border)",
   background: "var(--bg-sunken)",
 };
+
+function laneStyle(kind: TrackKind): CSSProperties {
+  return {
+    position: "relative",
+    height: `${LANE_HEIGHTS[kind]}px`,
+    boxSizing: "border-box",
+    overflow: "hidden",
+    borderBottom: "1px solid var(--border)",
+    background: "var(--bg-sunken)",
+  };
+}
 
 const itemLabelStyle: CSSProperties = {
   flex: "1 1 auto",
@@ -397,12 +460,52 @@ const itemLabelStyle: CSSProperties = {
   overflow: "hidden",
   whiteSpace: "nowrap",
   textOverflow: "ellipsis",
-  padding: "0 var(--space-1)",
-  fontSize: "12px",
+  padding: "0 8px",
+  fontSize: "10px",
   color: "var(--text-1)",
   pointerEvents: "none",
   position: "relative",
   zIndex: 1,
+};
+
+/** Trimmed-out source (component sheet "Trimmed out"): diagonal hatch, dashed hairline. */
+const trimHatchStyle: CSSProperties = {
+  position: "absolute",
+  top: `${itemInsetPx("video")}px`,
+  bottom: `${itemInsetPx("video")}px`,
+  boxSizing: "border-box",
+  borderRadius: "8px",
+  background:
+    "repeating-linear-gradient(45deg, color-mix(in srgb, var(--text-1) 6%, transparent) 0 6px, transparent 6px 12px)",
+  border: "1px dashed color-mix(in srgb, var(--text-1) 30%, transparent)",
+  pointerEvents: "none",
+};
+
+const trimHandleStyle: CSSProperties = {
+  position: "absolute",
+  top: `${itemInsetPx("video")}px`,
+  bottom: `${itemInsetPx("video")}px`,
+  width: "6px",
+  marginLeft: "-3px",
+  borderRadius: "3px",
+  background: "var(--text-1)",
+  pointerEvents: "none",
+  zIndex: 3,
+};
+
+const trimReadoutStyle: CSSProperties = {
+  position: "absolute",
+  zIndex: 4,
+  padding: "4px 10px",
+  borderRadius: "var(--radius-sm)",
+  background: "color-mix(in srgb, var(--bg-panel) 95%, transparent)",
+  border: "1px solid var(--border-strong)",
+  fontSize: "10px",
+  fontFamily: MONO,
+  fontVariantNumeric: "tabular-nums",
+  color: "var(--text-1)",
+  whiteSpace: "nowrap",
+  pointerEvents: "none",
 };
 
 function handleStyle(edge: "start" | "end"): CSSProperties {
@@ -425,27 +528,33 @@ function itemStyle(
   ghost: boolean,
   invalid: boolean,
 ): CSSProperties {
-  const hue = TRACK_COLORS[kind];
-  const edge = invalid ? INVALID_COLOR : selected ? "var(--accent)" : hue;
+  const video = kind === "video";
+  // Clips: raised body, strong hairline, neutral lead edge; effects: tinted track hue (S12).
+  const hue = video ? "var(--text-3)" : TRACK_COLORS[kind];
+  const ring = video ? "var(--accent)" : hue;
+  const edge = invalid ? INVALID_COLOR : selected ? ring : video ? "var(--border-strong)" : hue;
   const edgeWidth = invalid || selected ? "2px" : "1px";
   const lineStyle = ghost ? "dashed" : "solid";
+  const inset = itemInsetPx(kind);
   return {
     position: "absolute",
-    top: "4px",
-    height: `${LANE_HEIGHT_PX - 9}px`,
+    top: `${inset}px`,
+    bottom: `${inset}px`,
     left: `${leftPx}px`,
     width: `${Math.max(2, widthPx)}px`,
     boxSizing: "border-box",
     display: "flex",
     alignItems: "center",
-    borderRadius: "6px",
-    background: itemFill(hue),
+    borderRadius: "8px",
+    background: video
+      ? "color-mix(in srgb, var(--bg-panel-raised) 60%, var(--bg-panel))"
+      : itemFill(hue, ghost ? 10 : 16),
     borderTop: `${edgeWidth} ${lineStyle} ${edge}`,
     borderRight: `${edgeWidth} ${lineStyle} ${edge}`,
     borderBottom: `${edgeWidth} ${lineStyle} ${edge}`,
-    borderLeft: `3px ${lineStyle} ${hue}`,
-    boxShadow: selected ? "0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent)" : "none",
-    opacity: ghost ? 0.5 : 1,
+    borderLeft: ghost ? `${edgeWidth} dashed ${edge}` : `3px solid ${hue}`,
+    boxShadow: selected ? `0 0 0 3px color-mix(in srgb, ${ring} 18%, transparent)` : "none",
+    opacity: ghost ? 0.55 : 1,
     cursor: "grab",
     overflow: "hidden",
     touchAction: "none",
@@ -549,9 +658,8 @@ export function Timeline(props: TimelineProps): ReactElement {
 
     const laneAt = (clientY: number): number => {
       const rect = lanesRef.current?.getBoundingClientRect();
-      const count = latest.current.props.tracks.length;
-      if (!rect || count === 0) return 0;
-      return clamp(Math.floor((clientY - rect.top) / LANE_HEIGHT_PX), 0, count - 1);
+      if (!rect) return 0;
+      return laneIndexAt(latest.current.props.tracks, clientY - rect.top);
     };
 
     const onMove = (e: PointerEvent): void => {
@@ -604,6 +712,15 @@ export function Timeline(props: TimelineProps): ReactElement {
         setPreview({
           spans: new Map([[d.origin.id, { startMs: r.item.startMs, endMs: r.item.endMs, valid }]]),
           snappedTo: r.snappedTo,
+          trim:
+            d.mode !== "move" && d.trackKind === "video"
+              ? {
+                  id: d.origin.id,
+                  mode: d.mode,
+                  originStartMs: d.origin.startMs,
+                  originEndMs: d.origin.endMs,
+                }
+              : undefined,
         });
         return;
       }
@@ -751,9 +868,7 @@ export function Timeline(props: TimelineProps): ReactElement {
   const onLanesPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const count = tracks.length;
-    const lane =
-      count === 0 ? 0 : clamp(Math.floor((e.clientY - rect.top) / LANE_HEIGHT_PX), 0, count - 1);
+    const lane = laneIndexAt(tracks, e.clientY - rect.top);
     e.currentTarget.setPointerCapture?.(e.pointerId);
     marqueeRef.current = {
       startX: e.clientX - rect.left,
@@ -794,6 +909,10 @@ export function Timeline(props: TimelineProps): ReactElement {
   const visEnd = scale.scrollMs + visibleMs + overscanMs;
   const playheadPx = msToPx(currentMs, scale);
   const playheadVisible = ready && playheadPx >= 0 && playheadPx <= viewportPx;
+  const tops = laneTops(tracks);
+  const trim = preview?.trim ?? null;
+  const trimLive = trim ? (preview?.spans.get(trim.id) ?? null) : null;
+  const videoLane = tracks.findIndex((t) => t.kind === "video");
 
   return (
     <section
@@ -821,8 +940,8 @@ export function Timeline(props: TimelineProps): ReactElement {
                 left: `${t.px}px`,
                 bottom: 0,
                 width: "1px",
-                height: t.major ? "10px" : "4px",
-                background: t.major ? "var(--text-3)" : "var(--border-strong)",
+                height: t.major ? "6px" : "3px",
+                background: t.major ? "var(--border-strong)" : "var(--border)",
                 pointerEvents: "none",
               }}
             >
@@ -830,12 +949,13 @@ export function Timeline(props: TimelineProps): ReactElement {
                 <span
                   style={{
                     position: "absolute",
-                    left: "var(--space-1)",
-                    bottom: "8px",
-                    fontSize: "11px",
+                    left: "4px",
+                    bottom: "7px",
+                    fontSize: "10px",
+                    fontFamily: MONO,
                     whiteSpace: "nowrap",
                     fontVariantNumeric: "tabular-nums",
-                    color: "var(--text-2)",
+                    color: "var(--text-3)",
                   }}
                 >
                   {t.label}
@@ -849,13 +969,13 @@ export function Timeline(props: TimelineProps): ReactElement {
       <div style={bodyStyle}>
         <div style={headerColStyle}>
           {tracks.map((track) => (
-            <div key={track.kind} style={headerRowStyle}>
+            <div key={track.kind} style={headerRowStyle(track.kind)}>
               <span
                 aria-hidden="true"
                 style={{
-                  width: "3px",
-                  height: "14px",
-                  borderRadius: "2px",
+                  width: "6px",
+                  height: track.kind === "video" ? "24px" : "14px",
+                  borderRadius: "var(--radius-full)",
                   background: TRACK_COLORS[track.kind],
                   flex: "0 0 auto",
                 }}
@@ -871,7 +991,7 @@ export function Timeline(props: TimelineProps): ReactElement {
                   title={tl("timeline.addAtPlayhead", { track: track.label })}
                   onClick={() => onAddAtPlayhead(track.kind)}
                 >
-                  +
+                  ＋
                 </button>
               )}
             </div>
@@ -887,7 +1007,7 @@ export function Timeline(props: TimelineProps): ReactElement {
           {tracks.map((track) => (
             <div
               key={track.kind}
-              style={laneStyle}
+              style={laneStyle(track.kind)}
               role="group"
               aria-label={tl("timeline.trackGroup", { track: track.label })}
               data-track-kind={track.kind}
@@ -944,8 +1064,66 @@ export function Timeline(props: TimelineProps): ReactElement {
                     </div>
                   );
                 })}
+              {ready &&
+                track.kind === "video" &&
+                trim &&
+                trimLive &&
+                (() => {
+                  const cutFrom = trim.mode === "end" ? trimLive.endMs : trim.originStartMs;
+                  const cutTo = trim.mode === "end" ? trim.originEndMs : trimLive.startMs;
+                  const edgeMs = trim.mode === "end" ? trimLive.endMs : trimLive.startMs;
+                  return (
+                    <>
+                      {cutTo > cutFrom && (
+                        <div
+                          data-testid="timeline-trim-hatch"
+                          aria-hidden="true"
+                          style={{
+                            ...trimHatchStyle,
+                            left: `${msToPx(cutFrom, scale)}px`,
+                            width: `${(cutTo - cutFrom) * scale.pxPerMs}px`,
+                          }}
+                        />
+                      )}
+                      <div
+                        data-testid="timeline-trim-handle"
+                        aria-hidden="true"
+                        style={{ ...trimHandleStyle, left: `${msToPx(edgeMs, scale)}px` }}
+                      />
+                    </>
+                  );
+                })()}
             </div>
           ))}
+
+          {ready &&
+            trim &&
+            trimLive &&
+            videoLane >= 0 &&
+            (() => {
+              const edgeMs = trim.mode === "end" ? trimLive.endMs : trimLive.startMs;
+              const originEdge = trim.mode === "end" ? trim.originEndMs : trim.originStartMs;
+              // Positive when the clip got shorter (time removed from the cut).
+              const removed = trim.mode === "end" ? originEdge - edgeMs : edgeMs - originEdge;
+              const sign = removed >= 0 ? "−" : "+";
+              const edgePx = msToPx(edgeMs, scale);
+              return (
+                <div
+                  data-testid="timeline-trim-readout"
+                  aria-hidden="true"
+                  style={{
+                    ...trimReadoutStyle,
+                    top: `${(tops[videoLane] ?? 0) + LANE_HEIGHTS.video + 2}px`,
+                    ...(trim.mode === "end"
+                      ? { right: `${Math.max(0, viewportPx - edgePx + 8)}px` }
+                      : { left: `${Math.max(0, edgePx + 8)}px` }),
+                  }}
+                >
+                  {formatClock(edgeMs)} · {sign}
+                  {formatClock(Math.abs(removed))}
+                </div>
+              );
+            })()}
 
           {preview && preview.snappedTo !== null && (
             <div
@@ -972,8 +1150,14 @@ export function Timeline(props: TimelineProps): ReactElement {
                 position: "absolute",
                 left: `${Math.min(marquee.startX, marquee.curX)}px`,
                 width: `${Math.abs(marquee.curX - marquee.startX)}px`,
-                top: `${Math.min(marquee.startLane, marquee.curLane) * LANE_HEIGHT_PX}px`,
-                height: `${(Math.abs(marquee.curLane - marquee.startLane) + 1) * LANE_HEIGHT_PX}px`,
+                ...(() => {
+                  const lo = Math.min(marquee.startLane, marquee.curLane);
+                  const hi = Math.max(marquee.startLane, marquee.curLane);
+                  const top = tops[lo] ?? 0;
+                  const hiTrack = tracks[hi];
+                  const bottom = (tops[hi] ?? 0) + (hiTrack ? LANE_HEIGHTS[hiTrack.kind] : 0);
+                  return { top: `${top}px`, height: `${Math.max(0, bottom - top)}px` };
+                })(),
                 boxSizing: "border-box",
                 border: "1px solid var(--accent)",
                 background: "color-mix(in srgb, var(--accent) 12%, transparent)",
@@ -996,7 +1180,7 @@ export function Timeline(props: TimelineProps): ReactElement {
           background: "var(--accent)",
           pointerEvents: "none",
           visibility: playheadVisible ? "visible" : "hidden",
-          zIndex: 2,
+          zIndex: 3,
         }}
       >
         <div
@@ -1005,7 +1189,7 @@ export function Timeline(props: TimelineProps): ReactElement {
             top: 0,
             left: "-5px",
             width: "10px",
-            height: "10px",
+            height: "8px",
             background: "var(--accent)",
             clipPath: "polygon(0 0, 100% 0, 50% 100%)",
           }}

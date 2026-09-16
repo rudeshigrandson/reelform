@@ -8,7 +8,17 @@ import {
   useRef,
   useState,
 } from "react";
-import { ColorField, EmptyState, Section, Slider, Switch } from "../controls";
+import {
+  Callout,
+  ColorField,
+  GroupLabel,
+  Slider,
+  SliderScale,
+  Switch,
+  hintStyle,
+  inspectorRootStyle,
+  useInspectorControlStyles,
+} from "../controls";
 import { type InspectorMessageKey, useInspectorT } from "../i18n";
 import { formatPointCount, hasTelemetry, validateCustomCursorFile } from "./logic";
 import {
@@ -54,34 +64,132 @@ const SOUND_OPTIONS: OptionKeys<ClickSound> = [
   { value: "custom", labelKey: "inspector.common.custom" },
 ];
 
-const rootStyle: CSSProperties = {
+const fieldsetStyle: CSSProperties = {
+  border: 0,
+  margin: 0,
+  padding: 0,
+  minWidth: 0,
   display: "flex",
   flexDirection: "column",
-  gap: "var(--space-2)",
-  fontFamily: "var(--font-body)",
-  color: "var(--text-1)",
+  gap: "14px",
 };
 
-const fieldsetStyle: CSSProperties = { border: 0, margin: 0, padding: 0, minWidth: 0 };
+const stackStyle = (gap: number): CSSProperties => ({
+  display: "flex",
+  flexDirection: "column",
+  gap: `${gap}px`,
+  minWidth: 0,
+});
 
-const hintStyle: CSSProperties = { fontSize: "11px", color: "var(--text-3)" };
+const errorStyle: CSSProperties = { fontSize: "11px", color: "var(--accent-hover)" };
 
-const errorStyle: CSSProperties = {
-  fontSize: "12px",
-  color: "var(--warning)",
-};
-
-const groupLabelStyle: CSSProperties = { fontSize: "13px", color: "var(--text-2)" };
-
+/** Labeled control group (design: uppercase label, 8px gap). */
 function Group({ label, children }: { label: string; children: ReactNode }): ReactElement {
   return (
-    <div
-      role="group"
-      aria-label={label}
-      style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}
-    >
-      <span style={groupLabelStyle}>{label}</span>
+    <div role="group" aria-label={label} style={stackStyle(8)}>
+      <GroupLabel>{label}</GroupLabel>
       {children}
+    </div>
+  );
+}
+
+const ARROW_PATH = "M6 3 L6 19 L10 15 L13 21 L15.5 20 L12.5 14 L18 14 Z";
+
+/** Tile glyph per built-in pack (design S14 style row). Tokens only. */
+function StyleGlyph({ style }: { style: CursorStyle }): ReactElement {
+  switch (style) {
+    case "macos":
+    case "macos-dark": {
+      const light = style === "macos";
+      return (
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d={ARROW_PATH}
+            fill={light ? "var(--text-1)" : "var(--bg-app)"}
+            stroke={light ? "var(--bg-app)" : "var(--text-1)"}
+            strokeWidth="1.2"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    }
+    case "windows":
+      return (
+        <span aria-hidden="true" style={{ fontSize: "14px", color: "var(--text-1)" }}>
+          ⌖
+        </span>
+      );
+    case "minimal-dot":
+      return (
+        <span
+          aria-hidden="true"
+          style={{
+            width: "12px",
+            height: "12px",
+            borderRadius: "999px",
+            background: "var(--text-1)",
+          }}
+        />
+      );
+    case "custom":
+      return (
+        <span aria-hidden="true" style={{ color: "var(--text-3)", fontSize: "13px" }}>
+          ＋
+        </span>
+      );
+  }
+}
+
+function StyleTiles({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: CursorStyle;
+  onChange: (style: CursorStyle) => void;
+}): ReactElement {
+  const t = useInspectorT();
+  useInspectorControlStyles();
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: "6px" }}
+    >
+      {STYLE_OPTIONS.map((o) => {
+        const on = o.value === value;
+        const name = t(o.labelKey);
+        return (
+          <button
+            key={o.value}
+            type="button"
+            role="radio"
+            className="rf-anchor"
+            aria-checked={on}
+            aria-label={name}
+            title={name}
+            onClick={() => onChange(o.value)}
+            style={{
+              appearance: "none",
+              height: "44px",
+              padding: 0,
+              borderRadius: "10px",
+              background: "var(--bg-panel-raised)",
+              border:
+                o.value === "custom" ? "1px dashed var(--border-strong)" : "1px solid transparent",
+              outline: on ? "2px solid var(--accent)" : "none",
+              outlineOffset: "2px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+            }}
+          >
+            <StyleGlyph style={o.value} />
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -95,7 +203,7 @@ const PREVIEW_VARIANTS: ReadonlyArray<{ id: PreviewVariant; labelKey: InspectorM
 ];
 
 const PREVIEW_PATHS: Record<PreviewVariant, string> = {
-  arrow: "M6 3 L6 19 L10 15 L13 21 L15.5 20 L12.5 14 L18 14 Z",
+  arrow: ARROW_PATH,
   hand: "M9 11 V5 a1.5 1.5 0 0 1 3 0 V10 h0.5 V8.5 a1.5 1.5 0 0 1 3 0 V11 a1.5 1.5 0 0 1 3 0 V16 a5 5 0 0 1 -5 5 h-2 a5 5 0 0 1 -4.2 -2.3 L4.5 14 a1.5 1.5 0 0 1 2.4 -1.8 Z",
   text: "M8 4 h8 v2 h-3 v12 h3 v2 h-8 v-2 h3 v-12 h-3 Z",
   resize: "M3 12 L7 8 V11 H17 V8 L21 12 L17 16 V13 H7 V16 Z",
@@ -103,23 +211,27 @@ const PREVIEW_PATHS: Record<PreviewVariant, string> = {
 
 /** Fill/outline per built-in pack. Tokens only. */
 function packColors(style: CursorStyle): { fill: string; stroke: string } {
-  switch (style) {
-    case "macos-dark":
-      return { fill: "var(--color-neutral-100)", stroke: "var(--color-neutral-900)" };
-    case "windows":
-      return { fill: "var(--color-neutral-100)", stroke: "var(--color-neutral-900)" };
-    default:
-      return { fill: "var(--color-neutral-900)", stroke: "var(--color-neutral-100)" };
-  }
+  return style === "macos-dark" || style === "windows"
+    ? { fill: "var(--bg-app)", stroke: "var(--text-1)" }
+    : { fill: "var(--text-1)", stroke: "var(--bg-app)" };
 }
 
+/** Compact strip showing the selected pack's arrow / hand / text / resize shapes. */
 function CursorPreview({ style }: { style: CursorStyle }): ReactElement {
   const t = useInspectorT();
   const { fill, stroke } = packColors(style);
   return (
     <div
       aria-label={t("inspector.cursor.preview")}
-      style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--space-1)" }}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(4, 1fr)",
+        gap: "1px",
+        height: "28px",
+        borderRadius: "8px",
+        overflow: "hidden",
+        background: "var(--border)",
+      }}
     >
       {PREVIEW_VARIANTS.map((v) => (
         <div
@@ -129,22 +241,12 @@ function CursorPreview({ style }: { style: CursorStyle }): ReactElement {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            height: "44px",
-            borderRadius: "var(--radius-sm)",
             background: "var(--bg-sunken)",
-            border: "1px solid var(--border-strong)",
           }}
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" role="img" aria-label={t(v.labelKey)}>
+          <svg width="16" height="16" viewBox="0 0 24 24" role="img" aria-label={t(v.labelKey)}>
             {style === "minimal-dot" ? (
-              <circle
-                cx="12"
-                cy="12"
-                r={v.id === "text" ? 3 : 5}
-                fill={stroke}
-                stroke={fill}
-                strokeWidth="1"
-              />
+              <circle cx="12" cy="12" r={v.id === "text" ? 3 : 5} fill="var(--text-1)" />
             ) : (
               <path
                 d={PREVIEW_PATHS[v.id]}
@@ -172,7 +274,7 @@ export function CursorInspector({
   onUploadCustomSound,
 }: CursorInspectorProps): ReactElement {
   const t = useInspectorT();
-  const ids = { style: useId(), effect: useId(), sound: useId() };
+  const ids = { effect: useId(), sound: useId() };
   const options = <T extends string | number>(
     list: OptionKeys<T>,
   ): ReadonlyArray<SegmentedOption<T>> =>
@@ -183,6 +285,7 @@ export function CursorInspector({
 
   const tracked = hasTelemetry(cursorPointCount);
   const controlsDisabled = !tracked || !value.show;
+  const effectOff = controlsDisabled || value.clickEffect.type === "none";
 
   const patch = (partial: Partial<CursorSettings>): void => onChange({ ...value, ...partial });
 
@@ -198,13 +301,7 @@ export function CursorInspector({
   };
 
   return (
-    <div style={rootStyle} aria-label={t("inspector.cursor.label")}>
-      {!tracked && (
-        <EmptyState title={t("inspector.cursor.noData.title")}>
-          {t("inspector.cursor.noData.body")}
-        </EmptyState>
-      )}
-
+    <div style={inspectorRootStyle} aria-label={t("inspector.cursor.label")}>
       <Switch
         label={t("inspector.cursor.show")}
         checked={value.show}
@@ -216,21 +313,21 @@ export function CursorInspector({
         disabled={controlsDisabled}
         style={{ ...fieldsetStyle, opacity: controlsDisabled ? 0.5 : 1 }}
       >
-        <Section title={t("inspector.common.style")}>
-          <Group label={t("inspector.cursor.cursorStyle")}>
-            <Segmented
-              name={ids.style}
-              value={value.style}
-              options={options(STYLE_OPTIONS)}
-              onChange={(style) => {
-                setUploadError(null);
-                patch({ style });
-              }}
-            />
-          </Group>
+        <Group label={t("inspector.common.style")}>
+          <StyleTiles
+            label={t("inspector.cursor.cursorStyle")}
+            value={value.style}
+            onChange={(style) => {
+              setUploadError(null);
+              patch({ style });
+            }}
+          />
+          <div style={{ color: "var(--text-3)" }}>
+            {STYLE_OPTIONS.map((o) => t(o.labelKey)).join(" · ")}
+          </div>
 
           {value.style === "custom" ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}>
+            <div style={stackStyle(6)}>
               <input
                 ref={cursorFileRef}
                 type="file"
@@ -243,7 +340,7 @@ export function CursorInspector({
                 }}
               />
               {value.customCursor ? (
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <Tag variant="outline" title={value.customCursor.path}>
                     {value.customCursor.fileName}
                   </Tag>
@@ -274,46 +371,29 @@ export function CursorInspector({
           ) : (
             <CursorPreview style={value.style} />
           )}
+        </Group>
 
+        <div style={stackStyle(10)}>
           <Slider
             label={t("inspector.common.size")}
             value={value.size}
             min={L.size.min}
             max={L.size.max}
             unit="%"
+            labelWidth={66}
             disabled={controlsDisabled}
             onChange={(size) => patch({ size })}
           />
-          <Switch
-            label={t("inspector.cursor.scaleWithZoom")}
-            hint={t("inspector.cursor.scaleWithZoom.hint")}
-            checked={value.scaleWithZoom}
-            disabled={controlsDisabled}
-            onChange={(scaleWithZoom) => patch({ scaleWithZoom })}
-          />
-        </Section>
-
-        <Section title={t("inspector.common.motion")}>
           <Slider
             label={t("inspector.cursor.smoothing")}
             value={value.smoothing}
             min={L.smoothing.min}
             max={L.smoothing.max}
+            labelWidth={66}
             disabled={controlsDisabled}
             onChange={(smoothing) => patch({ smoothing })}
           />
-          <div
-            style={{
-              ...hintStyle,
-              display: "flex",
-              justifyContent: "space-between",
-              paddingLeft: "104px",
-            }}
-          >
-            <span>{t("inspector.cursor.snappy")}</span>
-            <span aria-hidden="true">⟷</span>
-            <span>{t("inspector.cursor.silky")}</span>
-          </div>
+          <SliderScale start={t("inspector.cursor.snappy")} end={t("inspector.cursor.silky")} />
           <Switch
             label={t("inspector.cursor.motionBlur")}
             checked={value.motionBlur.enabled}
@@ -325,9 +405,46 @@ export function CursorInspector({
             value={value.motionBlur.amount}
             min={L.motionBlurAmount.min}
             max={L.motionBlurAmount.max}
+            labelWidth={66}
             disabled={controlsDisabled || !value.motionBlur.enabled}
             onChange={(amount) => patch({ motionBlur: { ...value.motionBlur, amount } })}
           />
+          <Switch
+            label={t("inspector.cursor.scaleWithZoom")}
+            hint={t("inspector.cursor.scaleWithZoom.hint")}
+            checked={value.scaleWithZoom}
+            disabled={controlsDisabled}
+            onChange={(scaleWithZoom) => patch({ scaleWithZoom })}
+          />
+        </div>
+
+        <Group label={t("inspector.cursor.clickEffect")}>
+          <Segmented
+            name={ids.effect}
+            size="sm"
+            value={value.clickEffect.type}
+            options={options(EFFECT_OPTIONS)}
+            onChange={(type) => patch({ clickEffect: { ...value.clickEffect, type } })}
+          />
+          <ColorField
+            label={t("inspector.common.color")}
+            value={value.clickEffect.color}
+            disabled={effectOff}
+            onChange={(color) => patch({ clickEffect: { ...value.clickEffect, color } })}
+          />
+          <Slider
+            label={t("inspector.cursor.effectSize")}
+            value={value.clickEffect.size}
+            min={L.clickEffectSize.min}
+            max={L.clickEffectSize.max}
+            unit="%"
+            labelWidth={66}
+            disabled={effectOff}
+            onChange={(size) => patch({ clickEffect: { ...value.clickEffect, size } })}
+          />
+        </Group>
+
+        <div style={stackStyle(9)}>
           <Switch
             label={t("inspector.cursor.sway")}
             hint={t("inspector.cursor.sway.hint")}
@@ -348,6 +465,7 @@ export function CursorInspector({
             max={L.hideIdleDelaySec.max}
             step={0.5}
             unit="s"
+            labelWidth={66}
             disabled={controlsDisabled || !value.hideWhenIdle.enabled}
             onChange={(delaySec) => patch({ hideWhenIdle: { ...value.hideWhenIdle, delaySec } })}
           />
@@ -358,45 +476,18 @@ export function CursorInspector({
             disabled={controlsDisabled}
             onChange={(loop) => patch({ loop })}
           />
-        </Section>
+        </div>
 
-        <Section title={t("inspector.cursor.clickEffect")}>
-          <Group label={t("inspector.cursor.clickEffect")}>
-            <Segmented
-              name={ids.effect}
-              value={value.clickEffect.type}
-              options={options(EFFECT_OPTIONS)}
-              onChange={(type) => patch({ clickEffect: { ...value.clickEffect, type } })}
-            />
-          </Group>
-          <ColorField
-            label={t("inspector.common.color")}
-            value={value.clickEffect.color}
-            disabled={controlsDisabled || value.clickEffect.type === "none"}
-            onChange={(color) => patch({ clickEffect: { ...value.clickEffect, color } })}
+        <Group label={t("inspector.cursor.clickSound")}>
+          <Segmented
+            name={ids.sound}
+            size="sm"
+            value={value.clickSound.type}
+            options={options(SOUND_OPTIONS)}
+            onChange={(type) => patch({ clickSound: { ...value.clickSound, type } })}
           />
-          <Slider
-            label={t("inspector.cursor.effectSize")}
-            value={value.clickEffect.size}
-            min={L.clickEffectSize.min}
-            max={L.clickEffectSize.max}
-            unit="%"
-            disabled={controlsDisabled || value.clickEffect.type === "none"}
-            onChange={(size) => patch({ clickEffect: { ...value.clickEffect, size } })}
-          />
-        </Section>
-
-        <Section title={t("inspector.cursor.clickSound")}>
-          <Group label={t("inspector.cursor.clickSound")}>
-            <Segmented
-              name={ids.sound}
-              value={value.clickSound.type}
-              options={options(SOUND_OPTIONS)}
-              onChange={(type) => patch({ clickSound: { ...value.clickSound, type } })}
-            />
-          </Group>
           {value.clickSound.type === "custom" && (
-            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <input
                 ref={soundFileRef}
                 type="file"
@@ -431,29 +522,29 @@ export function CursorInspector({
             min={L.clickSoundVolume.min}
             max={L.clickSoundVolume.max}
             unit="%"
+            labelWidth={66}
             disabled={controlsDisabled || value.clickSound.type === "none"}
             onChange={(volume) => patch({ clickSound: { ...value.clickSound, volume } })}
           />
-        </Section>
+        </Group>
       </fieldset>
 
-      <Section title={t("inspector.cursor.data")}>
+      <div role="note" aria-label={t("inspector.cursor.data")}>
         {tracked ? (
-          <div>
-            <Tag variant="accent">
-              {t("inspector.cursor.tracked", { points: formatPointCount(cursorPointCount) })}
-            </Tag>
-          </div>
+          <Callout tone="success">
+            <span style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <span>
+                {t("inspector.cursor.tracked", { points: formatPointCount(cursorPointCount) })}
+              </span>
+            </span>
+          </Callout>
         ) : (
-          <div
-            role="note"
-            style={{ display: "flex", flexDirection: "column", gap: "var(--space-1)" }}
-          >
-            <span style={errorStyle}>{t("inspector.cursor.noData.title")}</span>
-            <span style={hintStyle}>{t("inspector.cursor.noData.note")}</span>
-          </div>
+          <Callout tone="warning" role="status" title={`⚠ ${t("inspector.cursor.noData.title")}`}>
+            <span>{t("inspector.cursor.noData.body")}</span>
+            <span style={{ color: "var(--text-3)" }}>{t("inspector.cursor.noData.note")}</span>
+          </Callout>
         )}
-      </Section>
+      </div>
     </div>
   );
 }

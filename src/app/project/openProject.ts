@@ -73,7 +73,22 @@ export interface OpenProjectDeps {
   stores?: ProjectStores | undefined;
   /** Abort when the window navigates to another project mid-load. */
   signal?: AbortSignal | undefined;
+  /**
+   * Waits before re-asking `project:resolve` after PROJECT_NOT_FOUND. An editor
+   * opened right after a recording can reach main before the library knows the
+   * new folder; only when every retry misses is the project "not found".
+   * Defaults to {@link RESOLVE_RETRY_DELAYS_MS}; `[]` disables retries.
+   */
+  resolveRetryDelaysMs?: readonly number[] | undefined;
+  /** Timer for the retry waits (tests). */
+  sleep?: ((ms: number) => Promise<void>) | undefined;
 }
+
+/** Back-off between `project:resolve` retries (~1.7s in total before "not found"). */
+export const RESOLVE_RETRY_DELAYS_MS: readonly number[] = [200, 500, 1000];
+
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 export type OpenProjectResult =
   | {
@@ -264,6 +279,27 @@ async function isOnline(url: string | null, media: ProjectMediaPort): Promise<bo
   }
 }
 
+/** `project:resolve`, retried while main reports PROJECT_NOT_FOUND; null when aborted mid-wait. */
+async function resolveProjectPath(
+  projectId: string,
+  deps: OpenProjectDeps,
+  aborted: () => boolean,
+): Promise<{ path: string } | null> {
+  const delays = deps.resolveRetryDelaysMs ?? RESOLVE_RETRY_DELAYS_MS;
+  const sleep = deps.sleep ?? defaultSleep;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return required(await deps.invoke("project:resolve", { projectId }), "Opening projects");
+    } catch (err) {
+      const delay = delays[attempt];
+      if (delay === undefined || err instanceof OpenError) throw err;
+      if (!NOT_FOUND_CODES.has(toIpcErrorShape(err).code)) throw err;
+      await sleep(delay);
+      if (aborted()) return null;
+    }
+  }
+}
+
 export async function openProject(
   projectId: string,
   deps: OpenProjectDeps,
@@ -275,11 +311,9 @@ export async function openProject(
   session.getState().setSession({ status: "loading", projectId });
   const rootIds: string[] = [];
   try {
-    const { path } = required(
-      await deps.invoke("project:resolve", { projectId }),
-      "Opening projects",
-    );
-    if (aborted()) return { status: "aborted" };
+    const resolved = await resolveProjectPath(projectId, deps, aborted);
+    if (resolved === null || aborted()) return { status: "aborted" };
+    const { path } = resolved;
     const opened = required(await deps.invoke("project:open", { path }), "Opening projects");
     if (aborted()) return { status: "aborted" };
 

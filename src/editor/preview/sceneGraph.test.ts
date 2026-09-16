@@ -156,14 +156,14 @@ function fakeAssets(
 const PACK: CursorPack = {
   id: "macos",
   size: 32,
-  files: { arrow: "/cursors/macos/arrow.svg", ibeam: "/cursors/macos/ibeam.svg" },
+  files: { arrow: "./cursors/macos/arrow.svg", ibeam: "./cursors/macos/ibeam.svg" },
   hotspots: { arrow: { x: 4, y: 2 }, ibeam: { x: 16, y: 16 } },
 };
 
 const TEXTURES = {
   "reelform-media://root/media/logo.png": fakeTexture(200, 100, "logo"),
-  "/cursors/macos/arrow.svg": fakeTexture(64, 64, "arrow"),
-  "/cursors/macos/ibeam.svg": fakeTexture(32, 64, "ibeam"),
+  "./cursors/macos/arrow.svg": fakeTexture(64, 64, "arrow"),
+  "./cursors/macos/ibeam.svg": fakeTexture(32, 64, "ibeam"),
 };
 
 // ── snapshot ────────────────────────────────────────────────────────────────

@@ -268,9 +268,13 @@ export function ProjectTab({ host }: { host: InspectorHost }): ReactElement {
         <div
           role="alert"
           style={{
-            margin: "var(--space-2) var(--space-3) 0",
-            color: "var(--danger)",
-            fontSize: "12px",
+            margin: "12px 14px 0",
+            padding: "10px 12px",
+            borderRadius: "12px",
+            background: "color-mix(in srgb, var(--record) 12%, transparent)",
+            border: "1px solid color-mix(in srgb, var(--record) 45%, transparent)",
+            color: "color-mix(in srgb, var(--record) 45%, var(--text-1))",
+            fontSize: "11px",
           }}
         >
           {notice}

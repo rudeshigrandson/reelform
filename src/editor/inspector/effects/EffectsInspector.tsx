@@ -1,6 +1,20 @@
-import { Button, Input, Segmented } from "@design/components";
-import { type CSSProperties, type ReactElement, useState } from "react";
-import { ColorField, EmptyState, NumberField, Section, Slider, Switch } from "../controls";
+import { Button } from "@design/components";
+import { type CSSProperties, type ReactElement, useId, useState } from "react";
+import {
+  Callout,
+  ChoiceRow,
+  ColorField,
+  FieldRow,
+  NumberField,
+  Section,
+  Slider,
+  Switch,
+  clamp,
+  hintStyle,
+  inspectorRootStyle,
+  useInspectorControlStyles,
+  valueBoxStyle,
+} from "../controls";
 import { type InspectorMessageKey, useInspectorT } from "../i18n";
 import { RemoveSilenceDialog } from "./RemoveSilenceDialog";
 import { detectIdleSections, maxRampMs, suggestIdleSpeedRegions, updateSpeedRegion } from "./logic";
@@ -64,16 +78,11 @@ const TITLE_CARD_KEYS = {
   },
 } as const satisfies Record<string, Record<string, InspectorMessageKey>>;
 
-const rootStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  padding: "0 var(--space-3)",
-  color: "var(--text-1)",
-  fontFamily: "var(--font-body)",
-};
+/** Secondary pill that shares its row (design: 12px, flex 1). */
+const pillStyle: CSSProperties = { flex: "1 1 0", minWidth: 0, fontSize: "12px" };
 
-const toolRowStyle: CSSProperties = { display: "flex", gap: "var(--space-2)", flexWrap: "wrap" };
-const subheadStyle: CSSProperties = { fontSize: "12px", color: "var(--text-2)" };
+/** Signed colour offset readout: "+4", "0", "-8". */
+const signed = (v: number): string => (v > 0 ? `+${v}` : `${v}`);
 
 /** Inspector tab S20 — speed, transitions, intro/outro, color, motion. */
 export function EffectsInspector({
@@ -114,8 +123,8 @@ export function EffectsInspector({
   const rampMax = region ? Math.floor(maxRampMs(region)) : 0;
 
   return (
-    <div style={rootStyle} aria-label={t("inspector.effects.label")}>
-      <Section title={t("inspector.common.speed")}>
+    <div style={inspectorRootStyle} aria-label={t("inspector.effects.label")}>
+      <Section title={t("inspector.effects.speedRegion")}>
         {region ? (
           <>
             <Slider
@@ -125,6 +134,7 @@ export function EffectsInspector({
               max={L.speedRate.max}
               step={0.25}
               unit="×"
+              labelWidth={52}
               onChange={(rate) => onSpeedRegionChange(updateSpeedRegion(region, { rate }))}
             />
             <Switch
@@ -134,64 +144,81 @@ export function EffectsInspector({
                 onSpeedRegionChange(updateSpeedRegion(region, { keepPitch }))
               }
             />
-            <NumberField
-              label={t("inspector.effects.rampIn")}
-              value={region.rampInMs}
-              min={0}
-              max={rampMax}
-              step={50}
-              unit="ms"
-              onChange={(rampInMs) => onSpeedRegionChange(updateSpeedRegion(region, { rampInMs }))}
-            />
-            <NumberField
-              label={t("inspector.effects.rampOut")}
-              value={region.rampOutMs}
-              min={0}
-              max={rampMax}
-              step={50}
-              unit="ms"
-              onChange={(rampOutMs) =>
-                onSpeedRegionChange(updateSpeedRegion(region, { rampOutMs }))
-              }
-            />
+            <FieldRow>
+              <NumberField
+                inline
+                label={t("inspector.effects.rampIn")}
+                value={region.rampInMs}
+                min={0}
+                max={rampMax}
+                step={50}
+                unit="ms"
+                onChange={(rampInMs) =>
+                  onSpeedRegionChange(updateSpeedRegion(region, { rampInMs }))
+                }
+              />
+              <NumberField
+                inline
+                label={t("inspector.effects.rampOut")}
+                value={region.rampOutMs}
+                min={0}
+                max={rampMax}
+                step={50}
+                unit="ms"
+                onChange={(rampOutMs) =>
+                  onSpeedRegionChange(updateSpeedRegion(region, { rampOutMs }))
+                }
+              />
+            </FieldRow>
           </>
         ) : (
-          <EmptyState title={t("inspector.effects.noSpeed.title")}>
+          <Callout tone="neutral" role="status" title={t("inspector.effects.noSpeed.title")}>
             {t("inspector.effects.noSpeed.body")}
-          </EmptyState>
+          </Callout>
         )}
-        <div style={toolRowStyle}>
-          <Button onClick={() => setSilenceOpen(true)} disabled={envelope === null}>
+      </Section>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "-4px" }}>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <Button
+            style={pillStyle}
+            onClick={() => setSilenceOpen(true)}
+            disabled={envelope === null}
+          >
             {t("inspector.effects.removeSilenceButton")}
           </Button>
-          <Button onClick={runAutoIdle} disabled={!hasCursor}>
+          <Button style={pillStyle} onClick={runAutoIdle} disabled={!hasCursor}>
             {t("inspector.effects.autoIdle")}
           </Button>
         </div>
         {idleNotice && (
-          <div role="status" style={subheadStyle}>
+          <div role="status" style={hintStyle}>
             {idleNotice}
           </div>
         )}
-      </Section>
+      </div>
 
       <Section title={t("inspector.effects.transitions")}>
-        <Segmented
-          name="effects-transition"
-          value={value.transition.kind}
-          options={TRANSITION_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
-          onChange={(kind) => set("transition", { ...value.transition, kind })}
-        />
-        <NumberField
-          label={t("inspector.common.duration")}
-          value={value.transition.durationMs}
-          min={L.transitionMs.min}
-          max={L.transitionMs.max}
-          step={50}
-          unit="ms"
-          disabled={value.transition.kind === "none"}
-          onChange={(durationMs) => set("transition", { ...value.transition, durationMs })}
-        />
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+          <ChoiceRow
+            label={t("inspector.effects.transitions")}
+            value={value.transition.kind}
+            options={TRANSITION_OPTIONS.map((o) => {
+              const label = t(o.labelKey);
+              return { value: o.value, label, ariaLabel: label };
+            })}
+            onChange={(kind) => set("transition", { ...value.transition, kind })}
+          />
+          <MsBox
+            label={t("inspector.common.duration")}
+            value={value.transition.durationMs}
+            min={L.transitionMs.min}
+            max={L.transitionMs.max}
+            step={50}
+            disabled={value.transition.kind === "none"}
+            onChange={(durationMs) => set("transition", { ...value.transition, durationMs })}
+          />
+        </div>
       </Section>
 
       <Section title={t("inspector.effects.introOutro")}>
@@ -213,6 +240,8 @@ export function EffectsInspector({
           value={value.color.brightness}
           min={L.colorAdjust.min}
           max={L.colorAdjust.max}
+          labelWidth={62}
+          format={signed}
           onChange={(brightness) => setColor({ brightness })}
         />
         <Slider
@@ -220,6 +249,8 @@ export function EffectsInspector({
           value={value.color.contrast}
           min={L.colorAdjust.min}
           max={L.colorAdjust.max}
+          labelWidth={62}
+          format={signed}
           onChange={(contrast) => setColor({ contrast })}
         />
         <Slider
@@ -227,13 +258,9 @@ export function EffectsInspector({
           value={value.color.saturation}
           min={L.colorAdjust.min}
           max={L.colorAdjust.max}
+          labelWidth={62}
+          format={signed}
           onChange={(saturation) => setColor({ saturation })}
-        />
-        <Switch
-          label={t("inspector.effects.grain")}
-          hint={t("inspector.effects.grain.hint")}
-          checked={value.color.grain}
-          onChange={(grain) => setColor({ grain })}
         />
         <Slider
           label={t("inspector.effects.vignette")}
@@ -241,11 +268,28 @@ export function EffectsInspector({
           min={L.vignette.min}
           max={L.vignette.max}
           unit="%"
+          labelWidth={62}
           onChange={(vignette) => setColor({ vignette })}
+        />
+        <Switch
+          label={t("inspector.effects.grain")}
+          hint={t("inspector.effects.grain.hint")}
+          checked={value.color.grain}
+          onChange={(grain) => setColor({ grain })}
         />
       </Section>
 
-      <Section title={t("inspector.common.motion")}>
+      <div
+        role="group"
+        aria-label={t("inspector.common.motion")}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "9px",
+          paddingTop: "8px",
+          borderTop: "1px solid var(--border)",
+        }}
+      >
         <Switch
           label={t("inspector.effects.tilt")}
           checked={value.motion.tilt3d}
@@ -256,7 +300,7 @@ export function EffectsInspector({
           checked={value.motion.parallax}
           onChange={(parallax) => setMotion({ parallax })}
         />
-      </Section>
+      </div>
 
       {silenceOpen && (
         <RemoveSilenceDialog
@@ -270,6 +314,52 @@ export function EffectsInspector({
   );
 }
 
+interface MsBoxProps {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  disabled?: boolean | undefined;
+  onChange: (value: number) => void;
+}
+
+/** Right-aligned sunken mono "280 ms" field; the label is for AT only. */
+function MsBox({ label, value, min, max, step, disabled, onChange }: MsBoxProps): ReactElement {
+  useInspectorControlStyles();
+  return (
+    <span
+      className="rf-valuebox"
+      style={{
+        ...valueBoxStyle,
+        display: "flex",
+        alignItems: "center",
+        gap: "4px",
+        width: "76px",
+        marginLeft: "auto",
+        color: "var(--text-2)",
+        opacity: disabled ? 0.45 : 1,
+      }}
+    >
+      <input
+        type="number"
+        aria-label={label}
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        disabled={disabled}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (e.target.value === "" || !Number.isFinite(n)) return;
+          onChange(clamp(n, min, max));
+        }}
+      />
+      <span style={{ color: "var(--text-3)" }}>ms</span>
+    </span>
+  );
+}
+
 interface TitleCardEditorProps {
   kind: keyof typeof TITLE_CARD_KEYS;
   card: TitleCard | null;
@@ -278,11 +368,17 @@ interface TitleCardEditorProps {
 
 function TitleCardEditor({ kind, card, onChange }: TitleCardEditorProps): ReactElement {
   const t = useInspectorT();
+  const textId = useId();
   const keys = TITLE_CARD_KEYS[kind];
   const L = EFFECTS_LIMITS;
   if (!card) {
     return (
-      <Button onClick={() => onChange({ ...DEFAULT_TITLE_CARD })} aria-label={t(keys.addLabel)}>
+      <Button
+        block
+        style={{ fontSize: "12px" }}
+        onClick={() => onChange({ ...DEFAULT_TITLE_CARD })}
+        aria-label={t(keys.addLabel)}
+      >
         {t(keys.add)}
       </Button>
     );
@@ -292,39 +388,104 @@ function TitleCardEditor({ kind, card, onChange }: TitleCardEditorProps): ReactE
       role="group"
       aria-label={t(keys.group)}
       style={{
+        padding: "10px",
+        borderRadius: "12px",
+        background: "var(--bg-panel-raised)",
         display: "flex",
         flexDirection: "column",
-        gap: "var(--space-2)",
-        padding: "var(--space-2)",
-        borderRadius: "var(--radius-md)",
-        border: "1px solid var(--border)",
+        gap: "10px",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={subheadStyle}>{t(keys.name)}</span>
-        <Button variant="ghost" onClick={() => onChange(null)} aria-label={t(keys.removeLabel)}>
+      <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+        <div
+          aria-hidden="true"
+          style={{
+            flex: "0 0 auto",
+            width: "52px",
+            height: "30px",
+            borderRadius: "6px",
+            // User-chosen card background (content colour, not chrome).
+            background: card.bg,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "hidden",
+            padding: "0 3px",
+            boxSizing: "border-box",
+            fontSize: "8px",
+            color: "var(--text-1)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{card.text}</span>
+        </div>
+        <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+          <div style={{ fontSize: "12px", fontWeight: 600 }}>{t(keys.name)}</div>
+          <div
+            style={{
+              color: "var(--text-3)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {card.text ? `“${card.text}” · ` : ""}
+            {(card.durationMs / 1000).toFixed(1)} s
+          </div>
+        </div>
+        <button
+          type="button"
+          className="rf-choice"
+          onClick={() => onChange(null)}
+          aria-label={t(keys.removeLabel)}
+          style={{
+            appearance: "none",
+            border: 0,
+            background: "transparent",
+            padding: "4px 6px",
+            borderRadius: "8px",
+            cursor: "pointer",
+            fontFamily: "var(--font-body)",
+            fontSize: "11px",
+            color: "var(--text-3)",
+          }}
+        >
           {t("inspector.common.remove")}
-        </Button>
+        </button>
       </div>
-      <Input
-        label={t(keys.text)}
+      <input
+        id={textId}
+        type="text"
+        aria-label={t(keys.text)}
         value={card.text}
         onChange={(e) => onChange({ ...card, text: e.target.value })}
+        style={{
+          ...valueBoxStyle,
+          width: "100%",
+          fontFamily: "var(--font-body)",
+          outline: "none",
+        }}
       />
-      <ColorField
-        label={t(keys.background)}
-        value={card.bg}
-        onChange={(bg) => onChange({ ...card, bg })}
-      />
-      <NumberField
-        label={t(keys.duration)}
-        value={card.durationMs}
-        min={L.titleCardMs.min}
-        max={L.titleCardMs.max}
-        step={100}
-        unit="ms"
-        onChange={(durationMs) => onChange({ ...card, durationMs })}
-      />
+      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <ColorField
+          hideLabel
+          label={t(keys.background)}
+          value={card.bg}
+          onChange={(bg) => onChange({ ...card, bg })}
+        />
+        <div style={{ marginLeft: "auto", display: "flex", width: "104px" }}>
+          <NumberField
+            inline
+            label={t(keys.duration)}
+            value={card.durationMs}
+            min={L.titleCardMs.min}
+            max={L.titleCardMs.max}
+            step={100}
+            unit="ms"
+            onChange={(durationMs) => onChange({ ...card, durationMs })}
+          />
+        </div>
+      </div>
     </div>
   );
 }

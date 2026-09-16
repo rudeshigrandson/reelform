@@ -10,17 +10,11 @@
 
 import { collectCandidates } from "./candidates.js";
 import { resample } from "./normalize.js";
-import {
-  buildRegions,
-  easingFor,
-  focusFor,
-  levelFor,
-  reasonFor,
-} from "./regionize.js";
-import { nonMaxSuppress, scoreCandidates } from "./score.js";
-import { clamp } from "./util.js";
+import { buildRegions, easingFor, focusFor, levelFor, reasonFor } from "./regionize.js";
 import type { Region } from "./regionize.js";
+import { nonMaxSuppress, scoreCandidates } from "./score.js";
 import type { SuggestParams, SuggestedZoom } from "./types.js";
+import { clamp } from "./util.js";
 
 export type {
   Telemetry,
@@ -78,7 +72,7 @@ export function suggestZooms(params: SuggestParams): SuggestedZoom[] {
 
     // clamp region to timeline and to previous region end (guarantee no overlap)
     let startMs = clamp(region.startMs, 0, end);
-    let endMs = clamp(region.endMs, 0, end);
+    const endMs = clamp(region.endMs, 0, end);
     if (startMs < prevEnd) startMs = prevEnd;
     if (endMs <= startMs) continue; // degenerate after clamping
 

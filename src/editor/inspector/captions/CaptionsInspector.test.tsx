@@ -136,12 +136,12 @@ describe("CaptionsInspector — states", () => {
     expect(props.onGenerate).toHaveBeenCalledTimes(1);
   });
 
-  it("list populated: rows show mono time ranges, click seeks, active row marked", () => {
+  it("list populated: rows show mono start times (range on hover), click seeks, active row marked", () => {
     const props = baseProps({ captions: SAMPLE, currentMs: 3500 });
     render(<CaptionsInspector {...props} />);
-    expect(screen.getByText("00:01.0 – 00:02.0")).toBeInTheDocument();
+    expect(screen.getByText("00:01.0")).toHaveAttribute("title", "00:01.0 – 00:02.0");
     expect(rows().map((r) => r.value)).toEqual(["hello world", "second line"]);
-    fireEvent.click(screen.getByText("00:03.0 – 00:04.0"));
+    fireEvent.click(screen.getByText("00:03.0"));
     expect(props.onSeek).toHaveBeenCalledWith(3000);
     const items = within(screen.getByRole("list")).getAllByRole("listitem");
     expect(items[1]).toHaveAttribute("data-active", "true");
@@ -257,7 +257,7 @@ describe("CaptionsInspector — search & add", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add caption" }));
     expect(rows()).toHaveLength(3);
     expect(document.activeElement).toBe(rows()[2]);
-    expect(screen.getByText("01:39.0 – 01:41.0")).toBeInTheDocument();
+    expect(screen.getByText("01:39.0")).toHaveAttribute("title", "01:39.0 – 01:41.0");
   });
 
   it("disables Add caption when the playhead is inside a caption or at the end", () => {

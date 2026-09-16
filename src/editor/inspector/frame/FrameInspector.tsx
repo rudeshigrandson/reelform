@@ -9,7 +9,18 @@ import {
   useId,
   useState,
 } from "react";
-import { ColorField, NumberField, Section, Slider, Switch } from "../controls";
+import {
+  ChoiceRow,
+  ColorField,
+  NumberField,
+  Section,
+  Slider,
+  Switch,
+  hintStyle,
+  inspectorRootStyle,
+  monoStyle,
+  valueBoxStyle,
+} from "../controls";
 import { type InspectorMessageKey, useInspectorT } from "../i18n";
 import {
   type PaddingSide,
@@ -64,31 +75,45 @@ export interface FrameInspectorProps {
   onSectionToggle?: ((id: FrameSectionId, open: boolean) => void) | undefined;
   /** "Save current as preset…" — host opens a naming dialog. Button disabled when absent. */
   onSavePreset?: (() => void) | undefined;
+  /**
+   * Preset chip clicked. When set the host applies it (e.g. copies a preset's
+   * background image into the project); otherwise `onChange(applyPreset(…))`.
+   */
+  onApplyPreset?: ((preset: FramePreset) => void) | undefined;
   /** "Add custom…" wallpaper tile. Hidden when absent. */
   onAddCustomWallpaper?: (() => void) | undefined;
   /** Image dropped or browsed; host copies it into `media/` and updates `background.image.path`. */
   onImageSelect?: ((file: File) => void) | undefined;
 }
 
-const stack: CSSProperties = { display: "flex", flexDirection: "column", gap: "var(--space-2)" };
-const hint: CSSProperties = { fontSize: "11px", color: "var(--text-3)" };
-const mono: CSSProperties = {
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-  fontSize: "12px",
-};
+const stack: CSSProperties = { display: "flex", flexDirection: "column", gap: "10px" };
+const hint: CSSProperties = hintStyle;
+const mono: CSSProperties = monoStyle;
 
+/** Design S13 preset / category chip: 999px pill, accent when active. */
 function chip(active: boolean): CSSProperties {
   return {
     appearance: "none",
     cursor: "pointer",
-    fontSize: "12px",
-    padding: "2px var(--space-2)",
+    fontFamily: "var(--font-body)",
+    fontSize: "11px",
+    fontWeight: active ? 600 : 400,
+    padding: "5px 11px",
     borderRadius: "999px",
-    border: `1px solid ${active ? "var(--accent)" : "var(--border-strong)"}`,
-    background: active ? "var(--accent-soft)" : "transparent",
-    color: active ? "var(--text-1)" : "var(--text-2)",
+    border: 0,
+    background: active ? "var(--accent)" : "var(--bg-panel-raised)",
+    color: active ? "var(--on-accent)" : "var(--text-2)",
   };
 }
+
+/** Text-only accent action (design "Reset" / "Reveal" links). */
+const linkButton: CSSProperties = {
+  alignSelf: "flex-start",
+  height: "auto",
+  minHeight: 0,
+  padding: "2px 0",
+  fontSize: "11px",
+};
 
 const BACKGROUND_OPTIONS: ReadonlyArray<{ value: BackgroundKind; labelKey: InspectorMessageKey }> =
   [
@@ -162,17 +187,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
   const pad = resolvePadding(value.padding);
 
   return (
-    <div
-      aria-label={t("inspector.frame.label")}
-      role="region"
-      style={{
-        ...stack,
-        gap: 0,
-        padding: "var(--space-2) var(--space-3)",
-        color: "var(--text-1)",
-        fontSize: "13px",
-      }}
-    >
+    <div aria-label={t("inspector.frame.label")} role="region" style={inspectorRootStyle}>
       <PresetsRow {...props} />
 
       {section("background", <BackgroundEditor {...props} />)}
@@ -181,6 +196,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
         "blur",
         <>
           <Slider
+            labelWidth={62}
             label={t("inspector.frame.backgroundBlur")}
             value={value.blur}
             min={FRAME_LIMITS.blur.min}
@@ -197,6 +213,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
         "padding",
         <>
           <Slider
+            labelWidth={62}
             label={t("inspector.common.padding")}
             value={
               value.padding.matchAll
@@ -218,7 +235,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
               style={{
                 display: "grid",
                 gridTemplateColumns: "1fr 1fr",
-                columnGap: "var(--space-2)",
+                gap: "6px 10px",
               }}
             >
               {PADDING_SIDES.map(([side, labelKey]) => (
@@ -241,6 +258,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
         "radius",
         <>
           <Slider
+            labelWidth={62}
             label={t("inspector.common.cornerRadius")}
             value={value.radius}
             min={FRAME_LIMITS.radius.min}
@@ -260,6 +278,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
         "shadow",
         <>
           <Slider
+            labelWidth={62}
             label={t("inspector.common.strength")}
             value={value.shadow.strength}
             min={FRAME_LIMITS.shadowStrength.min}
@@ -267,6 +286,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
             onChange={(strength) => set({ shadow: { ...value.shadow, strength } })}
           />
           <Slider
+            labelWidth={62}
             label={t("inspector.frame.offsetY")}
             value={value.shadow.offsetY}
             min={FRAME_LIMITS.shadowOffsetY.min}
@@ -275,6 +295,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
             onChange={(offsetY) => set({ shadow: { ...value.shadow, offsetY } })}
           />
           <Slider
+            labelWidth={62}
             label={t("inspector.frame.shadowBlur")}
             value={value.shadow.blur}
             min={FRAME_LIMITS.shadowBlur.min}
@@ -294,6 +315,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
         "border",
         <>
           <Slider
+            labelWidth={62}
             label={t("inspector.common.width")}
             value={value.border.width}
             min={FRAME_LIMITS.borderWidth.min}
@@ -307,6 +329,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
             onChange={(color) => set({ border: { ...value.border, color } })}
           />
           <Slider
+            labelWidth={62}
             label={t("inspector.common.opacity")}
             value={value.border.opacity}
             min={FRAME_LIMITS.borderOpacity.min}
@@ -323,6 +346,7 @@ export function FrameInspector(props: FrameInspectorProps): ReactElement {
         "inset",
         <>
           <Slider
+            labelWidth={62}
             label={t("inspector.frame.sourceScale")}
             value={value.inset}
             min={FRAME_LIMITS.inset.min}
@@ -352,7 +376,7 @@ function FrameSection({
   const t = useInspectorT();
   const handleClick = (e: MouseEvent<HTMLDivElement>): void => {
     if (!onToggle) return;
-    const header = e.currentTarget.querySelector(":scope > section > button[aria-expanded]");
+    const header = e.currentTarget.querySelector(":scope > section button[aria-expanded]");
     if (header && header.contains(e.target as Node)) {
       // Fires before Section's state update, so the attribute still holds the old value.
       onToggle(id, header.getAttribute("aria-expanded") !== "true");
@@ -377,34 +401,34 @@ function PresetsRow({
   onChange,
   userPresets,
   onSavePreset,
+  onApplyPreset,
 }: FrameInspectorProps): ReactElement {
   const t = useInspectorT();
   const all = [...BUILT_IN_FRAME_PRESETS, ...(userPresets ?? [])];
+  const apply = (p: FramePreset) =>
+    onApplyPreset ? onApplyPreset(p) : onChange(applyPreset(value, p));
   const active = findMatchingPreset(value, all);
   return (
-    <div
-      role="group"
-      aria-label={t("inspector.frame.presets")}
-      style={{
-        ...stack,
-        paddingBlock: "var(--space-2)",
-        borderBottom: "1px solid var(--border)",
-      }}
-    >
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-1)" }}>
+    <div role="group" aria-label={t("inspector.frame.presets")} style={{ ...stack, gap: "6px" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
         {all.map((p) => (
           <button
             key={p.id}
             type="button"
             aria-pressed={active === p.id}
-            onClick={() => onChange(applyPreset(value, p))}
+            onClick={() => apply(p)}
             style={chip(active === p.id)}
           >
             {presetName(p, t)}
           </button>
         ))}
       </div>
-      <Button variant="ghost" disabled={!onSavePreset} onClick={() => onSavePreset?.()}>
+      <Button
+        variant="ghost"
+        style={linkButton}
+        disabled={!onSavePreset}
+        onClick={() => onSavePreset?.()}
+      >
         {t("inspector.frame.savePreset")}
       </Button>
     </div>
@@ -421,6 +445,7 @@ function BackgroundEditor(props: FrameInspectorProps): ReactElement {
   return (
     <div style={stack}>
       <Segmented
+        size="sm"
         name={`${name}-bg`}
         value={bg.kind}
         options={BACKGROUND_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
@@ -457,7 +482,7 @@ function WallpaperGrid({
       <div
         role="group"
         aria-label={t("inspector.frame.wallpaperCategories")}
-        style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-1)" }}
+        style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}
       >
         {WALLPAPER_CATEGORIES.map((c) => (
           <button
@@ -465,7 +490,7 @@ function WallpaperGrid({
             type="button"
             aria-pressed={c === category}
             onClick={() => setCategory(c)}
-            style={chip(c === category)}
+            style={{ ...chip(c === category), padding: "4px 10px" }}
           >
             {t(CATEGORY_KEYS[c])}
           </button>
@@ -474,7 +499,12 @@ function WallpaperGrid({
       <div
         role="listbox"
         aria-label={t("inspector.frame.wallpapers")}
-        style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "var(--space-1)" }}
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+          gap: "6px",
+          padding: "2px",
+        }}
       >
         {shown.map((w) => {
           const isSel = w.id === value.background.wallpaperId;
@@ -495,10 +525,13 @@ function WallpaperGrid({
               style={{
                 appearance: "none",
                 cursor: "pointer",
-                aspectRatio: "16 / 10",
-                borderRadius: "6px",
+                height: "38px",
+                borderRadius: "8px",
+                // Wallpaper preview is content, not chrome.
                 background: w.preview,
-                border: `2px solid ${isSel ? "var(--accent)" : "transparent"}`,
+                border: 0,
+                outline: isSel ? "2px solid var(--accent)" : "none",
+                outlineOffset: "2px",
                 padding: 0,
               }}
             />
@@ -511,12 +544,13 @@ function WallpaperGrid({
             style={{
               appearance: "none",
               cursor: "pointer",
-              aspectRatio: "16 / 10",
-              borderRadius: "6px",
+              height: "38px",
+              borderRadius: "8px",
               border: "1px dashed var(--border-strong)",
-              background: "transparent",
-              color: "var(--text-2)",
-              fontSize: "11px",
+              background: "var(--bg-panel-raised)",
+              color: "var(--text-3)",
+              fontFamily: "var(--font-body)",
+              fontSize: "10px",
             }}
           >
             {t("inspector.frame.addCustom")}
@@ -543,12 +577,13 @@ function GradientEditor({ value, onChange }: FrameInspectorProps): ReactElement 
         data-testid="gradient-preview"
         style={{
           height: "28px",
-          borderRadius: "6px",
+          borderRadius: "8px",
           background: gradientToCss(g),
           border: "1px solid var(--border-strong)",
         }}
       />
       <Segmented
+        size="sm"
         name={`${name}-gtype`}
         value={g.type}
         options={[
@@ -559,6 +594,7 @@ function GradientEditor({ value, onChange }: FrameInspectorProps): ReactElement 
       />
       {g.type === "linear" && (
         <Slider
+          labelWidth={62}
           label={t("inspector.frame.angle")}
           value={g.angle}
           min={FRAME_LIMITS.gradientAngle.min}
@@ -568,14 +604,15 @@ function GradientEditor({ value, onChange }: FrameInspectorProps): ReactElement 
         />
       )}
       {g.stops.map((s, i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: "var(--space-1)" }}>
-          <div style={{ flex: "1 1 auto", ...stack, gap: 0 }}>
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <div style={{ flex: "1 1 auto", ...stack, gap: "8px", minWidth: 0 }}>
             <ColorField
               label={t("inspector.frame.stopColor", { n: i + 1 })}
               value={s.color}
               onChange={(color) => setG(updateGradientStop(g, i, { color }))}
             />
             <Slider
+              labelWidth={62}
               label={t("inspector.frame.stopPosition", { n: i + 1 })}
               value={s.position}
               min={0}
@@ -641,8 +678,8 @@ function ImagePanel({ value, onChange, onImageSelect }: FrameInspectorProps): Re
           alignItems: "center",
           justifyContent: "center",
           minHeight: "96px",
-          padding: "var(--space-3)",
-          borderRadius: "8px",
+          padding: "14px",
+          borderRadius: "12px",
           border: `1px dashed ${hover ? "var(--accent)" : "var(--border-strong)"}`,
           background: hover ? "var(--accent-soft)" : "var(--bg-sunken)",
           textAlign: "center",
@@ -651,7 +688,7 @@ function ImagePanel({ value, onChange, onImageSelect }: FrameInspectorProps): Re
         {fileName ? (
           <>
             <span style={{ ...mono, color: "var(--text-1)" }}>{fileName}</span>
-            <div style={{ display: "flex", gap: "var(--space-1)" }}>
+            <div style={{ display: "flex", gap: "6px" }}>
               <label htmlFor={inputId} className="btn btn-ghost" style={{ cursor: "pointer" }}>
                 {t("inspector.frame.image.replace")}
               </label>
@@ -684,6 +721,7 @@ function ImagePanel({ value, onChange, onImageSelect }: FrameInspectorProps): Re
         />
       </div>
       <Segmented
+        size="sm"
         name={`${name}-fit`}
         value={img.fit}
         options={[
@@ -698,7 +736,6 @@ function ImagePanel({ value, onChange, onImageSelect }: FrameInspectorProps): Re
 
 function AspectEditor({ value, onChange, sourceSize }: FrameInspectorProps): ReactElement {
   const t = useInspectorT();
-  const name = useId();
   const a = value.aspect;
   const [draftW, setDraftW] = useState(String(a.customWidth));
   const [draftH, setDraftH] = useState(String(a.customHeight));
@@ -740,21 +777,18 @@ function AspectEditor({ value, onChange, sourceSize }: FrameInspectorProps): Rea
         commit(isW ? e.target.value : other, isW ? other : e.target.value);
       }}
       style={{
-        ...mono,
+        ...valueBoxStyle,
         width: "72px",
-        background: "var(--bg-sunken)",
-        color: "var(--text-1)",
-        border: `1px solid ${error ? "var(--danger)" : "var(--border-strong)"}`,
-        borderRadius: "var(--radius-sm)",
-        padding: "2px var(--space-1)",
+        borderColor: error ? "var(--danger)" : "var(--border-strong)",
+        outline: "none",
       }}
     />
   );
 
   return (
     <div style={stack}>
-      <Segmented
-        name={`${name}-aspect`}
+      <ChoiceRow
+        label={t("inspector.frame.section.aspect")}
         value={a.preset}
         options={ASPECT_OPTIONS.map((o) => ({
           value: o.value,
@@ -764,7 +798,7 @@ function AspectEditor({ value, onChange, sourceSize }: FrameInspectorProps): Rea
       />
       {a.preset === "custom" && (
         <div style={stack} role="group" aria-label={t("inspector.frame.customSize")}>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-1)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             {sizeInput(t("inspector.frame.customWidth"), draftW, setDraftW, draftH, true)}
             <span style={{ color: "var(--text-3)" }}>×</span>
             {sizeInput(t("inspector.frame.customHeight"), draftH, setDraftH, draftW, false)}

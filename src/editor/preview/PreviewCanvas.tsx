@@ -1,4 +1,4 @@
-import { Button, Segmented, Tag } from "@design/components";
+import { Button } from "@design/components";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactElement } from "react";
 import type { Annotation } from "../inspector/annotations/types";
@@ -148,33 +148,104 @@ const labelStyle: CSSProperties = { fontSize: "13px", color: "var(--text-2)" };
 const titleStyle: CSSProperties = { fontSize: "14px", fontWeight: 600, color: "var(--text-1)" };
 const detailStyle: CSSProperties = { fontSize: "12px", color: "var(--text-2)", maxWidth: 420 };
 
+/** Media offline (design S12/13): hatched frame, record-tinted hairline, alert disc. */
 const offlineCardStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   alignItems: "center",
-  gap: "var(--space-3)",
-  padding: "var(--space-4) var(--space-6)",
-  borderRadius: "var(--radius-lg)",
-  background: "var(--bg-panel-raised)",
-  border: "1px solid var(--border)",
-  boxShadow: "var(--shadow-md)",
+  justifyContent: "center",
+  gap: "10px",
+  width: "min(360px, 100%)",
+  aspectRatio: "16 / 9",
+  boxSizing: "border-box",
+  padding: "var(--space-4)",
+  borderRadius: "var(--radius-sm)",
+  background:
+    "repeating-linear-gradient(45deg, var(--bg-panel) 0 10px, color-mix(in srgb, var(--bg-panel) 50%, var(--bg-app)) 10px 20px)",
+  border: "1px solid color-mix(in srgb, var(--record) 50%, transparent)",
   pointerEvents: "auto",
+};
+
+const offlineDiscStyle: CSSProperties = {
+  width: "40px",
+  height: "40px",
+  borderRadius: "var(--radius-full)",
+  background: "color-mix(in srgb, var(--record) 18%, transparent)",
+  color: "var(--record)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "18px",
+  fontWeight: 600,
+};
+
+/** Floating canvas chip: translucent panel pill with a strong hairline (design S12/01). */
+const floatingPill: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "6px",
+  padding: "6px 12px",
+  borderRadius: "var(--radius-full)",
+  background: "color-mix(in srgb, var(--bg-panel) 90%, transparent)",
+  border: "1px solid var(--border-strong)",
+  color: "var(--text-1)",
+  fontFamily: "var(--font-body)",
+  fontSize: "12px",
+  fontWeight: 400,
+  lineHeight: 1.2,
+  whiteSpace: "nowrap",
 };
 
 const chipStyle: CSSProperties = {
   position: "absolute",
-  top: "var(--space-3)",
-  left: "var(--space-3)",
+  top: "12px",
+  left: "14px",
+  zIndex: 2,
+  display: "flex",
+  gap: "8px",
 };
 
 const bottomBarStyle: CSSProperties = {
   position: "absolute",
-  bottom: "var(--space-3)",
+  bottom: "10px",
   left: "50%",
   transform: "translateX(-50%)",
+  zIndex: 2,
   display: "flex",
   alignItems: "center",
-  gap: "var(--space-2)",
+  gap: "8px",
+};
+
+/** "Fit · 50% · 100%" — quiet text pills; the active one gets a translucent panel fill. */
+const zoomGroupStyle: CSSProperties = {
+  display: "flex",
+  gap: "8px",
+  margin: 0,
+  padding: 0,
+  border: "none",
+  fontSize: "11px",
+  color: "var(--text-3)",
+};
+
+function zoomOptionStyle(active: boolean): CSSProperties {
+  return {
+    position: "relative",
+    padding: "5px 12px",
+    borderRadius: "var(--radius-full)",
+    background: active ? "color-mix(in srgb, var(--bg-panel) 80%, transparent)" : "transparent",
+    color: active ? "var(--text-2)" : "var(--text-3)",
+    cursor: "pointer",
+    fontVariantNumeric: "tabular-nums",
+  };
+}
+
+const visuallyHiddenInput: CSSProperties = {
+  position: "absolute",
+  opacity: 0,
+  width: 0,
+  height: 0,
+  margin: 0,
+  pointerEvents: "none",
 };
 
 const EMPTY_ANNOTATIONS: readonly Annotation[] = [];
@@ -657,9 +728,19 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
       {status === "ready" && mediaOffline && (
         <div style={overlayStyle}>
           <div style={offlineCardStyle} role="alert">
-            <span style={titleStyle}>Media offline</span>
-            <span style={detailStyle}>The source recording was moved or deleted.</span>
-            <Button variant="primary" onClick={onLocateMedia} disabled={!onLocateMedia}>
+            <span aria-hidden="true" style={offlineDiscStyle}>
+              !
+            </span>
+            <span style={{ ...titleStyle, fontSize: "13px" }}>Media offline</span>
+            <span style={{ ...detailStyle, fontSize: "11px", color: "var(--text-3)" }}>
+              The source recording was moved or deleted.
+            </span>
+            <Button
+              variant="primary"
+              onClick={onLocateMedia}
+              disabled={!onLocateMedia}
+              style={{ borderRadius: "var(--radius-full)", padding: "7px 16px", fontSize: "12px" }}
+            >
               Locate…
             </Button>
           </div>
@@ -674,26 +755,44 @@ export function PreviewCanvas(props: PreviewCanvasProps): ReactElement {
 
       {status !== "error" && (
         <div style={chipStyle}>
-          <Tag variant="neutral" data-testid="aspect-chip">
+          <span style={floatingPill} data-testid="aspect-chip">
             {aspectLabel(frame.aspect)}
-          </Tag>
+          </span>
+          {status === "ready" && !cropMode && onCropModeChange && hasVideo && !mediaOffline && (
+            <button
+              type="button"
+              style={{
+                ...floatingPill,
+                color: "var(--text-2)",
+                cursor: isPlaying ? "not-allowed" : "pointer",
+                opacity: isPlaying ? 0.45 : 1,
+              }}
+              onClick={() => onCropModeChange(true)}
+              disabled={isPlaying}
+            >
+              Crop
+            </button>
+          )}
         </div>
       )}
 
       {status === "ready" && !cropMode && (
         <div style={bottomBarStyle} data-testid="canvas-zoom">
-          <Segmented<CanvasZoom>
-            name="preview-canvas-zoom"
-            size="sm"
-            value={zoom}
-            options={CANVAS_ZOOMS.map((z) => ({ value: z, label: canvasZoomLabel(z) }))}
-            onChange={setZoom}
-          />
-          {onCropModeChange && hasVideo && !mediaOffline && (
-            <Button variant="ghost" onClick={() => onCropModeChange(true)} disabled={isPlaying}>
-              Crop
-            </Button>
-          )}
+          <fieldset style={zoomGroupStyle} aria-label="Canvas zoom">
+            {CANVAS_ZOOMS.map((z) => (
+              <label key={z} style={zoomOptionStyle(z === zoom)}>
+                <input
+                  type="radio"
+                  name="preview-canvas-zoom"
+                  value={z}
+                  checked={z === zoom}
+                  onChange={() => setZoom(z)}
+                  style={visuallyHiddenInput}
+                />
+                {canvasZoomLabel(z)}
+              </label>
+            ))}
+          </fieldset>
         </div>
       )}
     </div>

@@ -469,11 +469,12 @@ describe("EditorWindow", () => {
         sourceSize: { width: 1920, height: 1080 },
       });
       renderWindow();
-      expect(screen.getByRole("radio", { name: "Half" })).toBeChecked();
+      const quality = screen.getByRole("combobox", { name: "Preview quality" });
+      expect(quality).toHaveValue("half");
       await waitFor(() =>
         expect(document.querySelector("video")?.getAttribute("src")).toBe("file:///proxy.mp4"),
       );
-      fireEvent.click(screen.getByRole("radio", { name: "Full" }));
+      fireEvent.change(quality, { target: { value: "full" } });
       await waitFor(() =>
         expect(document.querySelector("video")?.getAttribute("src")).toBe("file:///rec.mp4"),
       );

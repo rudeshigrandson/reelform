@@ -12,7 +12,7 @@ import type { ClickEvent } from "./graph";
  */
 
 /** Bundled click packs live in `public/sounds/<pack>/click.wav`. */
-export const CLICK_SOUND_BASE_URL = "/sounds";
+export const CLICK_SOUND_BASE_URL = "./sounds";
 
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 const WINDOWS_ABSOLUTE = /^[A-Za-z]:[\\/]/;

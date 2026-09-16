@@ -30,19 +30,22 @@ type Pending =
   | { mode: "review"; review: ReviewState }
   | null;
 
+/** Raised 12px card matching the inspector auto-zoom block (design S15). */
 const toastStyle = {
   display: "flex",
   flexDirection: "column" as const,
-  gap: "var(--space-2)",
-  margin: "var(--space-2) var(--space-3) 0",
-  padding: "var(--space-2) var(--space-3)",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--border-strong)",
+  gap: "9px",
+  margin: "0 0 14px",
+  padding: "12px",
+  borderRadius: "12px",
+  border: "1px solid var(--border)",
   background: "var(--bg-panel-raised)",
   color: "var(--text-1)",
   fontFamily: "var(--font-body)",
-  fontSize: "13px",
+  fontSize: "11px",
 };
+
+const actionStyle = { borderRadius: "999px", fontSize: "12px" };
 
 export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
   const t = useInspectorT();
@@ -118,17 +121,26 @@ export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
   return (
     <>
       {error && (
-        <div role="alert" style={{ ...toastStyle, color: "var(--danger)" }}>
+        <div
+          role="alert"
+          style={{
+            ...toastStyle,
+            background: "color-mix(in srgb, var(--record) 12%, transparent)",
+            border: "1px solid color-mix(in srgb, var(--record) 45%, transparent)",
+            color: "color-mix(in srgb, var(--record) 45%, var(--text-1))",
+          }}
+        >
           {error}
         </div>
       )}
       {pending?.mode === "toast" && (
         <output aria-label={t("inspector.zoom.suggestions.label")} style={toastStyle}>
           <span>{suggestionsToastText(pending.suggestions.length)}</span>
-          <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
             {pending.suggestions.length > 0 && (
               <>
                 <Button
+                  style={actionStyle}
                   variant="primary"
                   onClick={() =>
                     commit(pending.suggestions, t("inspector.zoom.history.keepSuggestions"))
@@ -137,6 +149,7 @@ export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
                   {t("inspector.zoom.suggestions.keepAll")}
                 </Button>
                 <Button
+                  style={actionStyle}
                   variant="secondary"
                   onClick={() => {
                     const first = pending.suggestions[0];
@@ -148,7 +161,7 @@ export function ZoomTab({ host }: { host: InspectorHost }): ReactElement {
                 </Button>
               </>
             )}
-            <Button variant="ghost" onClick={() => setPending(null)}>
+            <Button style={actionStyle} variant="ghost" onClick={() => setPending(null)}>
               {t("inspector.zoom.suggestions.dismiss")}
             </Button>
           </div>
@@ -217,14 +230,14 @@ function ReviewCard({
       <span style={{ color: "var(--text-2)" }}>
         {t("inspector.zoom.review.reason", { reason: current.reason })}
       </span>
-      <div style={{ display: "flex", gap: "var(--space-1)" }}>
-        <Button variant="primary" onClick={() => onDecide("keep")}>
+      <div style={{ display: "flex", gap: "6px" }}>
+        <Button style={actionStyle} variant="primary" onClick={() => onDecide("keep")}>
           {t("inspector.common.keep")}
         </Button>
-        <Button variant="secondary" onClick={() => onDecide("skip")}>
+        <Button style={actionStyle} variant="secondary" onClick={() => onDecide("skip")}>
           {t("inspector.zoom.review.skip")}
         </Button>
-        <Button variant="ghost" onClick={onCancel}>
+        <Button style={actionStyle} variant="ghost" onClick={onCancel}>
           {t("inspector.common.cancel")}
         </Button>
       </div>

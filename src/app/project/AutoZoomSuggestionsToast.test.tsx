@@ -60,6 +60,22 @@ describe("AutoZoomSuggestionsToast pending suggestions", () => {
     expect(documentUpdate).toHaveBeenCalledWith("Dismiss zoom suggestions", { zoomRegions: [] });
   });
 
+  it("anchors inside the canvas well's bottom-right corner (wide and narrow layouts)", () => {
+    const suggestions = [suggestion("a", 1000)];
+    const props = { suggestions, documentUpdate: vi.fn(), seek: () => {}, onClose: () => {} };
+    const { rerender } = render(<AutoZoomSuggestionsToast {...props} narrow={false} />);
+    const card = screen.getByRole("status", { name: "Zoom suggestions" });
+    expect(card).toHaveClass("toast");
+    // Inspector 320 + 16; playback 44 + timeline 260 + 16.
+    expect(card.style.right).toBe("336px");
+    expect(card.style.bottom).toBe("320px");
+    expect(card).toHaveTextContent("We suggested 1 zoom from your cursor activity.");
+    rerender(<AutoZoomSuggestionsToast {...props} narrow />);
+    // Rail 48 + 16; playback 40 + timeline 180 + 16.
+    expect(card.style.right).toBe("64px");
+    expect(card.style.bottom).toBe("236px");
+  });
+
   it("Review clears them; unmounting also clears", () => {
     const { unmount } = setup();
     fireEvent.click(screen.getByRole("button", { name: "Review" }));

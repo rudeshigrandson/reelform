@@ -36,18 +36,20 @@ const KIND_COUNT_KEYS: Readonly<Record<TrackKind, InspectorMessageKey>> = {
   captions: "inspector.multiSelect.count.captions",
 };
 
+/** Raised 12px card in the inspector language (design S13–S21). */
 const cardStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: "var(--space-3)",
-  padding: "var(--space-3)",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--border)",
+  gap: "10px",
+  padding: "12px",
+  borderRadius: "12px",
   background: "var(--bg-panel-raised)",
   color: "var(--text-1)",
   fontFamily: "var(--font-body)",
-  fontSize: "13px",
+  fontSize: "11px",
 };
+
+const pill: CSSProperties = { flex: "1 1 0", minWidth: 0, fontSize: "12px" };
 
 export function MultiSelectSummary({
   selectedIds,
@@ -98,7 +100,7 @@ export function MultiSelectSummary({
 
   return (
     <section aria-label={t("inspector.multiSelect.label")} style={cardStyle}>
-      <strong style={{ fontSize: "14px" }}>
+      <strong style={{ fontSize: "12px", fontWeight: 600 }}>
         {t("inspector.multiSelect.items", { count: total })}
       </strong>
       <ul
@@ -108,7 +110,7 @@ export function MultiSelectSummary({
           listStyle: "none",
           display: "flex",
           flexDirection: "column",
-          gap: "var(--space-1)",
+          gap: "4px",
           color: "var(--text-2)",
         }}
       >
@@ -116,14 +118,23 @@ export function MultiSelectSummary({
           <li key={k}>{t(KIND_COUNT_KEYS[k], { count: counts[k] })}</li>
         ))}
       </ul>
-      <div style={{ display: "flex", gap: "var(--space-1)", flexWrap: "wrap" }}>
-        <Button variant="danger" onClick={onDelete}>
-          {t("inspector.common.delete")}
-        </Button>
-        <Button variant="secondary" onClick={onDuplicate} disabled={!canDuplicate}>
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+        <Button variant="secondary" style={pill} onClick={onDuplicate} disabled={!canDuplicate}>
           {t("inspector.common.duplicate")}
         </Button>
-        <Button variant="secondary" onClick={onAlign} disabled={!canAlign}>
+        <Button
+          variant="ghost"
+          style={{ ...pill, color: "color-mix(in srgb, var(--record) 45%, var(--text-1))" }}
+          onClick={onDelete}
+        >
+          {t("inspector.common.delete")}
+        </Button>
+        <Button
+          variant="secondary"
+          style={{ ...pill, flexBasis: "100%" }}
+          onClick={onAlign}
+          disabled={!canAlign}
+        >
           {t("inspector.multiSelect.alignStart")}
         </Button>
       </div>

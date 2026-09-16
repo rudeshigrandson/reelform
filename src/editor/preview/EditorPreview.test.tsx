@@ -169,7 +169,7 @@ describe("EditorPreview", () => {
     await waitFor(() =>
       expect(stage.render.mock.lastCall?.[0].background.paint.kind).toBe("radial-gradient"),
     );
-    expect(fetchJson).toHaveBeenCalledWith("/wallpapers/wallpapers.json");
+    expect(fetchJson).toHaveBeenCalledWith("./wallpapers/wallpapers.json");
   });
 
   it("Auto/Half play the proxy when it exists; Full plays the original", async () => {

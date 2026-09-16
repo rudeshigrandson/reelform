@@ -19,6 +19,7 @@ import { useOptionalShortcut } from "../../shortcuts/ShortcutsProvider";
 import { invoke as appInvoke } from "../ipc";
 import { useAppSettings } from "../settings/store";
 import { AutoZoomSuggestionsToast } from "./AutoZoomSuggestionsToast";
+import { EditorErrorBoundary } from "./EditorErrorBoundary";
 import {
   type AutoZoomOnOpenPrefs,
   autoZoomPrefsFromSettings,
@@ -39,6 +40,7 @@ import {
 } from "./openProject";
 import { type ProjectSaver, createProjectSaver } from "./projectSaver";
 import { useProjectSession } from "./session";
+import { bindSourceReplaced } from "./sourceReplaced";
 
 /**
  * The editor route (`?window=editor&projectId=…`): opens the project, owns its
@@ -74,7 +76,14 @@ export interface ProjectEditorProps {
   timer?: IntervalTimer | undefined;
   /** Blur / beforeunload / ⌘S source. Defaults to `window`. */
   eventTarget?: Window | undefined;
+  /** `project:resolve` retry back-off while main reports PROJECT_NOT_FOUND (tests). */
+  resolveRetryDelaysMs?: readonly number[] | undefined;
+  /** After this long in "Opening project…", offer Try again / Back. */
+  slowOpenMs?: number | undefined;
 }
+
+/** When opening counts as slow enough to offer Try again (SPEC §6.1 boot). */
+export const SLOW_OPEN_MS = 15_000;
 
 type Phase =
   | { kind: "loading" }
@@ -107,19 +116,8 @@ const headingStyle: CSSProperties = {
   color: "var(--text-1)",
 };
 
-const toastStyle: CSSProperties = {
-  position: "fixed",
-  right: "var(--space-4)",
-  bottom: "var(--space-4)",
-  zIndex: 10,
-  padding: "var(--space-2) var(--space-3)",
-  borderRadius: "var(--radius-md)",
-  background: "var(--bg-panel-raised)",
-  border: "1px solid var(--border)",
-  color: "var(--text-1)",
-  fontSize: "12px",
-  boxShadow: "var(--shadow-md)",
-};
+/** Editor feedback (S28 toast sheet): `saved` is the quiet pill, the rest are toast cards. */
+type ToastTone = "info" | "saved" | "error";
 
 const defaultWindowPort = (invoke: ProjectInvoke): EditorWindowPort => ({
   back: async () => {
@@ -149,6 +147,8 @@ export function ProjectEditor({
   createInspectorHost,
   timer,
   eventTarget,
+  resolveRetryDelaysMs,
+  slowOpenMs = SLOW_OPEN_MS,
 }: ProjectEditorProps): ReactElement {
   const port = useMemo(() => windowPort ?? defaultWindowPort(invoke), [windowPort, invoke]);
   const target = eventTarget ?? (typeof window === "undefined" ? undefined : window);
@@ -162,12 +162,16 @@ export function ProjectEditor({
   const [leave, setLeave] = useState<LeaveIntent | null>(null);
   const [leaveError, setLeaveError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<{ text: string; tone: "info" | "error" } | null>(null);
+  const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
   const [zoomSuggestions, setZoomSuggestions] = useState<readonly SuggestedZoom[]>([]);
   const documentUpdate = useMemo(() => createDocumentUpdate(history), [history]);
   // Read at open time, not a dependency: a settings change must not re-open the project.
   const autoZoomRef = useRef(autoZoomOnOpen);
   autoZoomRef.current = autoZoomOnOpen;
+  // Same: a new array identity must not re-open the project.
+  const retryDelaysRef = useRef(resolveRetryDelaysMs);
+  retryDelaysRef.current = resolveRetryDelaysMs;
+  const [slow, setSlow] = useState(false);
 
   const saverRef = useRef<ProjectSaver | null>(null);
   /** Media roots of the open project (swapped when a rename moves the folder). */
@@ -187,7 +191,12 @@ export function ProjectEditor({
     setPhase({ kind: "loading" });
     setRecovery(null);
     setZoomSuggestions([]);
-    void openProject(projectId, { invoke, media, signal: controller.signal }).then((res) => {
+    void openProject(projectId, {
+      invoke,
+      media,
+      signal: controller.signal,
+      resolveRetryDelaysMs: retryDelaysRef.current,
+    }).then((res) => {
       if (controller.signal.aborted) {
         if (res.status === "ready") void releaseMediaRoots(res.mediaRootIds, invoke);
         return;
@@ -227,6 +236,14 @@ export function ProjectEditor({
     };
   }, [projectId, attempt, invoke, media, history]);
 
+  // A load that hangs must not look like a dead window: offer a way out.
+  useEffect(() => {
+    setSlow(false);
+    if (phase.kind !== "loading") return;
+    const id = setTimeout(() => setSlow(true), slowOpenMs);
+    return () => clearTimeout(id);
+  }, [phase, slowOpenMs]);
+
   // Save lifecycle while a project is open; re-created when the autosave interval
   // setting changes (SPEC §4, settings `autosaveIntervalSec`).
   useEffect(() => {
@@ -247,7 +264,10 @@ export function ProjectEditor({
     };
   }, [ready, invoke, history, timer, target, autosaveIntervalSec]);
 
-  const showToast = useCallback((text: string, tone: "info" | "error" = "info") => {
+  // Main swapped a source file (background H.264 relink): follow it without an undo step.
+  useEffect(() => (ready ? bindSourceReplaced() : undefined), [ready]);
+
+  const showToast = useCallback((text: string, tone: ToastTone = "info") => {
     setToast({ text, tone });
   }, []);
   useEffect(() => {
@@ -291,7 +311,7 @@ export function ProjectEditor({
   // ⌘S / Ctrl+S manual save; "Saved" toast only for manual saves (guide §5).
   // Registry id `editor.save` (user overrides apply) inside a shortcuts provider;
   // the fixed ⌘S/Ctrl+S listener only runs standalone.
-  const saveShortcut = () => void saveNow().then((ok) => ok && showToast("Saved"));
+  const saveShortcut = () => void saveNow().then((ok) => ok && showToast("Saved", "saved"));
   const hasShortcuts = useOptionalShortcut("editor.save", saveShortcut, { enabled: ready });
   useEffect(() => {
     if (!target || !ready || hasShortcuts) return;
@@ -299,7 +319,7 @@ export function ProjectEditor({
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
       if (e.key.toLowerCase() !== "s" && e.code !== "KeyS") return;
       e.preventDefault();
-      void saveNow().then((ok) => ok && showToast("Saved"));
+      void saveNow().then((ok) => ok && showToast("Saved", "saved"));
     };
     target.addEventListener("keydown", onKey);
     return () => target.removeEventListener("keydown", onKey);
@@ -391,24 +411,44 @@ export function ProjectEditor({
     proceed(intent);
   };
 
+  const retry = () => setAttempt((n) => n + 1);
+
   if (phase.kind === "loading") {
     return (
-      <output style={centerStyle} aria-live="polite">
-        Opening project…
-      </output>
+      <div style={centerStyle}>
+        <output aria-live="polite">Opening project…</output>
+        {slow && (
+          <>
+            <p style={{ margin: 0, maxWidth: "44ch" }}>This is taking longer than usual.</p>
+            <div style={{ display: "flex", gap: "var(--space-2)" }}>
+              <Button variant="secondary" onClick={() => void port.back()}>
+                Back to projects
+              </Button>
+              <Button variant="primary" onClick={retry}>
+                Try again
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
     );
   }
 
   if (phase.kind === "not-found") {
     return (
-      <div style={centerStyle}>
+      <div style={centerStyle} role="alert">
         <h1 style={headingStyle}>Project not found</h1>
         <p style={{ margin: 0, maxWidth: "44ch" }}>
           It may have been moved, renamed outside Reelform, or moved to the trash.
         </p>
-        <Button variant="primary" onClick={() => void port.back()}>
-          Back to projects
-        </Button>
+        <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          <Button variant="secondary" onClick={() => void port.back()}>
+            Back to projects
+          </Button>
+          <Button variant="primary" onClick={retry}>
+            Try again
+          </Button>
+        </div>
       </div>
     );
   }
@@ -425,7 +465,7 @@ export function ProjectEditor({
           <Button variant="secondary" onClick={() => void port.back()}>
             Back to projects
           </Button>
-          <Button variant="primary" onClick={() => setAttempt((n) => n + 1)}>
+          <Button variant="primary" onClick={retry}>
             Try again
           </Button>
         </div>
@@ -435,18 +475,21 @@ export function ProjectEditor({
 
   return (
     <>
-      <EditorWindow
-        projectName={projectName}
-        onExport={onExport}
-        createStage={createStage}
-        history={history}
-        dirty={dirty}
-        onBack={() => requestLeave("back")}
-        onRename={onRename}
-        onLocateMedia={onLocateMedia}
-        sourceDurationMs={sourceDurationMs}
-        createInspectorHost={createInspectorHost}
-      />
+      {/* Dialogs stay outside: Back from the error screen can still ask to save. */}
+      <EditorErrorBoundary onBack={() => requestLeave("back")}>
+        <EditorWindow
+          projectName={projectName}
+          onExport={onExport}
+          createStage={createStage}
+          history={history}
+          dirty={dirty}
+          onBack={() => requestLeave("back")}
+          onRename={onRename}
+          onLocateMedia={onLocateMedia}
+          sourceDurationMs={sourceDurationMs}
+          createInspectorHost={createInspectorHost}
+        />
+      </EditorErrorBoundary>
 
       <Dialog
         open={recovery !== null}
@@ -515,8 +558,27 @@ export function ProjectEditor({
       />
 
       {toast && (
-        <div role={toast.tone === "error" ? "alert" : "status"} style={toastStyle}>
-          {toast.text}
+        <div className="toast-stack">
+          {toast.tone === "saved" ? (
+            <output className="toast-pill">{toast.text}</output>
+          ) : (
+            <div
+              role={toast.tone === "error" ? "alert" : "status"}
+              className={toast.tone === "error" ? "toast toast-danger" : "toast"}
+            >
+              <span
+                aria-hidden="true"
+                className={
+                  toast.tone === "error"
+                    ? "toast-icon toast-icon-danger"
+                    : "toast-icon toast-icon-success"
+                }
+              >
+                {toast.tone === "error" ? "!" : "✓"}
+              </span>
+              <span style={{ flex: 1, fontWeight: 600 }}>{toast.text}</span>
+            </div>
+          )}
         </div>
       )}
     </>

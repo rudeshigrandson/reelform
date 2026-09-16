@@ -1,6 +1,19 @@
 import { Button } from "@design/components";
 import { type CSSProperties, type ReactElement, useId } from "react";
-import { EmptyState, NumberField, Section, Slider, Switch } from "../controls";
+import {
+  Callout,
+  Card,
+  EmptyState,
+  FieldRow,
+  GroupLabel,
+  NumberField,
+  Slider,
+  Switch,
+  hintStyle,
+  inspectorRootStyle,
+  monoStyle,
+  useInspectorControlStyles,
+} from "../controls";
 import { type InspectorMessageKey, useInspectorT } from "../i18n";
 import {
   SLIDER_STEPS,
@@ -59,63 +72,65 @@ const DEFAULT_MISSING_REASON: Readonly<Record<TrackKind, InspectorMessageKey>> =
 const rowStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: "var(--space-2)",
-  minHeight: "28px",
-  fontSize: "13px",
+  gap: "8px",
+  minHeight: "18px",
+  fontSize: "11px",
   color: "var(--text-1)",
+  minWidth: 0,
 };
 
-const labelStyle: CSSProperties = { flex: "0 0 96px", color: "var(--text-2)" };
-
-const monoStyle: CSSProperties = {
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+const nameStyle: CSSProperties = {
   fontSize: "12px",
-  color: "var(--text-2)",
-  minWidth: "64px",
-  textAlign: "right",
+  fontWeight: 600,
+  minWidth: 0,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 };
-
-const cardStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-1)",
-  padding: "var(--space-2)",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--border)",
-  background: "var(--bg-sunken)",
-};
-
-const hintStyle: CSSProperties = { fontSize: "11px", color: "var(--text-3)" };
 
 interface VolumeSliderProps {
   label: string;
   db: number;
   disabled?: boolean | undefined;
+  /** Track colour: panel inside a raised card, raised on the panel. */
+  track?: string | undefined;
   onChange: (db: number) => void;
 }
 
 /** dB slider: position 0 = −∞, then 0.1 dB steps up to +12 dB. */
-function VolumeSlider({ label, db, disabled, onChange }: VolumeSliderProps): ReactElement {
+function VolumeSlider({
+  label,
+  db,
+  disabled,
+  track = "var(--bg-panel)",
+  onChange,
+}: VolumeSliderProps): ReactElement {
+  useInspectorControlStyles();
   const id = useId();
   const text = formatDb(db);
+  const pos = dbToSliderPosition(db);
+  const pct = (pos / SLIDER_STEPS) * 100;
   return (
     <div style={rowStyle}>
-      <label htmlFor={id} style={labelStyle}>
+      <label htmlFor={id} style={{ flex: "0 0 auto", color: "var(--text-2)" }}>
         {label}
       </label>
       <input
         id={id}
+        className="rf-range"
         type="range"
         min={0}
         max={SLIDER_STEPS}
         step={1}
-        value={dbToSliderPosition(db)}
+        value={pos}
         aria-valuetext={text}
         disabled={disabled}
         onChange={(e) => onChange(sliderPositionToDb(Number(e.target.value)))}
-        style={{ flex: "1 1 auto", accentColor: "var(--accent)" }}
+        style={{
+          background: `linear-gradient(to right, var(--accent) ${pct}%, ${track} ${pct}%)`,
+        }}
       />
-      <span style={monoStyle}>{text}</span>
+      <span style={{ ...monoStyle, flex: "0 0 auto", whiteSpace: "nowrap" }}>{text}</span>
     </div>
   );
 }
@@ -127,27 +142,29 @@ interface ToggleChipProps {
   onToggle: () => void;
 }
 
-/** Compact M / S toggle. */
+/** Compact M / S text toggle (text-3 idle, accent when active). */
 function ToggleChip({ label, short, pressed, onToggle }: ToggleChipProps): ReactElement {
   return (
     <button
       type="button"
+      className="rf-choice"
       aria-pressed={pressed}
       aria-label={label}
       title={label}
       onClick={onToggle}
       style={{
         appearance: "none",
-        width: "22px",
-        height: "22px",
-        borderRadius: "var(--radius-sm)",
-        border: "1px solid var(--border-strong)",
+        minWidth: "16px",
+        height: "16px",
+        padding: "0 3px",
+        borderRadius: "4px",
+        border: 0,
         cursor: "pointer",
         fontSize: "11px",
-        fontWeight: 600,
+        fontWeight: pressed ? 700 : 400,
         fontFamily: "var(--font-body)",
-        background: pressed ? "var(--accent)" : "var(--bg-sunken)",
-        color: pressed ? "var(--on-accent)" : "var(--text-2)",
+        background: "transparent",
+        color: pressed ? "var(--accent-hover)" : "var(--text-3)",
       }}
     >
       {short}
@@ -160,12 +177,19 @@ interface MiniWaveformProps {
   kind: string;
   peaks: number[] | undefined;
   silent: boolean;
+  height?: number | undefined;
+  fill?: string | undefined;
 }
 
-function MiniWaveform({ kind, peaks, silent }: MiniWaveformProps): ReactElement {
+function MiniWaveform({
+  kind,
+  peaks,
+  silent,
+  height = 22,
+  fill = "color-mix(in srgb, var(--text-2) 50%, transparent)",
+}: MiniWaveformProps): ReactElement {
   const bars = downsamplePeaks(peaks ?? [], WAVEFORM_BARS);
-  const height = 24;
-  const fill = silent ? "var(--text-3)" : "var(--accent)";
+  const color = silent ? "color-mix(in srgb, var(--text-3) 50%, transparent)" : fill;
   if (bars.length === 0) {
     return (
       <div
@@ -186,17 +210,20 @@ function MiniWaveform({ kind, peaks, silent }: MiniWaveformProps): ReactElement 
       height={height}
       viewBox={`0 0 ${bars.length * 3} ${height}`}
       preserveAspectRatio="none"
-      style={{ display: "block", opacity: silent ? 0.6 : 1 }}
+      style={{ display: "block" }}
     >
       {bars.map((p, i) => {
         const h = Math.max(1, p * height);
-        return (
-          <rect key={i} x={i * 3} y={(height - h) / 2} width={2} height={h} rx={0.5} fill={fill} />
-        );
+        return <rect key={i} x={i * 3} y={(height - h) / 2} width={2.6} height={h} fill={color} />;
       })}
     </svg>
   );
 }
+
+const TRACK_WAVE: Readonly<Record<TrackKind, { height: number; fill: string }>> = {
+  mic: { height: 22, fill: "color-mix(in srgb, var(--success) 60%, transparent)" },
+  system: { height: 18, fill: "color-mix(in srgb, var(--text-2) 50%, transparent)" },
+};
 
 export function AudioInspector({
   value,
@@ -219,9 +246,13 @@ export function AudioInspector({
     const label = t(TRACK_LABEL_KEYS[kind]);
     if (!availableTracks[kind]) {
       return (
-        <EmptyState key={kind} title={t("inspector.audio.notAvailable", { track: label })}>
-          {missingTrackReason?.[kind] ?? t(DEFAULT_MISSING_REASON[kind])}
-        </EmptyState>
+        <Callout
+          key={kind}
+          tone="neutral"
+          title={t("inspector.audio.notAvailable", { track: label })}
+        >
+          <span>{missingTrackReason?.[kind] ?? t(DEFAULT_MISSING_REASON[kind])}</span>
+        </Callout>
       );
     }
     const track = value.tracks[kind];
@@ -230,64 +261,76 @@ export function AudioInspector({
     const set = (patch: Partial<AudioSettings["tracks"][typeof kind]>) =>
       onChange(updateTrack(value, kind, patch, trackDurationMs));
     return (
-      <div key={kind} role="group" aria-label={label} style={cardStyle}>
-        <div style={{ ...rowStyle, justifyContent: "space-between" }}>
-          <span style={{ fontWeight: 600 }}>{label}</span>
-          <span style={{ display: "flex", gap: "var(--space-1)" }}>
-            <ToggleChip
-              label={t("inspector.audio.mute", { track: label })}
-              short={t("inspector.audio.muteShort")}
-              pressed={track.muted}
-              onToggle={() => set({ muted: !track.muted })}
-            />
-            <ToggleChip
-              label={t("inspector.audio.solo", { track: label })}
-              short={t("inspector.audio.soloShort")}
-              pressed={track.solo}
-              onToggle={() => set({ solo: !track.solo })}
-            />
-          </span>
-        </div>
-        <MiniWaveform kind={kind} peaks={waveforms?.[kind]} silent={silent} />
-        {silencedBySolo && <span style={hintStyle}>{t("inspector.audio.silencedBySolo")}</span>}
-        <VolumeSlider
-          label={t("inspector.common.volume")}
-          db={track.volumeDb}
-          onChange={(volumeDb) => set({ volumeDb })}
-        />
-        {kind === "mic" && (
-          <Switch
-            label={t("inspector.audio.noiseReduction")}
-            checked={value.tracks.mic.noiseReduction}
-            onChange={(noiseReduction) =>
-              onChange(updateTrack(value, "mic", { noiseReduction }, trackDurationMs))
-            }
+      <div key={kind} role="group" aria-label={label}>
+        <Card>
+          <div style={rowStyle}>
+            <span style={nameStyle}>{label}</span>
+            <span style={{ marginLeft: "auto", display: "flex", gap: "4px" }}>
+              <ToggleChip
+                label={t("inspector.audio.mute", { track: label })}
+                short={t("inspector.audio.muteShort")}
+                pressed={track.muted}
+                onToggle={() => set({ muted: !track.muted })}
+              />
+              <ToggleChip
+                label={t("inspector.audio.solo", { track: label })}
+                short={t("inspector.audio.soloShort")}
+                pressed={track.solo}
+                onToggle={() => set({ solo: !track.solo })}
+              />
+            </span>
+          </div>
+          <MiniWaveform
+            kind={kind}
+            peaks={waveforms?.[kind]}
+            silent={silent}
+            height={TRACK_WAVE[kind].height}
+            fill={TRACK_WAVE[kind].fill}
           />
-        )}
-        <Switch
-          label={t("inspector.audio.normalize")}
-          hint="−16 LUFS"
-          checked={track.normalize}
-          onChange={(normalize) => set({ normalize })}
-        />
-        <NumberField
-          label={t("inspector.common.fadeIn")}
-          unit="ms"
-          min={0}
-          max={fadeMax}
-          step={50}
-          value={track.fadeInMs}
-          onChange={(fadeInMs) => set({ fadeInMs })}
-        />
-        <NumberField
-          label={t("inspector.common.fadeOut")}
-          unit="ms"
-          min={0}
-          max={fadeMax}
-          step={50}
-          value={track.fadeOutMs}
-          onChange={(fadeOutMs) => set({ fadeOutMs })}
-        />
+          {silencedBySolo && <span style={hintStyle}>{t("inspector.audio.silencedBySolo")}</span>}
+          <VolumeSlider
+            label={t("inspector.common.volume")}
+            db={track.volumeDb}
+            onChange={(volumeDb) => set({ volumeDb })}
+          />
+          {kind === "mic" && (
+            <Switch
+              label={t("inspector.audio.noiseReduction")}
+              checked={value.tracks.mic.noiseReduction}
+              onChange={(noiseReduction) =>
+                onChange(updateTrack(value, "mic", { noiseReduction }, trackDurationMs))
+              }
+            />
+          )}
+          <Switch
+            label={t("inspector.audio.normalize")}
+            hint="−16 LUFS"
+            checked={track.normalize}
+            onChange={(normalize) => set({ normalize })}
+          />
+          <FieldRow>
+            <NumberField
+              inline
+              label={t("inspector.common.fadeIn")}
+              unit="ms"
+              min={0}
+              max={fadeMax}
+              step={50}
+              value={track.fadeInMs}
+              onChange={(fadeInMs) => set({ fadeInMs })}
+            />
+            <NumberField
+              inline
+              label={t("inspector.common.fadeOut")}
+              unit="ms"
+              min={0}
+              max={fadeMax}
+              step={50}
+              value={track.fadeOutMs}
+              onChange={(fadeOutMs) => set({ fadeOutMs })}
+            />
+          </FieldRow>
+        </Card>
       </div>
     );
   };
@@ -296,109 +339,122 @@ export function AudioInspector({
     const set = (patch: Parameters<typeof updateRegion>[2]) =>
       onChange(updateRegion(value, region.id, patch));
     const duration = regionDurationMs(region);
+    const duckDisabled = !region.duck.enabled || !availableTracks.mic;
     return (
-      <div key={region.id} role="group" aria-label={region.fileName} style={cardStyle}>
-        <div style={{ ...rowStyle, justifyContent: "space-between" }}>
-          <span
-            title={region.path}
-            style={{
-              ...monoStyle,
-              textAlign: "left",
-              minWidth: 0,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {region.fileName}
-          </span>
-          <Button
-            variant="ghost"
-            aria-label={t("inspector.audio.removeFile", { file: region.fileName })}
-            onClick={() => onChange(removeRegion(value, region.id))}
-          >
-            {t("inspector.common.remove")}
-          </Button>
-        </div>
-        {regionWaveforms?.[region.id] && (
-          <MiniWaveform
-            kind={`region-${region.id}`}
-            peaks={regionWaveforms[region.id]}
-            silent={region.volumeDb === Number.NEGATIVE_INFINITY}
+      <div key={region.id} role="group" aria-label={region.fileName}>
+        <Card gap="8px" style={{ padding: "10px" }}>
+          <div style={rowStyle}>
+            <span title={region.path} style={nameStyle}>
+              {region.fileName}
+            </span>
+            <button
+              type="button"
+              className="rf-choice"
+              aria-label={t("inspector.audio.removeFile", { file: region.fileName })}
+              title={t("inspector.common.remove")}
+              onClick={() => onChange(removeRegion(value, region.id))}
+              style={{
+                appearance: "none",
+                marginLeft: "auto",
+                flex: "0 0 auto",
+                border: 0,
+                borderRadius: "4px",
+                padding: "0 4px",
+                background: "transparent",
+                color: "var(--text-3)",
+                fontFamily: "var(--font-body)",
+                fontSize: "11px",
+                cursor: "pointer",
+              }}
+            >
+              {t("inspector.common.remove")}
+            </button>
+          </div>
+          {regionWaveforms?.[region.id] && (
+            <MiniWaveform
+              kind={`region-${region.id}`}
+              peaks={regionWaveforms[region.id]}
+              silent={region.volumeDb === Number.NEGATIVE_INFINITY}
+              height={18}
+            />
+          )}
+          <VolumeSlider
+            label={t("inspector.common.volume")}
+            db={region.volumeDb}
+            onChange={(volumeDb) => set({ volumeDb })}
           />
-        )}
-        <VolumeSlider
-          label={t("inspector.common.volume")}
-          db={region.volumeDb}
-          onChange={(volumeDb) => set({ volumeDb })}
-        />
-        <NumberField
-          label={t("inspector.common.fadeIn")}
-          unit="ms"
-          min={0}
-          max={duration}
-          step={50}
-          value={region.fadeInMs}
-          onChange={(fadeInMs) => set({ fadeInMs })}
-        />
-        <NumberField
-          label={t("inspector.common.fadeOut")}
-          unit="ms"
-          min={0}
-          max={duration}
-          step={50}
-          value={region.fadeOutMs}
-          onChange={(fadeOutMs) => set({ fadeOutMs })}
-        />
-        <Switch
-          label={t("inspector.common.loop")}
-          checked={region.loop}
-          onChange={(loop) => set({ loop })}
-        />
-        <Switch
-          label={t("inspector.audio.duck")}
-          hint={availableTracks.mic ? undefined : t("inspector.audio.duck.needsMic")}
-          disabled={!availableTracks.mic}
-          checked={region.duck.enabled}
-          onChange={(enabled) => set({ duck: { enabled } })}
-        />
-        <Slider
-          label={t("inspector.audio.duckAmount")}
-          min={AUDIO_LIMITS.duckAmountDb.min}
-          max={AUDIO_LIMITS.duckAmountDb.max}
-          unit=" dB"
-          value={region.duck.amountDb}
-          disabled={!region.duck.enabled || !availableTracks.mic}
-          onChange={(amountDb) => set({ duck: { amountDb } })}
-        />
+          <Switch
+            label={t("inspector.audio.duck")}
+            hint={availableTracks.mic ? undefined : t("inspector.audio.duck.needsMic")}
+            disabled={!availableTracks.mic}
+            checked={region.duck.enabled}
+            onChange={(enabled) => set({ duck: { enabled } })}
+          />
+          <Slider
+            label={t("inspector.audio.duckAmount")}
+            min={AUDIO_LIMITS.duckAmountDb.min}
+            max={AUDIO_LIMITS.duckAmountDb.max}
+            format={(db) => `−${db} dB`}
+            value={region.duck.amountDb}
+            disabled={duckDisabled}
+            onChange={(amountDb) => set({ duck: { amountDb } })}
+          />
+          <Switch
+            label={t("inspector.common.loop")}
+            checked={region.loop}
+            onChange={(loop) => set({ loop })}
+          />
+          <FieldRow>
+            <NumberField
+              inline
+              label={t("inspector.common.fadeIn")}
+              unit="ms"
+              min={0}
+              max={duration}
+              step={50}
+              value={region.fadeInMs}
+              onChange={(fadeInMs) => set({ fadeInMs })}
+            />
+            <NumberField
+              inline
+              label={t("inspector.common.fadeOut")}
+              unit="ms"
+              min={0}
+              max={duration}
+              step={50}
+              value={region.fadeOutMs}
+              onChange={(fadeOutMs) => set({ fadeOutMs })}
+            />
+          </FieldRow>
+        </Card>
       </div>
     );
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        fontFamily: "var(--font-body)",
-        color: "var(--text-1)",
-      }}
-    >
-      <Section title={t("inspector.audio.tracks")}>
-        {noTracks ? (
-          <EmptyState title={t("inspector.audio.noTracks.title")}>
-            {t("inspector.audio.noTracks.body")}
-          </EmptyState>
-        ) : (
-          TRACK_KINDS.map(renderTrack)
-        )}
-      </Section>
+    <div style={{ ...inspectorRootStyle, gap: "12px" }}>
+      {noTracks ? (
+        <EmptyState icon="♪" title={t("inspector.audio.noTracks.title")}>
+          {t("inspector.audio.noTracks.body")}
+        </EmptyState>
+      ) : (
+        <div
+          aria-label={t("inspector.audio.tracks")}
+          style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+        >
+          {TRACK_KINDS.map(renderTrack)}
+        </div>
+      )}
 
-      <Section title={t("inspector.audio.extra")}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        <GroupLabel>{t("inspector.audio.extra")}</GroupLabel>
         {value.regions.length === 0 ? (
-          <EmptyState title={t("inspector.audio.noExtra.title")}>
-            {t("inspector.audio.noExtra.body")}
-          </EmptyState>
+          <div style={{ ...hintStyle, display: "flex", flexDirection: "column" }}>
+            <span style={{ color: "var(--text-2)", fontWeight: 600 }}>
+              {t("inspector.audio.noExtra.title")}
+            </span>
+            <span>{t("inspector.audio.noExtra.body")}</span>
+          </div>
         ) : (
           value.regions.map(renderRegion)
         )}
@@ -416,12 +472,22 @@ export function AudioInspector({
             {addAudioError}
           </span>
         ) : null}
-      </Section>
+      </div>
 
-      <Section title={t("inspector.audio.master")}>
+      <div
+        aria-label={t("inspector.audio.master")}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "9px",
+          paddingTop: "8px",
+          borderTop: "1px solid var(--border)",
+        }}
+      >
         <VolumeSlider
           label={t("inspector.audio.outputVolume")}
           db={value.master.volumeDb}
+          track="var(--bg-panel-raised)"
           onChange={(volumeDb) => onChange(updateMaster(value, { volumeDb }))}
         />
         <Switch
@@ -429,18 +495,18 @@ export function AudioInspector({
           checked={value.master.muteAll}
           onChange={(muteAll) => onChange(updateMaster(value, { muteAll }))}
         />
-      </Section>
-
-      <Section title={t("inspector.audio.clicks")}>
-        <Slider
-          label={t("inspector.audio.clickSounds")}
-          min={AUDIO_LIMITS.clickVolume.min}
-          max={AUDIO_LIMITS.clickVolume.max}
-          unit="%"
-          value={value.clickVolume}
-          onChange={(v) => onChange(setClickVolume(value, v))}
-        />
-      </Section>
+        <div aria-label={t("inspector.audio.clicks")}>
+          <Slider
+            label={t("inspector.audio.clickSounds")}
+            labelWidth={110}
+            min={AUDIO_LIMITS.clickVolume.min}
+            max={AUDIO_LIMITS.clickVolume.max}
+            unit="%"
+            value={value.clickVolume}
+            onChange={(v) => onChange(setClickVolume(value, v))}
+          />
+        </div>
+      </div>
     </div>
   );
 }

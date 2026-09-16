@@ -27,7 +27,7 @@ describe("projectMediaUrl", () => {
 describe("clickSoundUrl", () => {
   it("maps bundled packs, custom files and none", () => {
     expect(clickSoundUrl({ type: "soft", volume: 60, customSound: null }, BASE)).toBe(
-      "/sounds/soft/click.wav",
+      "./sounds/soft/click.wav",
     );
     expect(clickSoundUrl({ type: "mechanical", volume: 60, customSound: null }, BASE, "/a")).toBe(
       "/a/mechanical/click.wav",

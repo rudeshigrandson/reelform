@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CreatePreviewStage, PreviewStage } from "../../editor/preview";
 import { useEditorStore } from "../../editor/store";
-import { type EditorWindowPort, ProjectEditor } from "./ProjectEditor";
+import { type EditorWindowPort, ProjectEditor, type ProjectEditorProps } from "./ProjectEditor";
 import { useProjectSession } from "./session";
 import {
   type FakeHandlers,
@@ -32,7 +32,12 @@ function fakeStage(): CreatePreviewStage {
 
 const noTimer = { setInterval: () => 0, clearInterval: () => {} };
 
-function renderEditor(overrides: FakeHandlers = {}) {
+function renderEditor(
+  overrides: FakeHandlers = {},
+  props: Partial<
+    Pick<ProjectEditorProps, "resolveRetryDelaysMs" | "slowOpenMs" | "createInspectorHost">
+  > = {},
+) {
   const ipc = fakeIpc(overrides);
   const port: EditorWindowPort = { back: vi.fn(), close: vi.fn() };
   const utils = render(
@@ -44,6 +49,7 @@ function renderEditor(overrides: FakeHandlers = {}) {
       windowPort={port}
       createStage={fakeStage()}
       timer={noTimer}
+      {...props}
     />,
   );
   return { ipc, port, ...utils };
@@ -71,14 +77,86 @@ describe("ProjectEditor states", () => {
   });
 
   it("not found → message and Back to projects", async () => {
-    const { port } = renderEditor({
-      "project:resolve": () => {
-        throw { code: "PROJECT_NOT_FOUND", message: "No project with that id" };
+    const { port } = renderEditor(
+      {
+        "project:resolve": () => {
+          throw { code: "PROJECT_NOT_FOUND", message: "No project with that id" };
+        },
       },
-    });
+      { resolveRetryDelaysMs: [] },
+    );
     expect(await screen.findByRole("heading", { name: "Project not found" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to projects" }));
     expect(port.back).toHaveBeenCalledTimes(1);
+  });
+
+  it("not found → Try again re-resolves (the project showed up meanwhile)", async () => {
+    let known = false;
+    const { ipc } = renderEditor(
+      {
+        "project:resolve": () => {
+          if (!known) throw { code: "PROJECT_NOT_FOUND", message: "No project with that id" };
+          return { path: PROJECT_PATH };
+        },
+      },
+      { resolveRetryDelaysMs: [] },
+    );
+    await screen.findByRole("heading", { name: "Project not found" });
+    known = true;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await ready();
+    expect(ipc.callsTo("project:resolve")).toHaveLength(2);
+  });
+
+  it("race: opened right after create, before main's index knows the id → loading, then content", async () => {
+    let misses = 2;
+    const { ipc } = renderEditor(
+      {
+        "project:resolve": () => {
+          if (misses-- > 0) throw { code: "PROJECT_NOT_FOUND", message: "No project with that id" };
+          return { path: PROJECT_PATH };
+        },
+      },
+      { resolveRetryDelaysMs: [5, 5, 5] },
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Opening project…");
+    await ready();
+    expect(screen.queryByRole("heading", { name: "Project not found" })).toBeNull();
+    expect(ipc.callsTo("project:resolve")).toHaveLength(3);
+  });
+
+  it("a slow open offers Try again and Back instead of an endless spinner", async () => {
+    const { port } = renderEditor(
+      { "project:resolve": () => new Promise(() => {}) },
+      { slowOpenMs: 20 },
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Opening project…");
+    expect(await screen.findByText("This is taking longer than usual.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back to projects" }));
+    expect(port.back).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("a render crash in the editor shows a visible error with Try again, never a blank window", async () => {
+    let crash = true;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    renderEditor(
+      {},
+      {
+        createInspectorHost: () => {
+          if (crash) throw new Error("inspector exploded");
+          return undefined as never;
+        },
+      },
+    );
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Something went wrong in the editor");
+    expect(alert).toHaveTextContent("inspector exploded");
+    expect(screen.queryByTestId("editor-shell")).toBeNull();
+    crash = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await ready();
+    error.mockRestore();
   });
 
   it("error → Try again re-opens", async () => {

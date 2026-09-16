@@ -21,7 +21,7 @@ const raw = {
 describe("parseCursorPack", () => {
   it("resolves file URLs under the pack folder and parses both hotspot shapes", () => {
     const pack = parseCursorPack("macos", raw);
-    expect(pack?.files.arrow).toBe("/cursors/macos/arrow.svg");
+    expect(pack?.files.arrow).toBe("./cursors/macos/arrow.svg");
     expect(pack?.files.empty).toBeUndefined();
     expect(pack?.hotspots.arrow).toEqual({ x: 4, y: 2 });
     expect(pack?.hotspots.ibeam).toEqual({ x: 8, y: 16 });
@@ -54,11 +54,11 @@ describe("pack box size", () => {
       );
       const pack = parseCursorPack(id, raw);
       if (!pack) throw new Error(`pack ${id} failed to parse`);
-      expect(pack.files.arrow).toBe(`/cursors/${id}/arrow.svg`);
+      expect(pack.files.arrow).toBe(`./cursors/${id}/arrow.svg`);
       for (const type of CURSOR_TYPES) {
         const ref = cursorSpriteFor(pack, type);
         expect(ref?.type).toBe(type);
-        expect(existsSync(resolve(process.cwd(), "public", `.${ref?.url}`))).toBe(true);
+        expect(existsSync(resolve(process.cwd(), "public", ref?.url ?? ""))).toBe(true);
         const h = pack.hotspots[type];
         if (!h) throw new Error(`${id}/${type} has no hotspot`);
         expect(h.x).toBeGreaterThanOrEqual(0);
@@ -89,7 +89,7 @@ describe("cursor sprite resolution", () => {
     });
     expect(cursorSpriteFor(pack, "resize-ew")).toMatchObject({
       type: "arrow",
-      url: "/cursors/windows/arrow.svg",
+      url: "./cursors/windows/arrow.svg",
     });
     // A type with a file but no hotspot defaults to (0,0).
     expect(cursorSpriteFor(pack, "hand")?.hotspot).toEqual({ x: 0, y: 0 });
@@ -115,7 +115,7 @@ describe("createCursorPackLoader", () => {
     const [a, b] = await Promise.all([loader.load("macos"), loader.load("macos")]);
     expect(a).toBe(b);
     expect(fetchJson).toHaveBeenCalledTimes(1);
-    expect(fetchJson).toHaveBeenCalledWith("/cursors/macos/pack.json");
+    expect(fetchJson).toHaveBeenCalledWith("./cursors/macos/pack.json");
     expect(loader.peek("macos")).toBe(a);
   });
 

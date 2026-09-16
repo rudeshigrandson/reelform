@@ -145,7 +145,7 @@ describe("Frame tab", () => {
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save preset" }));
     expect(screen.queryByRole("dialog")).toBeNull();
-    const chip = screen.getByRole("button", { name: "Launch" });
+    const chip = await screen.findByRole("button", { name: "Launch" });
     expect(chip).toHaveAttribute("aria-pressed", "true");
     const saved = readUserPresets(patch.mock.lastCall?.[0]);
     expect(saved).toHaveLength(1);
@@ -183,6 +183,144 @@ describe("Frame tab", () => {
     expect(screen.getByRole("button", { name: "Mine" })).toBeInTheDocument();
     expect(screen.getByTestId("output-size")).toHaveTextContent("3024 × 1964");
     useAppSettings.setState({ settings });
+  });
+});
+
+describe("Frame tab — presets with a background image", () => {
+  const loadWallpapers = async () => null;
+  const PROJECT_IMAGE = "media/imported/image/bg.png";
+  const APP_IMAGE = "/Users/me/Library/Application Support/Reelform/frame-presets/bg.png";
+  const imageFrame = (path: string) => ({
+    ...DEFAULT_FRAME_SETTINGS,
+    radius: 30,
+    background: {
+      ...DEFAULT_FRAME_SETTINGS.background,
+      kind: "image" as const,
+      image: { path, fit: "fill" as const },
+    },
+  });
+  let original: ReturnType<typeof useAppSettings.getState>["settings"];
+
+  beforeEach(() => {
+    original = useAppSettings.getState().settings;
+  });
+  afterEach(() => {
+    useAppSettings.setState({ settings: original });
+  });
+
+  const storePresets = (path: string) =>
+    useAppSettings.setState({
+      settings: {
+        ...original,
+        [USER_PRESETS_SETTINGS_KEY]: [
+          { id: "u1", name: "Branded", builtIn: false, settings: imageFrame(path) },
+        ],
+      } as typeof original,
+    });
+
+  const saveAs = (name: string) => {
+    fireEvent.click(screen.getByRole("button", { name: "Save current as preset…" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Preset name"), { target: { value: name } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save preset" }));
+  };
+
+  it("copies the image into app storage when saving and stores that absolute path", async () => {
+    const patch = vi.spyOn(useAppSettings.getState(), "patch").mockResolvedValue({ ok: true });
+    const storePresetImage = vi.fn(async () => APP_IMAGE);
+    useEditorStore.setState({ frame: imageFrame(PROJECT_IMAGE) });
+    render(
+      <FrameTab
+        host={fakeHost()}
+        loadWallpapers={loadWallpapers}
+        storePresetImage={storePresetImage}
+      />,
+    );
+    saveAs("Branded");
+    await waitFor(() => expect(patch).toHaveBeenCalled());
+    expect(storePresetImage).toHaveBeenCalledWith("/Users/me/Demo.reelform", PROJECT_IMAGE);
+    const saved = readUserPresets(patch.mock.lastCall?.[0]);
+    expect(saved[0]?.settings.background.image.path).toBe(APP_IMAGE);
+    // The project still uses its own copy, so the new chip reads as active.
+    expect(await screen.findByRole("button", { name: "Branded" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(useEditorStore.getState().frame.background.image.path).toBe(PROJECT_IMAGE);
+  });
+
+  it("does not save the preset when the image can't be stored", async () => {
+    const patch = vi.spyOn(useAppSettings.getState(), "patch").mockResolvedValue({ ok: true });
+    useEditorStore.setState({ frame: imageFrame(PROJECT_IMAGE) });
+    render(
+      <FrameTab
+        host={fakeHost()}
+        loadWallpapers={loadWallpapers}
+        storePresetImage={async () => Promise.reject(new Error("disk full"))}
+      />,
+    );
+    saveAs("Branded");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Couldn't save the preset's background image. disk full",
+    );
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it("applies a stored preset in another project by copying the image into it", async () => {
+    storePresets(APP_IMAGE);
+    const host = fakeHost({
+      importMedia: vi.fn(async () => media("media/imported/image/bg (2).png")),
+    });
+    render(<FrameTab host={host} loadWallpapers={loadWallpapers} />);
+    fireEvent.click(screen.getByRole("button", { name: "Branded" }));
+    await waitFor(() =>
+      expect(useEditorStore.getState().frame.background.image.path).toBe(
+        "media/imported/image/bg (2).png",
+      ),
+    );
+    expect(host.importMedia).toHaveBeenCalledWith("image", APP_IMAGE);
+    expect(useEditorStore.getState().frame.radius).toBe(30);
+    expect(screen.getByRole("button", { name: "Branded" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("falls back to the default background with a notice when the preset image is gone", async () => {
+    storePresets(APP_IMAGE);
+    const host = fakeHost({
+      importMedia: vi.fn(async () =>
+        Promise.reject(Object.assign(new Error("gone"), { code: "SOURCE_NOT_FOUND" })),
+      ),
+    });
+    render(<FrameTab host={host} loadWallpapers={loadWallpapers} />);
+    fireEvent.click(screen.getByRole("button", { name: "Branded" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This preset's background image is missing, so the default background was used.",
+    );
+    const applied = useEditorStore.getState().frame;
+    expect(applied.background).toEqual(DEFAULT_FRAME_SETTINGS.background);
+    expect(applied.radius).toBe(30);
+  });
+
+  it("legacy relative-path presets apply when the file exists in this project", async () => {
+    storePresets(PROJECT_IMAGE);
+    const host = fakeHost({
+      statSources: vi.fn(async () => ({ [PROJECT_IMAGE]: { sizeBytes: 10 } })),
+    });
+    render(<FrameTab host={host} loadWallpapers={loadWallpapers} />);
+    fireEvent.click(screen.getByRole("button", { name: "Branded" }));
+    await waitFor(() => expect(useEditorStore.getState().frame.radius).toBe(30));
+    expect(useEditorStore.getState().frame.background.image.path).toBe(PROJECT_IMAGE);
+    expect(host.statSources).toHaveBeenCalledWith([PROJECT_IMAGE]);
+    expect(host.importMedia).not.toHaveBeenCalled();
+  });
+
+  it("legacy relative-path presets fall back to the default background elsewhere", async () => {
+    storePresets(PROJECT_IMAGE);
+    const host = fakeHost({ statSources: vi.fn(async () => ({ [PROJECT_IMAGE]: null })) });
+    render(<FrameTab host={host} loadWallpapers={loadWallpapers} />);
+    fireEvent.click(screen.getByRole("button", { name: "Branded" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("background image is missing");
+    expect(useEditorStore.getState().frame.background).toEqual(DEFAULT_FRAME_SETTINGS.background);
   });
 });
 
