@@ -1,11 +1,9 @@
 {
   "hud.grip.drag": "Drag",
   "hud.more": "More",
-
   "hud.mode.display": "Display",
   "hud.mode.window": "Window",
   "hud.mode.region": "Region",
-
   "hud.pre.source": "Source: {source}",
   "hud.pre.micLevel": "Microphone level",
   "hud.pre.micOff": "Microphone off",
@@ -19,7 +17,6 @@
   "hud.pre.startRecording": "Start recording",
   "hud.pre.startRecordingShortcut": "Start recording {shortcut}",
   "hud.pre.moreOptions": "More options",
-
   "hud.menu.off": "Off",
   "hud.menu.noMicrophones": "No microphones found",
   "hud.menu.noCameras": "No cameras found",
@@ -33,12 +30,10 @@
   "hud.menu.fps": "{fps} fps",
   "hud.menu.hideHudWhileRecording": "Hide HUD while recording",
   "hud.menu.settings": "Settings…",
-
   "hud.rec.micMuted": "Microphone muted",
   "hud.rec.noMicInput": "No microphone input",
   "hud.rec.micLevel": "Microphone level",
-  "hud.rec.interrupted": "Interrupted",
-  "hud.rec.savedUpTo": "Recording saved up to {time}",
+  "hud.rec.interrupted": "Capture interrupted",
   "hud.rec.processing": "Processing recording…",
   "hud.rec.startsSoon": "Recording starts soon",
   "hud.rec.recordingSource": "Recording {source}",
@@ -59,5 +54,8 @@
   "hud.rec.discardTitle": "Discard recording?",
   "hud.rec.discardDetail": "The current recording ({time}) will be deleted. This can't be undone.",
   "hud.rec.keepRecording": "Keep recording",
-  "hud.rec.discard": "Discard"
+  "hud.rec.discard": "Discard",
+  "hud.rec.micMutedShort": "Mic muted",
+  "hud.rec.unmuteMic": "Unmute mic",
+  "hud.rec.savedUpToSentence": "Recording saved up to {time}."
 }
