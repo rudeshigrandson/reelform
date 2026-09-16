@@ -1,6 +1,7 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
+/** "danger" is outlined; "danger-solid" is the filled destructive confirm (e.g. Delete). */
+type Variant = "primary" | "secondary" | "ghost" | "danger" | "danger-solid";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
@@ -16,6 +17,7 @@ const variantClass: Record<Variant, string> = {
   secondary: "btn-secondary",
   ghost: "btn-ghost",
   danger: "btn-danger",
+  "danger-solid": "btn-danger-solid",
 };
 
 export function Button({

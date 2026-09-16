@@ -160,67 +160,67 @@
   --on-accent: #fffaf3;
   --focus-ring: color-mix(in srgb, #c67139 60%, transparent);
 
-  --record: #d63a3f;
-  --danger: #b8322f;
-  --success: #2e8a57;
-  --warning: #b86e00;
+  --record: #c4452f;
+  --danger: #b2382a;
+  --success: #56633f;
+  --warning: #b2622d;
 
   --scrim: color-mix(in srgb, #2e2b25 50%, transparent);
   --shadow-sm: 0 1px 2px color-mix(in srgb, #2e2b25 14%, transparent);
   --shadow-md: 0 3px 10px color-mix(in srgb, #2e2b25 16%, transparent);
   --shadow-lg: 0 12px 32px color-mix(in srgb, #2e2b25 22%, transparent);
 
-  /* Track hues — "same hues, darker" than dark theme (guide §2.2). */
-  --track-video: #6b7385;
-  --track-zoom: #4f5be6;
-  --track-speed: #c77a00;
-  --track-annotations: #1f9a5c;
-  --track-audio: #8a4fd9;
-  --track-captions: #1692c2;
-  --track-webcam: #d2517f;
+  /* Track hues — the dark theme's hues, darkened for a light ground. */
+  --track-video: #82796a;
+  --track-zoom: #b2622d;
+  --track-speed: #8c491a;
+  --track-annotations: #728157;
+  --track-audio: #82796a;
+  --track-captions: #5b8575;
+  --track-webcam: #b8697a;
 }
 
-/* ── Dark (guide §2.2) ─────────────────────────────────────────────────── */
+/* ── Dark (canonical) — warm ink chrome, terracotta, sage ──────────────── */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
 
-    --bg-app: #0f1115;
-    --bg-panel: #161a21;
-    --bg-panel-raised: #1c2129;
-    --bg-sunken: #0b0d11;
-    --bg-hover: color-mix(in srgb, #ffffff 5%, transparent);
-    --bg-active: color-mix(in srgb, #ffffff 9%, transparent);
-    --border: color-mix(in srgb, #ffffff 8%, transparent);
-    --border-strong: color-mix(in srgb, #ffffff 16%, transparent);
-    --text-1: #edeff3;
-    --text-2: #a3a9b5;
-    --text-3: #6b7280;
+    --bg-app: #201e1d;
+    --bg-panel: #2e2b25;
+    --bg-panel-raised: #423d34;
+    --bg-sunken: #17150f;
+    --bg-hover: color-mix(in srgb, #f5ead8 6%, transparent);
+    --bg-active: color-mix(in srgb, #f5ead8 10%, transparent);
+    --border: color-mix(in srgb, #f5ead8 8%, transparent);
+    --border-strong: color-mix(in srgb, #f5ead8 16%, transparent);
+    --text-1: #f5ead8;
+    --text-2: #c0b6a5;
+    --text-3: #a19786;
 
-    --accent: #6e7bff;
-    --accent-hover: #8390ff;
-    --accent-pressed: #5a66e6;
-    --accent-soft: color-mix(in srgb, #6e7bff 16%, transparent);
-    --on-accent: #ffffff;
-    --focus-ring: color-mix(in srgb, #6e7bff 60%, transparent);
+    --accent: #d67f48;
+    --accent-hover: #f6a06b;
+    --accent-pressed: #b2622d;
+    --accent-soft: color-mix(in srgb, #d67f48 18%, transparent);
+    --on-accent: #201e1d;
+    --focus-ring: #f6a06b;
 
-    --record: #ff4d5e;
-    --danger: #ff4d5e;
-    --success: #3dd68c;
-    --warning: #ffb84d;
+    --record: #c4452f;
+    --danger: #c4452f;
+    --success: #aebf92;
+    --warning: #f6a06b;
 
-    --scrim: color-mix(in srgb, #000000 60%, transparent);
+    --scrim: color-mix(in srgb, #17150f 60%, transparent);
     --shadow-sm: 0 1px 2px color-mix(in srgb, #000000 40%, transparent);
     --shadow-md: 0 8px 24px color-mix(in srgb, #000000 45%, transparent);
     --shadow-lg: 0 24px 64px color-mix(in srgb, #000000 60%, transparent);
 
-    --track-video: #8a93a6;
-    --track-zoom: #6e7bff;
-    --track-speed: #ffb84d;
-    --track-annotations: #3dd68c;
-    --track-audio: #b57bff;
-    --track-captions: #4dd0ff;
-    --track-webcam: #ff8ab3;
+    --track-video: #82796a;
+    --track-zoom: #f6a06b;
+    --track-speed: #d67f48;
+    --track-annotations: #aebf92;
+    --track-audio: #c0b6a5;
+    --track-captions: #8fb0a0;
+    --track-webcam: #e0a0a8;
   }
 }
 
@@ -228,40 +228,40 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --bg-app: #0f1115;
-  --bg-panel: #161a21;
-  --bg-panel-raised: #1c2129;
-  --bg-sunken: #0b0d11;
-  --bg-hover: color-mix(in srgb, #ffffff 5%, transparent);
-  --bg-active: color-mix(in srgb, #ffffff 9%, transparent);
-  --border: color-mix(in srgb, #ffffff 8%, transparent);
-  --border-strong: color-mix(in srgb, #ffffff 16%, transparent);
-  --text-1: #edeff3;
-  --text-2: #a3a9b5;
-  --text-3: #6b7280;
+  --bg-app: #201e1d;
+  --bg-panel: #2e2b25;
+  --bg-panel-raised: #423d34;
+  --bg-sunken: #17150f;
+  --bg-hover: color-mix(in srgb, #f5ead8 6%, transparent);
+  --bg-active: color-mix(in srgb, #f5ead8 10%, transparent);
+  --border: color-mix(in srgb, #f5ead8 8%, transparent);
+  --border-strong: color-mix(in srgb, #f5ead8 16%, transparent);
+  --text-1: #f5ead8;
+  --text-2: #c0b6a5;
+  --text-3: #a19786;
 
-  --accent: #6e7bff;
-  --accent-hover: #8390ff;
-  --accent-pressed: #5a66e6;
-  --accent-soft: color-mix(in srgb, #6e7bff 16%, transparent);
-  --on-accent: #ffffff;
-  --focus-ring: color-mix(in srgb, #6e7bff 60%, transparent);
+  --accent: #d67f48;
+  --accent-hover: #f6a06b;
+  --accent-pressed: #b2622d;
+  --accent-soft: color-mix(in srgb, #d67f48 18%, transparent);
+  --on-accent: #201e1d;
+  --focus-ring: #f6a06b;
 
-  --record: #ff4d5e;
-  --danger: #ff4d5e;
-  --success: #3dd68c;
-  --warning: #ffb84d;
+  --record: #c4452f;
+  --danger: #c4452f;
+  --success: #aebf92;
+  --warning: #f6a06b;
 
-  --scrim: color-mix(in srgb, #000000 60%, transparent);
+  --scrim: color-mix(in srgb, #17150f 60%, transparent);
   --shadow-sm: 0 1px 2px color-mix(in srgb, #000000 40%, transparent);
   --shadow-md: 0 8px 24px color-mix(in srgb, #000000 45%, transparent);
   --shadow-lg: 0 24px 64px color-mix(in srgb, #000000 60%, transparent);
 
-  --track-video: #8a93a6;
-  --track-zoom: #6e7bff;
-  --track-speed: #ffb84d;
-  --track-annotations: #3dd68c;
-  --track-audio: #b57bff;
-  --track-captions: #4dd0ff;
-  --track-webcam: #ff8ab3;
+  --track-video: #82796a;
+  --track-zoom: #f6a06b;
+  --track-speed: #d67f48;
+  --track-annotations: #aebf92;
+  --track-audio: #c0b6a5;
+  --track-captions: #8fb0a0;
+  --track-webcam: #e0a0a8;
 }

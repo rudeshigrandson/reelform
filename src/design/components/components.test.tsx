@@ -35,6 +35,32 @@ describe("theme-aware variants", () => {
     expect(screen.getByRole("button", { name: "Delete" })).toHaveClass("btn", "btn-danger");
   });
 
+  it("renders the filled destructive variant", () => {
+    render(<Button variant="danger-solid">Delete</Button>);
+    expect(screen.getByRole("button", { name: "Delete" })).toHaveClass("btn", "btn-danger-solid");
+  });
+
+  it("Dialog tone adds its border class; default adds none", () => {
+    const { rerender } = render(
+      <Dialog open onClose={() => {}} title="Delete this project?" tone="danger">
+        Body
+      </Dialog>,
+    );
+    expect(screen.getByRole("dialog")).toHaveClass("dialog", "dialog-danger");
+    rerender(
+      <Dialog open onClose={() => {}} title="Session restored" tone="success">
+        Body
+      </Dialog>,
+    );
+    expect(screen.getByRole("dialog")).toHaveClass("dialog-success");
+    rerender(
+      <Dialog open onClose={() => {}} title="Save changes?">
+        Body
+      </Dialog>,
+    );
+    expect(screen.getByRole("dialog").className).toBe("dialog");
+  });
+
   it("Segmented size=sm adds the dense class; default does not", () => {
     const opts = [
       { value: "a", label: "A" },
@@ -115,5 +141,35 @@ describe("Dialog", () => {
     // backdrop is the dialog's parent
     fireEvent.click(screen.getByRole("dialog").parentElement as HTMLElement);
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("is labelled by its title; closeLabel adds a ✕ button; focusPanelOnOpen focuses the panel", () => {
+    const onClose = vi.fn();
+    const { rerender } = render(
+      <Dialog open onClose={onClose} title="Crop">
+        Body
+      </Dialog>,
+    );
+    expect(screen.getByRole("dialog", { name: "Crop" })).not.toHaveFocus();
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+
+    rerender(
+      <Dialog open onClose={onClose} title="Crop" width={420} closeLabel="Close" focusPanelOnOpen>
+        Body
+      </Dialog>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Crop" });
+    expect(dialog.style.width).toBe("min(420px, 100%)");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("focusPanelOnOpen moves focus to the panel on open", () => {
+    render(
+      <Dialog open onClose={() => {}} title="Crop" focusPanelOnOpen>
+        Body
+      </Dialog>,
+    );
+    expect(screen.getByRole("dialog")).toHaveFocus();
   });
 });
