@@ -7,12 +7,14 @@ import {
   LAUNCHER_SIZE,
   type Rect,
   SETTINGS_SIZE,
+  TRAFFIC_LIGHT_POSITION,
   buildWindowOptions,
   centerIn,
   clampIntoArea,
   defaultHudPosition,
   hudExpansionLayout,
   hudResizeRect,
+  usesInsetTitleBar,
 } from "./windowOptions";
 
 const rectArb = fc.record({
@@ -45,6 +47,26 @@ describe("buildWindowOptions", () => {
         },
       ),
     );
+  });
+
+  it("macOS only: launcher and settings get an inset title bar, other kinds and OSes stay framed", () => {
+    for (const kind of WINDOW_KINDS) {
+      const mac = buildWindowOptions(kind, { preloadPath: "/p.cjs", platform: "darwin" });
+      if (kind === "launcher" || kind === "settings") {
+        expect(mac.titleBarStyle).toBe("hiddenInset");
+        expect(mac.trafficLightPosition).toEqual(TRAFFIC_LIGHT_POSITION);
+        expect(mac.frame).toBeUndefined();
+      } else {
+        expect(mac.titleBarStyle).toBeUndefined();
+      }
+      expect(usesInsetTitleBar(kind, "darwin")).toBe(kind === "launcher" || kind === "settings");
+      for (const platform of ["win32", "linux", undefined]) {
+        const o = buildWindowOptions(kind, { preloadPath: "/p.cjs", platform });
+        expect(o.titleBarStyle).toBeUndefined();
+        expect(o.trafficLightPosition).toBeUndefined();
+        expect(usesInsetTitleBar(kind, platform)).toBe(false);
+      }
+    }
   });
 
   it("uses the spec sizes for launcher, editor and settings", () => {
@@ -94,10 +116,10 @@ describe("buildWindowOptions", () => {
     }
   });
 
-  it("HUD is 560x64 and placed at the given position or bottom-center of the work area", () => {
+  it("HUD is 620x64 and placed at the given position or bottom-center of the work area", () => {
     const workArea = { x: 0, y: 25, width: 1440, height: 875 };
     const hud = buildWindowOptions("hud", { preloadPath: "/p", workArea });
-    expect(hud).toMatchObject({ width: 560, height: 64, ...defaultHudPosition(workArea) });
+    expect(hud).toMatchObject({ width: 620, height: 64, ...defaultHudPosition(workArea) });
     const placed = buildWindowOptions("hud", {
       preloadPath: "/p",
       workArea,

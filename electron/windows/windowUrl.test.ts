@@ -1,6 +1,12 @@
 import fc from "fast-check";
 import { WINDOW_KINDS, type WindowParams } from "./windowKinds";
-import { buildLoadTarget, parseWindowQuery, windowQuery } from "./windowUrl";
+import {
+  TITLE_BAR_INSET,
+  TITLE_BAR_QUERY_KEY,
+  buildLoadTarget,
+  parseWindowQuery,
+  windowQuery,
+} from "./windowUrl";
 
 const idArb = fc.option(fc.string({ minLength: 1, maxLength: 40 }), { nil: undefined });
 const paramsArb = fc.record({
@@ -15,6 +21,25 @@ const strip = (p: WindowParams): WindowParams => {
   if (p.displayId) out.displayId = p.displayId;
   return out;
 };
+
+describe("window URL flags", () => {
+  it("adds ?titleBar=inset without changing the identifying params", () => {
+    const params: WindowParams = { kind: "settings" };
+    const dev = buildLoadTarget({ type: "dev", devServerUrl: "http://localhost:5173/" }, params, {
+      [TITLE_BAR_QUERY_KEY]: TITLE_BAR_INSET,
+    });
+    if (dev.type !== "url") throw new Error("expected a url target");
+    const u = new URL(dev.url);
+    expect(u.searchParams.get("titleBar")).toBe("inset");
+    expect(parseWindowQuery(u.search)).toEqual(params);
+    const file = buildLoadTarget({ type: "file", indexHtmlPath: "/i.html" }, params, {
+      titleBar: "inset",
+      window: "hud",
+    });
+    // Identifying params win over a clashing flag.
+    expect(file.type === "file" && file.query).toEqual({ window: "settings", titleBar: "inset" });
+  });
+});
 
 describe("window URLs", () => {
   it("round-trips params through the dev-server URL", () => {

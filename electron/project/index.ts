@@ -32,6 +32,7 @@ export {
 } from "./errors";
 export type { FsLike } from "./fsTypes";
 export {
+  applySourceReplacement,
   checkRelink,
   createProjectHandlers,
   documentDurationMs,
@@ -42,6 +43,7 @@ export {
   type ProjectDeps,
   RELINK_DURATION_TOLERANCE_MS,
   type RelinkMismatch,
+  type SourceReplacement,
   stampDocument,
   type ValidationResult,
 } from "./handlers";
@@ -66,6 +68,13 @@ export {
   uniqueName,
 } from "./paths";
 export { createJsonRecentsStore, MAX_RECENTS, type RecentsStore, touchRecents } from "./recents";
+export { createFolderSizeCache, type FolderSizeCache } from "./librarySize";
+export {
+  createThumbnailUrlResolver,
+  projectRootId,
+  type ThumbnailUrlDeps,
+  type ThumbnailUrlResolver,
+} from "./thumbnailUrls";
 export {
   createFilmstripService,
   DEFAULT_THUMB_HEIGHT,

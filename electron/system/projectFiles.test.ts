@@ -212,6 +212,47 @@ describe("system:copyIntoProject", () => {
   });
 });
 
+describe("system:storeFramePresetImage", () => {
+  const withAssets = () =>
+    createProjectFileHandlers(
+      createNodeProjectFileDeps({
+        platform: "darwin",
+        presetAssetsDir: join(dir, "frame-presets"),
+      }),
+    );
+
+  it("copies a project image into the app preset folder and uniquifies names", async () => {
+    await mkdir(join(project, "media/imported/image"), { recursive: true });
+    await writeFile(join(project, "media/imported/image/bg.png"), "png-bytes");
+    const req = { projectPath: project, relPath: "media/imported/image/bg.png" };
+    const first = await withAssets()["system:storeFramePresetImage"](req);
+    const second = await withAssets()["system:storeFramePresetImage"](req);
+    expect(first.path).toBe(join(dir, "frame-presets", "bg.png"));
+    expect(second.path).toBe(join(dir, "frame-presets", "bg (2).png"));
+    expect(await readFile(first.path, "utf8")).toBe("png-bytes");
+    expect(
+      systemProjectFileContracts["system:storeFramePresetImage"].response.parse(first),
+    ).toEqual(first);
+  });
+
+  it("rejects missing images, non-images, escapes and an unconfigured folder", async () => {
+    await writeFile(join(project, "media/notes.txt"), "x");
+    const store = withAssets()["system:storeFramePresetImage"];
+    await expect(store({ projectPath: project, relPath: "media/gone.png" })).rejects.toMatchObject({
+      code: "SOURCE_NOT_FOUND",
+    });
+    await expect(store({ projectPath: project, relPath: "media/notes.txt" })).rejects.toMatchObject(
+      { code: "INVALID_PATH" },
+    );
+    await expect(store({ projectPath: project, relPath: "../outside.png" })).rejects.toMatchObject({
+      code: "PATH_OUTSIDE_PROJECT",
+    });
+    await expect(
+      h()["system:storeFramePresetImage"]({ projectPath: project, relPath: "media/a.png" }),
+    ).rejects.toMatchObject({ code: "NOT_CONFIGURED" });
+  });
+});
+
 describe("system:statFiles", () => {
   it("returns sizes, null for missing files, and omits paths outside the project", async () => {
     await writeFile(join(project, "media", "screen.mp4"), "12345");

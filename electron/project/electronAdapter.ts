@@ -5,6 +5,7 @@ import { nodeRunnerDeps, resolveElectronFfmpegPaths } from "../media/electronAda
 import { projectEvents } from "./contracts";
 import type { ProjectDeps, ValidationResult } from "./handlers";
 import { probeMediaFile } from "./mediabunnyProbe";
+import { isWithin } from "./paths";
 import { createJsonRecentsStore } from "./recents";
 import { purgeTrimTrash } from "./trimSource";
 
@@ -26,8 +27,12 @@ export async function purgeSessionTrimTrash(
 /** Real Electron-backed deps for {@link createProjectHandlers}. */
 export function createElectronProjectDeps(opts: {
   validate: (doc: unknown) => ValidationResult | Promise<ValidationResult>;
+  /** Pass `createThumbnailUrlResolver({ registry: mediaRoots, realpath })` to serve list thumbnails. */
+  thumbnailUrl?: ProjectDeps["thumbnailUrl"];
 }): ProjectDeps {
   const libraryRoot = path.join(app.getPath("documents"), "Reelform");
+  /** Matches `createRecordingMain`'s default session root (main.ts `recordingsRoot`). */
+  const recordingsRoot = path.join(app.getPath("userData"), "recordings");
   return {
     fs: fsp,
     now: () => Date.now(),
@@ -51,6 +56,15 @@ export function createElectronProjectDeps(opts: {
     },
     onTrimTrashed: (dir) => {
       trimTrashDirs.add(dir);
+    },
+    thumbnailUrl: opts.thumbnailUrl,
+    // Recording session output (e.g. the background `.h264.mp4`) is app temp: move it in.
+    isDisposableMedia: (p) => isWithin(recordingsRoot, p),
+    onSourceReplaced: (e) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed())
+          win.webContents.send(projectEvents["project:sourceReplaced"].name, e);
+      }
     },
   };
 }

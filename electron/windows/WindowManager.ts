@@ -11,8 +11,14 @@ import {
   buildWindowOptions,
   hudExpansionLayout,
   hudResizeRect,
+  usesInsetTitleBar,
 } from "./windowOptions";
-import { type LoadSource, buildLoadTarget } from "./windowUrl";
+import {
+  type LoadSource,
+  TITLE_BAR_INSET,
+  TITLE_BAR_QUERY_KEY,
+  buildLoadTarget,
+} from "./windowUrl";
 
 /**
  * Owns every renderer window (ENGINEERING_SPEC §2). Electron is injected:
@@ -64,7 +70,12 @@ export interface WindowManagerDeps {
   hudPositions: HudPositionStore;
   /** Fired `true` when `openHud` creates the HUD and `false` once no HUD is left open. */
   onHudVisibilityChange?: ((open: boolean) => void) | undefined;
+  /** `process.platform`; macOS launcher / settings get an inset title bar. */
+  platform?: string | undefined;
 }
+
+/** `grow`: grow the window to fit both the current and target bounds; `final`: apply the change. */
+export type HudCommitStage = "grow" | "final";
 
 /**
  * A prepared HUD window change (SPEC §5.7 flicker-free resize): main computes
@@ -96,7 +107,7 @@ export class WindowManager {
   private readonly params = new Map<string, WindowParams>();
   /** The HUD window currently grown around its pill, and where the pill sits in it. */
   private hudExpansion: { win: ManagedWindow; pillOffset: Point } | null = null;
-  /** Current pill size of the live HUD (pre-record 560×64, recording 300×48, hidden dot). */
+  /** Current pill size of the live HUD (pre-record 620×64, recording 340×48, hidden dot). */
   private hudPill: { win: ManagedWindow; size: Size } | null = null;
   /** The last prepared, uncommitted HUD change; a newer prepare replaces it. */
   private hudPending: PendingHudChange | null = null;
@@ -118,7 +129,10 @@ export class WindowManager {
 
   openLauncher(): ManagedWindow {
     return this.focusOrCreate({ kind: "launcher" }, () =>
-      buildWindowOptions("launcher", { preloadPath: this.deps.preloadPath }),
+      buildWindowOptions("launcher", {
+        preloadPath: this.deps.preloadPath,
+        platform: this.deps.platform,
+      }),
     );
   }
 
@@ -132,7 +146,10 @@ export class WindowManager {
 
   openSettings(): ManagedWindow {
     return this.focusOrCreate({ kind: "settings" }, () =>
-      buildWindowOptions("settings", { preloadPath: this.deps.preloadPath }),
+      buildWindowOptions("settings", {
+        preloadPath: this.deps.preloadPath,
+        platform: this.deps.platform,
+      }),
     );
   }
 
@@ -200,21 +217,42 @@ export class WindowManager {
     return { ...this.prepareHud({ win, target, pillSize, expansion: null }), previous };
   }
 
-  /** Apply a prepared HUD change; false when it is stale or the HUD is gone. */
-  commitHudExpansion(commitId: number): boolean {
+  /**
+   * Apply a prepared HUD change; false when it is stale or the HUD is gone.
+   *
+   * Flicker-free ordering (SPEC §5.7): the renderer commits `grow` first when
+   * the target does not fit inside the current window — the window grows to
+   * the union of both rects with the pill left in place, and the change stays
+   * pending — then renders the bigger content and commits `final`. Shrinks skip
+   * `grow`: smaller content is rendered first, then `final` shrinks the window.
+   */
+  commitHudExpansion(commitId: number, stage: HudCommitStage = "final"): boolean {
     const p = this.hudPending;
     if (!p || p.commitId !== commitId) return false;
+    if (stage === "grow") return this.growHud(p);
     this.hudPending = null;
     if (p.win.isDestroyed() || this.get({ kind: "hud" }) !== p.win) return false;
     this.hudPill = { win: p.win, size: p.pillSize };
     this.hudExpansion = p.expansion ? { win: p.win, pillOffset: p.expansion } : null;
+    if (!rectEquals(p.win.getBounds(), p.target)) p.win.setBounds(p.target);
+    return true;
+  }
+
+  /** Grow the window to contain the pending target, keeping the pill where it is. */
+  private growHud(p: PendingHudChange): boolean {
+    if (p.win.isDestroyed() || this.get({ kind: "hud" }) !== p.win) {
+      this.hudPending = null;
+      return false;
+    }
     const b = p.win.getBounds();
-    const same =
-      b.x === p.target.x &&
-      b.y === p.target.y &&
-      b.width === p.target.width &&
-      b.height === p.target.height;
-    if (!same) p.win.setBounds(p.target);
+    const grown = unionRect(b, p.target);
+    if (rectEquals(grown, b)) return true;
+    // Record the grown window as an expansion around the unchanged pill, so
+    // position persistence and a later prepare still see the real pill.
+    const pill = this.hudPillRect(p.win);
+    this.hudPill = { win: p.win, size: { width: pill.width, height: pill.height } };
+    this.hudExpansion = { win: p.win, pillOffset: { x: pill.x - grown.x, y: pill.y - grown.y } };
+    p.win.setBounds(grown);
     return true;
   }
 
@@ -359,7 +397,13 @@ export class WindowManager {
     this.applyKindBehaviour(params.kind, win);
 
     // Registry keys by kind for singletons; the URL still carries the display.
-    const target = buildLoadTarget(this.deps.loadSource, params);
+    const target = buildLoadTarget(
+      this.deps.loadSource,
+      params,
+      usesInsetTitleBar(params.kind, this.deps.platform)
+        ? { [TITLE_BAR_QUERY_KEY]: TITLE_BAR_INSET }
+        : {},
+    );
     win.once("ready-to-show", () => {
       if (params.kind === "source-outline") win.showInactive();
       else win.show();
@@ -383,7 +427,7 @@ export class WindowManager {
         const persist = () => {
           if (win.isDestroyed()) return;
           // Persist the pill, never the grown popover window around it. A
-          // resized pill (recording pill, hidden dot) is stored as the 560×64
+          // resized pill (recording pill, hidden dot) is stored as the 620×64
           // pre-record pill sharing its centre, so reopening restores it there.
           const pill = this.hudPillRect(win);
           const display = this.deps.screen.getDisplayMatching(pill);
@@ -430,3 +474,18 @@ export class WindowManager {
 }
 
 const copyRect = (r: Rect): Rect => ({ x: r.x, y: r.y, width: r.width, height: r.height });
+
+const rectEquals = (a: Rect, b: Rect): boolean =>
+  a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+
+/** Smallest rect containing both (the HUD window during a grow-first change). */
+export function unionRect(a: Rect, b: Rect): Rect {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return {
+    x,
+    y,
+    width: Math.max(a.x + a.width, b.x + b.width) - x,
+    height: Math.max(a.y + a.height, b.y + b.height) - y,
+  };
+}

@@ -10,6 +10,8 @@ export interface NodeProjectFileOptions {
   pickedPaths?: ProjectFileDeps["pickedPaths"];
   /** True when `abs` lies inside a known project folder; see {@link isInsideProjectFolder}. */
   isProjectPath?: ProjectFileDeps["isProjectPath"];
+  /** App-level frame preset image folder, e.g. `<userData>/frame-presets`. */
+  presetAssetsDir?: string | undefined;
 }
 
 const PROJECT_EXT = ".reelform";
@@ -69,6 +71,7 @@ export function createNodeProjectFileDeps(
     platform: o.platform ?? process.platform,
     pickedPaths: o.pickedPaths,
     isProjectPath: o.isProjectPath,
+    presetAssetsDir: o.presetAssetsDir,
     readText: (p) => fsp.readFile(p, "utf8"),
     writeText: (p, contents) => fsp.writeFile(p, contents, "utf8"),
     copyFileExclusive: (src, dest) => fsp.copyFile(src, dest, constants.COPYFILE_EXCL),

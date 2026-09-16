@@ -112,10 +112,18 @@ export const windowsContracts = {
     request: HudSize.extend({ anchor: z.enum(["center", "top-left"]) }),
     response: z.object({ ok: z.literal(true), ...HudPlan }),
   },
-  /** Apply the prepared HUD change; `applied` is false for a stale id or a closed HUD. */
+  /**
+   * Apply the prepared HUD change; `applied` is false for a stale id or a closed HUD.
+   * `stage: "grow"` first grows the window to the union of its bounds and the
+   * target (pill kept in place, change still pending) so bigger content is only
+   * rendered into a window that already fits it; `"final"` (default) applies it.
+   */
   "windows:commitHudExpansion": {
     name: "windows:commitHudExpansion",
-    request: z.object({ commitId: z.number().int().positive() }),
+    request: z.object({
+      commitId: z.number().int().positive(),
+      stage: z.enum(["grow", "final"]).optional(),
+    }),
     response: z.object({ ok: z.literal(true), applied: z.boolean() }),
   },
   /** Click-through outline of the selected window source on its display (SPEC §5.7). */
@@ -217,9 +225,9 @@ export function createWindowsHandlers(deps: WindowsDeps): WindowsHandlers {
         ? { ok: true, commitId: plan.commitId, previous: plan.previous, target: plan.target }
         : { ok: true, ...NO_PLAN };
     },
-    "windows:commitHudExpansion": async ({ commitId }) => ({
+    "windows:commitHudExpansion": async ({ commitId, stage }) => ({
       ok: true,
-      applied: deps.manager.commitHudExpansion(commitId),
+      applied: deps.manager.commitHudExpansion(commitId, stage),
     }),
     "windows:openSourceOutline": async ({ displayId }) => {
       deps.manager.openSourceOutline(displayId);

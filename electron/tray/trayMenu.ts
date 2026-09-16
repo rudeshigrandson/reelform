@@ -1,10 +1,11 @@
 /**
  * Tray / menu-bar menu as pure data (DESIGN_GUIDE S04, ENGINEERING_SPEC §11):
- * New recording ⌘⇧R, Recent ▸, Open editor, Pause/Resume (only while
- * recording), Stop recording, Settings, Quit. Icon: template, red dot while
+ * New recording ⌘⇧R, Recent ▸, Open editor, "● Recording · 00:42.1" status and
+ * Pause/Resume (only while recording), Stop recording, Settings, Quit. Icon: template, red dot while
  * recording.
  */
 
+import { formatMessage } from "../../src/i18n/format";
 import type { MainMessageKey, MainTranslate } from "../i18n";
 
 export type TrayRecordingState = "idle" | "recording" | "paused";
@@ -21,6 +22,8 @@ export interface TrayState {
   startStopAccelerator?: string | undefined;
   /** Electron accelerator for pause (from settings); default ⌘⇧P / Ctrl+Shift+P. */
   pauseAccelerator?: string | undefined;
+  /** Recorded time for the status row while recording or paused. */
+  elapsedMs?: number | undefined;
   /** Main-process translator for labels; English when omitted. */
   t?: MainTranslate | undefined;
 }
@@ -39,7 +42,25 @@ export const DEFAULT_TRAY_LABELS: Readonly<Record<TrayLabelKey, string>> = {
   "main.tray.stopRecording": "Stop recording",
   "main.tray.settings": "Settings…",
   "main.tray.quit": "Quit Reelform",
+  "main.tray.statusRecording": "● Recording · {time}",
+  "main.tray.statusPaused": "Paused · {time}",
+  "main.tray.tooltip": "Reelform",
+  "main.tray.tooltipRecording": "Reelform — Recording",
+  "main.tray.tooltipPaused": "Reelform — Paused",
 };
+
+/** Label for `key` through `t`, or the English fallback. */
+function trayLabel(t: MainTranslate | undefined, key: TrayLabelKey, vars?: { time: string }) {
+  return t ? t(key, vars) : formatMessage(DEFAULT_TRAY_LABELS[key], vars);
+}
+
+/** Recorded time as `mm:ss.t` (tenths floored), e.g. 42 100 ms → "00:42.1". */
+export function formatTrayElapsed(ms: number): string {
+  const tenths = Math.floor(Math.max(0, Number.isFinite(ms) ? ms : 0) / 100);
+  const minutes = Math.floor(tenths / 600);
+  const seconds = Math.floor(tenths / 10) % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${tenths % 10}`;
+}
 
 export type TrayAction =
   | { type: "new-recording" }
@@ -70,9 +91,7 @@ export const MAX_RECENT_ITEMS = 10;
 export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
   const active = state.recording !== "idle";
   const recent = state.recent.slice(0, MAX_RECENT_ITEMS);
-  const translate = state.t;
-  const label = (key: TrayLabelKey): string =>
-    translate ? translate(key) : DEFAULT_TRAY_LABELS[key];
+  const label = (key: TrayLabelKey): string => trayLabel(state.t, key);
 
   const recentItems: TrayMenuItem[] =
     recent.length === 0
@@ -123,6 +142,16 @@ export function buildTrayMenu(state: TrayState): TrayMenuItem[] {
     const paused = state.recording === "paused";
     items.push({
       kind: "item",
+      id: "status",
+      label: trayLabel(state.t, paused ? "main.tray.statusPaused" : "main.tray.statusRecording", {
+        time: formatTrayElapsed(state.elapsedMs ?? 0),
+      }),
+      // Informational row; never clickable.
+      enabled: false,
+      action: { type: "open-editor" },
+    });
+    items.push({
+      kind: "item",
       id: paused ? "resume" : "pause",
       label: label(paused ? "main.tray.resume" : "main.tray.pause"),
       enabled: true,
@@ -169,14 +198,14 @@ export interface TrayIconState {
   tooltip: string;
 }
 
-export function trayIconState(recording: TrayRecordingState): TrayIconState {
+export function trayIconState(recording: TrayRecordingState, t?: MainTranslate): TrayIconState {
   switch (recording) {
     case "recording":
-      return { template: false, redDot: true, tooltip: "Reelform — Recording" };
+      return { template: false, redDot: true, tooltip: trayLabel(t, "main.tray.tooltipRecording") };
     case "paused":
-      return { template: false, redDot: true, tooltip: "Reelform — Paused" };
+      return { template: false, redDot: true, tooltip: trayLabel(t, "main.tray.tooltipPaused") };
     default:
-      return { template: true, redDot: false, tooltip: "Reelform" };
+      return { template: true, redDot: false, tooltip: trayLabel(t, "main.tray.tooltip") };
   }
 }
 

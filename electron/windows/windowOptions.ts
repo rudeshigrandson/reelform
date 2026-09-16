@@ -57,7 +57,26 @@ export interface WindowOptions {
   hasShadow?: boolean | undefined;
   focusable?: boolean | undefined;
   enableLargerThanScreen?: boolean | undefined;
+  /** macOS only: traffic lights drawn inside the app chrome (launcher, settings). */
+  titleBarStyle?: "hiddenInset" | undefined;
+  trafficLightPosition?: Point | undefined;
   webPreferences: SecureWebPreferences;
+}
+
+/** Kinds that draw their own title bar with inset traffic lights on macOS. */
+export const INSET_TITLE_BAR_KINDS: ReadonlySet<WindowKind> = new Set(["launcher", "settings"]);
+/** Traffic lights centred vertically in the 40px in-app title bar. */
+export const TRAFFIC_LIGHT_POSITION: Point = { x: 16, y: 14 };
+
+/** True when a window of `kind` on `platform` (a `process.platform` value) uses an inset title bar. */
+export function usesInsetTitleBar(kind: WindowKind, platform: string | undefined): boolean {
+  return platform === "darwin" && INSET_TITLE_BAR_KINDS.has(kind);
+}
+
+function titleBar(kind: WindowKind, platform: string | undefined): Partial<WindowOptions> {
+  return usesInsetTitleBar(kind, platform)
+    ? { titleBarStyle: "hiddenInset", trafficLightPosition: { ...TRAFFIC_LIGHT_POSITION } }
+    : {};
 }
 
 /** Dark-first opaque ground shown before first paint. */
@@ -67,7 +86,7 @@ export const TRANSPARENT_BACKGROUND = "#00000000";
 export const LAUNCHER_SIZE = { width: 720, height: 520, minWidth: 640, minHeight: 480 } as const;
 export const EDITOR_SIZE = { width: 1440, height: 900, minWidth: 1024, minHeight: 700 } as const;
 export const SETTINGS_SIZE = { width: 860, height: 620 } as const;
-export const HUD_SIZE: Size = { width: 560, height: 64 };
+export const HUD_SIZE: Size = { width: 620, height: 64 };
 export const COUNTDOWN_SIZE: Size = { width: 240, height: 240 };
 export const WEBCAM_BUBBLE_SIZE: Size = { width: 240, height: 240 };
 /** Gap between a floating window and the work-area edge. */
@@ -83,6 +102,8 @@ export interface WindowOptionsContext {
   position?: Point | undefined;
   /** Override size for resizable floating windows (webcam bubble). */
   size?: Size | undefined;
+  /** `process.platform`; decides the macOS inset title bar for launcher / settings. */
+  platform?: string | undefined;
 }
 
 export function secureWebPreferences(preloadPath: string): SecureWebPreferences {
@@ -127,6 +148,7 @@ export function buildWindowOptions(kind: WindowKind, ctx: WindowOptionsContext):
         title: "Reelform",
         backgroundColor: OPAQUE_BACKGROUND,
         resizable: true,
+        ...titleBar(kind, ctx.platform),
         // The launcher hosts the Electron backend's MediaRecorders and may be
         // hidden during capture; throttling would stall chunks and the mic meter.
         webPreferences: { ...webPreferences, backgroundThrottling: false },
@@ -150,6 +172,7 @@ export function buildWindowOptions(kind: WindowKind, ctx: WindowOptionsContext):
         minimizable: false,
         maximizable: false,
         fullscreenable: false,
+        ...titleBar(kind, ctx.platform),
         webPreferences,
       };
     case "hud": {

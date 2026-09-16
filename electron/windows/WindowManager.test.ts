@@ -282,7 +282,7 @@ describe("HUD position persistence", () => {
   it("persists the moved position per display and restores it on reopen", () => {
     const { manager, hudPositions } = setup();
     const hud = manager.openHud("2") as FakeWindow;
-    hud.bounds = { x: 1500, y: 100, width: 560, height: 64 };
+    hud.bounds = { x: 1500, y: 100, width: 620, height: 64 };
     hud.emit("moved");
     expect(hudPositions.get("2")).toEqual({ x: 60, y: 100 });
     hud.close();
@@ -299,7 +299,7 @@ describe("HUD position persistence", () => {
   it("persists the position on close even without a moved event (Linux)", () => {
     const { manager, hudPositions } = setup();
     const hud = manager.openHud("1") as FakeWindow;
-    hud.bounds = { x: 100, y: 225, width: 560, height: 64 };
+    hud.bounds = { x: 100, y: 225, width: 620, height: 64 };
     manager.closeKind("hud");
     expect(hudPositions.get("1")).toEqual({ x: 100, y: 200 });
     const again = manager.openHud("1") as FakeWindow;
@@ -310,7 +310,7 @@ describe("HUD position persistence", () => {
     const store = createMemoryHudPositionStore();
     saveHudPosition(store, "1", { x: 0, y: 0, width: 3000, height: 2000 }, { x: 2400, y: 1900 });
     const p = resolveHudPosition(store, "1", { x: 0, y: 0, width: 1280, height: 800 });
-    expect(p).toEqual({ x: 1280 - 560, y: 800 - 64 });
+    expect(p).toEqual({ x: 1280 - 620, y: 800 - 64 });
   });
 
   it("falls back to default for corrupt stored values", () => {
@@ -337,7 +337,7 @@ describe("windows handlers", () => {
       setHudExpansion: vi.fn(() => null),
       setHudSize: vi.fn(() => ({
         commitId: 3,
-        previous: { x: 0, y: 0, width: 560, height: 64 },
+        previous: { x: 0, y: 0, width: 620, height: 64 },
         target: { x: 130, y: 8, width: 300, height: 48 },
       })),
       commitHudExpansion: vi.fn(() => true),
@@ -361,7 +361,7 @@ describe("windows handlers", () => {
     expect(await h["windows:setHudSize"]({ width: 300, height: 48, anchor: "center" })).toEqual({
       ok: true,
       commitId: 3,
-      previous: { x: 0, y: 0, width: 560, height: 64 },
+      previous: { x: 0, y: 0, width: 620, height: 64 },
       target: { x: 130, y: 8, width: 300, height: 48 },
     });
     expect(manager.setHudSize).toHaveBeenCalledWith({ width: 300, height: 48 }, "center");
@@ -369,6 +369,8 @@ describe("windows handlers", () => {
       ok: true,
       applied: true,
     });
+    await h["windows:commitHudExpansion"]({ commitId: 3, stage: "grow" });
+    expect(manager.commitHudExpansion).toHaveBeenLastCalledWith(3, "grow");
     expect(await h["windows:openSourceOutline"]({ displayId: "2" })).toEqual({ ok: true });
     expect(manager.openSourceOutline).toHaveBeenCalledWith("2");
   });
@@ -380,6 +382,102 @@ function expand(manager: WindowManager, size: { width: number; height: number } 
   if (plan) manager.commitHudExpansion(plan.commitId);
   return plan;
 }
+
+describe("macOS inset title bar", () => {
+  function platformSetup(platform: string) {
+    FakeWindow.created = [];
+    return new WindowManager({
+      BrowserWindow: FakeWindow,
+      screen,
+      setContentProtection: () => {},
+      preloadPath: "/preload.cjs",
+      loadSource: { type: "dev", devServerUrl: "http://localhost:5173" },
+      hudPositions: createMemoryHudPositionStore(),
+      platform,
+    });
+  }
+
+  it("darwin: launcher and settings are hiddenInset and carry ?titleBar=inset", () => {
+    const manager = platformSetup("darwin");
+    const launcher = manager.openLauncher() as FakeWindow;
+    const settings = manager.openSettings() as FakeWindow;
+    const editor = manager.openEditor("p1") as FakeWindow;
+    const hud = manager.openHud() as FakeWindow;
+    for (const w of [launcher, settings]) {
+      expect(w.options.titleBarStyle).toBe("hiddenInset");
+      expect(new URL(w.loaded.url ?? "").searchParams.get("titleBar")).toBe("inset");
+    }
+    for (const w of [editor, hud]) {
+      expect(w.options.titleBarStyle).toBeUndefined();
+      expect(new URL(w.loaded.url ?? "").searchParams.has("titleBar")).toBe(false);
+    }
+  });
+
+  it("win32 / linux keep the native frame and no flag", () => {
+    for (const platform of ["win32", "linux"]) {
+      const manager = platformSetup(platform);
+      const settings = manager.openSettings() as FakeWindow;
+      expect(settings.options.titleBarStyle).toBeUndefined();
+      expect(new URL(settings.loaded.url ?? "").searchParams.has("titleBar")).toBe(false);
+    }
+  });
+});
+
+describe("HUD grow-first commit", () => {
+  it("grow enlarges the window around the unmoved pill and keeps the change pending", () => {
+    const { manager, hudPositions } = setup();
+    const hud = manager.openHud("1") as FakeWindow;
+    const pill = { ...hud.bounds };
+    const plan = manager.setHudExpansion({ width: 720, height: 492 });
+    const id = plan?.commitId ?? 0;
+    expect(manager.commitHudExpansion(id, "grow")).toBe(true);
+    expect(hud.bounds).toEqual(plan?.target);
+    // Persisting while grown stores the pill, not the grown window.
+    hud.emit("moved");
+    const display = displays[0] as DisplayInfo;
+    expect(resolveHudPosition(hudPositions, "1", display.workArea, pill)).toEqual({
+      x: pill.x,
+      y: pill.y,
+    });
+    // The final commit still applies (nothing left to move).
+    const moves = hud.calls.filter((c) => c.startsWith("setBounds")).length;
+    expect(manager.commitHudExpansion(id)).toBe(true);
+    expect(hud.calls.filter((c) => c.startsWith("setBounds")).length).toBe(moves);
+    expect(manager.commitHudExpansion(id)).toBe(false);
+  });
+
+  it("grow is a no-op for a shrink, false when stale, and the union for a mixed change", () => {
+    const { manager } = setup();
+    const hud = manager.openHud("1") as FakeWindow;
+    const pill = { ...hud.bounds };
+    // Shrink to the recording pill: fits inside the window, nothing grows.
+    const shrink = manager.setHudSize({ width: 340, height: 48 });
+    expect(manager.commitHudExpansion(shrink?.commitId ?? 0, "grow")).toBe(true);
+    expect(hud.bounds).toEqual(pill);
+    expect(manager.commitHudExpansion(99, "grow")).toBe(false);
+    manager.commitHudExpansion(shrink?.commitId ?? 0);
+    expect(hud.bounds).toEqual(shrink?.target);
+
+    // Interrupted card (340×84) → pre-record pill (620×64): wider but shorter.
+    expand(manager, null);
+    const card = manager.setHudSize({ width: 340, height: 84 });
+    manager.commitHudExpansion(card?.commitId ?? 0);
+    const before = { ...hud.bounds };
+    const wide = manager.setHudSize({ width: 620, height: 64 });
+    const target = wide?.target ?? before;
+    expect(manager.commitHudExpansion(wide?.commitId ?? 0, "grow")).toBe(true);
+    expect(hud.bounds).toEqual({
+      x: Math.min(before.x, target.x),
+      y: Math.min(before.y, target.y),
+      width:
+        Math.max(before.x + before.width, target.x + target.width) - Math.min(before.x, target.x),
+      height:
+        Math.max(before.y + before.height, target.y + target.height) - Math.min(before.y, target.y),
+    });
+    expect(manager.commitHudExpansion(wide?.commitId ?? 0)).toBe(true);
+    expect(hud.bounds).toEqual(target);
+  });
+});
 
 describe("HUD expansion", () => {
   it("prepares without moving, commits the growth around the anchored pill, and collapses back", () => {
@@ -417,7 +515,7 @@ describe("HUD expansion", () => {
     const { manager } = setup();
     const hud = manager.openHud("1") as FakeWindow;
     const first = manager.setHudExpansion({ width: 720, height: 492 });
-    const second = manager.setHudExpansion({ width: 560, height: 104 });
+    const second = manager.setHudExpansion({ width: 620, height: 104 });
     expect(manager.commitHudExpansion(first?.commitId ?? 0)).toBe(false);
     expect(hud.calls.some((c) => c.startsWith("setBounds"))).toBe(false);
     expect(manager.commitHudExpansion(second?.commitId ?? 0)).toBe(true);
@@ -428,7 +526,7 @@ describe("HUD expansion", () => {
     const { manager, hudPositions } = setup();
     hudPositions.set("1", { x: 400, y: 0 });
     const hud = manager.openHud("1") as FakeWindow;
-    const plan = expand(manager, { width: 560, height: 364 });
+    const plan = expand(manager, { width: 620, height: 364 });
     expect(plan?.layout?.placement).toBe("below");
     expect(plan?.layout?.pillOffset).toEqual({ x: 0, y: 0 });
     expect(hud.bounds.y).toBe(25);
@@ -444,7 +542,7 @@ describe("HUD expansion", () => {
     expect(plan).not.toBeNull();
     expect(hudPositions.get("1")).toEqual({ x: def.x + 10, y: def.y - 20 - 25 });
     expand(manager, null);
-    expect(hud.bounds).toEqual({ x: def.x + 10, y: def.y - 20, width: 560, height: 64 });
+    expect(hud.bounds).toEqual({ x: def.x + 10, y: def.y - 20, width: 620, height: 64 });
   });
 
   it("returns null without a HUD and forgets the expansion when the HUD closes", () => {
@@ -452,12 +550,12 @@ describe("HUD expansion", () => {
     expect(manager.setHudExpansion({ width: 720, height: 492 })).toBeNull();
     const first = manager.openHud("1") as FakeWindow;
     expand(manager, { width: 720, height: 492 });
-    const pending = manager.setHudExpansion({ width: 560, height: 104 });
+    const pending = manager.setHudExpansion({ width: 620, height: 104 });
     manager.closeKind("hud");
     expect(manager.commitHudExpansion(pending?.commitId ?? 0)).toBe(false);
     const second = manager.openHud("1") as FakeWindow;
     expect(second).not.toBe(first);
-    expect(second.options).toMatchObject({ width: 560, height: 64 });
+    expect(second.options).toMatchObject({ width: 620, height: 64 });
     expand(manager, null);
     expect(second.calls.some((c) => c.startsWith("setBounds"))).toBe(false);
   });
@@ -471,7 +569,7 @@ describe("HUD size", () => {
     const plan = manager.setHudSize({ width: 300, height: 48 }, "center");
     expect(hud.bounds).toEqual(pill);
     expect(plan?.previous).toEqual(pill);
-    expect(plan?.target).toEqual({ x: pill.x + 130, y: pill.y + 8, width: 300, height: 48 });
+    expect(plan?.target).toEqual({ x: pill.x + 160, y: pill.y + 8, width: 300, height: 48 });
     manager.commitHudExpansion(plan?.commitId ?? 0);
     expect(hud.bounds).toEqual(plan?.target);
 
@@ -490,9 +588,9 @@ describe("HUD size", () => {
     manager.commitHudExpansion(dot?.commitId ?? 0);
     expect(hud.bounds).toEqual({ x: 0, y: 25, width: 36, height: 36 });
     // Back to the pill: centred on the dot, but never outside the work area.
-    const back = manager.setHudSize({ width: 560, height: 64 }, "center");
+    const back = manager.setHudSize({ width: 620, height: 64 }, "center");
     manager.commitHudExpansion(back?.commitId ?? 0);
-    expect(hud.bounds).toEqual({ x: 0, y: 25, width: 560, height: 64 });
+    expect(hud.bounds).toEqual({ x: 0, y: 25, width: 620, height: 64 });
     expect(manager.setHudSize({ width: 1, height: 1 }, "center")).not.toBeNull();
   });
 
@@ -503,7 +601,7 @@ describe("HUD size", () => {
     manager.commitHudExpansion(plan?.commitId ?? 0);
     const pill = hud.bounds;
     hud.emit("moved");
-    expect(hudPositions.get("1")).toEqual({ x: pill.x - 130, y: pill.y - 8 - 25 });
+    expect(hudPositions.get("1")).toEqual({ x: pill.x - 160, y: pill.y - 8 - 25 });
   });
 
   it("returns null without a HUD", () => {

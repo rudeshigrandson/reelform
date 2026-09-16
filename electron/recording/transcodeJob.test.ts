@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { scriptedSpawn } from "../media/testUtils";
 import type { FinalizeResponse, TranscodeProgress } from "./contracts";
+import { softwareH264Source } from "./h264Probe";
 import {
   buildVideoCodecProbeArgs,
   createTranscodePostProcess,
@@ -48,6 +49,7 @@ function setup(script: Script = {}, files: Record<string, number> = {}) {
     },
     exists: async (p) => disk.has(p),
     emit: (e) => events.push(e),
+    encoder: softwareH264Source,
     log,
   });
   return { queue, events, calls, disk, log };

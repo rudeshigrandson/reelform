@@ -30,10 +30,19 @@ export function createElectronTray(
   const recordingImage = nativeImage.createFromPath(icons.recording);
   const tray = new Tray(templateImage);
 
+  // The status row re-renders once a second while recording; only touch the icon when it changes.
+  let lastRedDot: boolean | null = null;
+  let lastTooltip: string | null = null;
   const update = (state: TrayState) => {
-    const icon = trayIconState(state.recording);
-    tray.setImage(icon.redDot ? recordingImage : templateImage);
-    tray.setToolTip(icon.tooltip);
+    const icon = trayIconState(state.recording, state.t);
+    if (icon.redDot !== lastRedDot) {
+      tray.setImage(icon.redDot ? recordingImage : templateImage);
+      lastRedDot = icon.redDot;
+    }
+    if (icon.tooltip !== lastTooltip) {
+      tray.setToolTip(icon.tooltip);
+      lastTooltip = icon.tooltip;
+    }
     const template: MenuItemConstructorOptions[] = toNativeTemplate(buildTrayMenu(state), onAction);
     tray.setContextMenu(Menu.buildFromTemplate(template));
   };

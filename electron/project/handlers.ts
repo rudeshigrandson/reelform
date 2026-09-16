@@ -7,11 +7,13 @@ import type {
   ProjectHandlers,
   ProjectListEntry,
   RecoveryInfo,
+  SourceReplacedEvent,
   TrashedProjectEntry,
 } from "./contracts";
 import { FsIpcError, errnoCode } from "./errors";
 import { createFilmstripService } from "./filmstrip";
 import type { FsLike } from "./fsTypes";
+import { createFolderSizeCache } from "./librarySize";
 import type { FfmpegDeps } from "./mediaTools";
 import {
   BACKUPS_DIR,
@@ -31,6 +33,7 @@ import {
 } from "./paths";
 import { PROXY_REL_PATH, type ProxyProgressEvent, createProxyService } from "./proxy";
 import type { RecentsStore } from "./recents";
+import type { ThumbnailUrlResolver } from "./thumbnailUrls";
 import { restoreTrimmedSource, trimSource } from "./trimSource";
 
 export type ValidationResult =
@@ -58,6 +61,26 @@ export interface ProjectDeps {
   onProxyProgress?: ((e: ProxyProgressEvent) => void) | undefined;
   /** A project's trim trash gained an original (purge it on quit). */
   onTrimTrashed?: ((projectDir: string) => void) | undefined;
+  /**
+   * Renderer-loadable URL for a project's library thumbnail (see
+   * `createThumbnailUrlResolver`); omitted → `thumbnailUrl` is always null.
+   */
+  thumbnailUrl?: ThumbnailUrlResolver | undefined;
+  /**
+   * `project:replaceSource` replacements that are app temp output (the
+   * recordings folder): moved into the project instead of copied, never left behind.
+   */
+  isDisposableMedia?: ((absPath: string) => boolean) | undefined;
+  /** Push `project:sourceReplaced` to renderers. */
+  onSourceReplaced?: ((e: SourceReplacedEvent) => void) | undefined;
+}
+
+/** A source swap applied by `project:replaceSource`, re-applied to stale documents saved later. */
+export interface SourceReplacement {
+  source: SourceReplacedEvent["source"];
+  from: string;
+  to: string;
+  codec?: string | undefined;
 }
 
 /** Soft-deleted projects live here, inside the library root. */
@@ -89,6 +112,18 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
 /** Shallow-merge `fields` into an object document; non-objects pass through (validator rejects them). */
 export function stampDocument(doc: unknown, fields: Record<string, unknown>): unknown {
   return isPlainObject(doc) ? { ...doc, ...fields } : doc;
+}
+
+/**
+ * Point `sources.<source>` at `r.to` when it still holds `r.from`. Pure; any
+ * other document (and non-objects) comes back unchanged by reference.
+ */
+export function applySourceReplacement(doc: unknown, r: SourceReplacement): unknown {
+  if (!isPlainObject(doc) || !isPlainObject(doc.sources)) return doc;
+  const src = doc.sources[r.source];
+  if (!isPlainObject(src) || src.path !== r.from) return doc;
+  const next = { ...src, path: r.to, ...(r.codec === undefined ? {} : { codec: r.codec }) };
+  return { ...doc, sources: { ...doc.sources, [r.source]: next } };
 }
 
 /** `modifiedAt` of a document as epoch ms, if present and parseable. */
@@ -166,6 +201,15 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
     });
     return run;
   };
+
+  /**
+   * `project:replaceSource` swaps per project folder (this app session). A save
+   * or restore of a document still holding a replaced path gets the new one, so
+   * an editor that opened before the swap can never write the old media back.
+   */
+  const replacements = new Map<string, SourceReplacement[]>();
+  const withReplacements = (dir: string, doc: unknown): unknown =>
+    (replacements.get(dir) ?? []).reduce<unknown>(applySourceReplacement, doc);
 
   /** Recents are a convenience; a failure there must never fail (or roll back) a write. */
   const touchRecent = (dir: string): Promise<void> =>
@@ -281,7 +325,32 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
 
   const toPosix = (p: string): string => p.split(path.sep).join("/");
 
-  const summarize = async (dir: string, recent: boolean): Promise<ProjectListEntry> => {
+  const sizes = createFolderSizeCache(fs);
+
+  /** Thumbnail path + servable URL; a resolver failure only drops the URL. */
+  const thumbnailOf = async (
+    dir: string,
+  ): Promise<{ thumbnailPath: string | null; thumbnailUrl: string | null }> => {
+    const thumb = path.join(dir, THUMBNAIL_FILE);
+    let mtimeMs: number;
+    try {
+      const st = await fs.stat(thumb);
+      if (!st.isFile()) return { thumbnailPath: null, thumbnailUrl: null };
+      mtimeMs = st.mtimeMs;
+    } catch {
+      return { thumbnailPath: null, thumbnailUrl: null };
+    }
+    const thumbnailUrl = deps.thumbnailUrl
+      ? await deps.thumbnailUrl(dir, mtimeMs).catch(() => null)
+      : null;
+    return { thumbnailPath: thumb, thumbnailUrl };
+  };
+
+  const summarize = async (
+    dir: string,
+    recent: boolean,
+    opts: { size?: boolean } = {},
+  ): Promise<ProjectListEntry> => {
     const fallbackName = path.basename(dir, path.extname(dir));
     const base: ProjectListEntry = {
       path: dir,
@@ -293,25 +362,30 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
       recent,
       id: null,
       durationMs: null,
+      thumbnailUrl: null,
+      sizeBytes: null,
     };
     if (!(await pathExists(fs, dir))) return { ...base, missing: true };
-    const thumb = path.join(dir, THUMBNAIL_FILE);
-    const thumbnailPath = (await pathExists(fs, thumb)) ? thumb : null;
+    const [thumbnail, sizeBytes] = await Promise.all([
+      thumbnailOf(dir),
+      opts.size ? sizes.sizeOf(dir) : Promise.resolve(null),
+    ]);
     try {
       const doc = await readJson(path.join(dir, PROJECT_FILE));
       const ms = documentModifiedMs(doc);
       const name = isPlainObject(doc) && typeof doc.name === "string" ? doc.name : fallbackName;
       return {
         ...base,
+        ...thumbnail,
+        sizeBytes,
         name,
-        thumbnailPath,
         modifiedAt: ms === null ? null : iso(ms),
         id: documentId(doc),
         durationMs: documentDurationMs(doc),
       };
     } catch (e) {
       if (!(e instanceof FsIpcError)) throw e;
-      return { ...base, thumbnailPath, corrupt: true };
+      return { ...base, ...thumbnail, sizeBytes, corrupt: true };
     }
   };
 
@@ -361,6 +435,62 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
   const requireProjectFile = async (dir: string): Promise<void> => {
     if (!(await pathExists(fs, path.join(dir, PROJECT_FILE)))) {
       throw new FsIpcError("PROJECT_NOT_FOUND", "Not a Reelform project folder", { path: dir });
+    }
+  };
+
+  /** §9.9 checks on a replacement file: it exists, probes, and matches duration/dimensions. */
+  const checkReplacementFile = async (
+    file: string,
+    expected: Parameters<typeof checkRelink>[0],
+  ): Promise<MediaProbe> => {
+    try {
+      if (!(await fs.stat(file)).isFile()) throw new Error("not a file");
+    } catch {
+      throw new FsIpcError("RELINK_FILE_NOT_FOUND", "The selected file does not exist", {
+        path: file,
+      });
+    }
+    let probe: MediaProbe;
+    try {
+      probe = await deps.probe(file);
+    } catch (e) {
+      throw new FsIpcError("RELINK_PROBE_FAILED", "Could not read the selected media file", {
+        reason: e instanceof Error ? e.message : String(e),
+      });
+    }
+    const mismatch = checkRelink(expected, probe);
+    if (mismatch) {
+      const { code, ...details } = mismatch;
+      const msg =
+        code === "RELINK_DURATION_MISMATCH"
+          ? "The file's duration doesn't match the original"
+          : "The file's dimensions don't match the original";
+      throw new FsIpcError(code, msg, details);
+    }
+    return probe;
+  };
+
+  /**
+   * Best-effort trash of a source file `project:replaceSource` swapped out.
+   * Only when the project does not keep raw recordings (`prefs.saveRawWithProject`
+   * explicitly false), the file sits inside `media/`, and no source of the written
+   * document still references it. Never throws.
+   */
+  const trashReplaced = async (dir: string, doc: unknown, rel: string): Promise<string[]> => {
+    if (!isPlainObject(doc) || !isPlainObject(doc.prefs)) return [];
+    if (doc.prefs.saveRawWithProject !== false) return [];
+    if (path.isAbsolute(rel) || /^[a-zA-Z]:[\\/]/.test(rel)) return [];
+    const sources = isPlainObject(doc.sources) ? Object.values(doc.sources) : [];
+    if (sources.some((s) => isPlainObject(s) && s.path === rel)) return [];
+    try {
+      const abs = await resolveWithin(fs, dir, rel.split("/").join(path.sep));
+      const mediaRoot = path.resolve(dir, MEDIA_DIR);
+      if (!isWithin(mediaRoot, abs) || abs === mediaRoot) return [];
+      if (!(await fs.stat(abs)).isFile()) return [];
+      await deps.trashItem(abs);
+      return [toPosix(path.relative(dir, abs))];
+    } catch {
+      return []; // Missing, escaping the project, or the trash failed: keep it.
     }
   };
 
@@ -442,6 +572,11 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
         if (!same) await move(src, dir);
         try {
           const written = await writeProjectFile(dir, doc, { name: req.name.trim() });
+          const swaps = replacements.get(src);
+          if (!same && swaps) {
+            replacements.delete(src);
+            replacements.set(dir, swaps);
+          }
           if (!same) await deps.recents.remove(src).catch(() => undefined);
           await touchRecent(dir);
           await remember(dir, written.document);
@@ -492,6 +627,7 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
           id: summary.id,
           trashedAt: marker.trashedAt,
           thumbnailPath: summary.thumbnailPath,
+          thumbnailUrl: summary.thumbnailUrl,
         });
       }
       projects.sort((a, b) => (b.trashedAt ?? "").localeCompare(a.trashedAt ?? ""));
@@ -640,14 +776,16 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
       const dir = requireProjectPath(req.path);
       await requireDir(dir);
       return withLock(dir, async () => {
+        // An editor opened before a source replacement still holds the old path.
+        const doc = withReplacements(dir, req.document);
         if (req.autosave) {
           const nowMs = deps.now();
           const modifiedAt = iso(nowMs);
-          const document = await validated(stampDocument(req.document, { modifiedAt }));
+          const document = await validated(stampDocument(doc, { modifiedAt }));
           const entry = await writeBackup(fs, dir, JSON.stringify(document), nowMs);
           return { path: dir, modifiedAt, backupName: entry.name };
         }
-        const { modifiedAt } = await writeProjectFile(dir, req.document);
+        const { modifiedAt } = await writeProjectFile(dir, doc);
         return { path: dir, modifiedAt, backupName: null };
       });
     },
@@ -674,7 +812,11 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
         // A copy is a new project: sharing the id would make `project:resolve` (and so
         // the editor route) open whichever copy it found first.
         if (isPlainObject(req.document) && "id" in req.document) extra.id = newId();
-        const { document, modifiedAt } = await writeProjectFile(dir, req.document, extra);
+        const { document, modifiedAt } = await writeProjectFile(
+          dir,
+          withReplacements(src, req.document),
+          extra,
+        );
         await touchRecent(dir);
         await remember(dir, document).catch(() => undefined);
         return { path: dir, document, modifiedAt };
@@ -689,8 +831,9 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
       const libraryDirs = await libraryProjectDirs(root);
       const recents = new Set((await deps.recents.list()).map((p) => path.resolve(p)));
       const all = new Set([...libraryDirs, ...recents]);
-      const projects: ProjectListEntry[] = [];
-      for (const dir of all) projects.push(await summarize(dir, recents.has(dir)));
+      const projects = await Promise.all(
+        [...all].map((dir) => summarize(dir, recents.has(dir), { size: true })),
+      );
       projects.sort((a, b) => {
         if (a.modifiedAt === b.modifiedAt) return a.name.localeCompare(b.name);
         if (a.modifiedAt === null) return 1;
@@ -741,7 +884,7 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
           }
           throw e;
         }
-        const { document, modifiedAt } = await writeProjectFile(dir, doc);
+        const { document, modifiedAt } = await writeProjectFile(dir, withReplacements(dir, doc));
         return { path: dir, document, modifiedAt, restoredFrom: name };
       });
     },
@@ -750,30 +893,7 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
       const dir = requireProjectPath(req.path);
       await requireDir(dir);
       const file = requireAbsolute(req.filePath);
-      try {
-        if (!(await fs.stat(file)).isFile()) throw new Error("not a file");
-      } catch {
-        throw new FsIpcError("RELINK_FILE_NOT_FOUND", "The selected file does not exist", {
-          path: file,
-        });
-      }
-      let probe: MediaProbe;
-      try {
-        probe = await deps.probe(file);
-      } catch (e) {
-        throw new FsIpcError("RELINK_PROBE_FAILED", "Could not read the selected media file", {
-          reason: e instanceof Error ? e.message : String(e),
-        });
-      }
-      const mismatch = checkRelink(req.expected, probe);
-      if (mismatch) {
-        const { code, ...details } = mismatch;
-        const msg =
-          code === "RELINK_DURATION_MISMATCH"
-            ? "The file's duration doesn't match the original"
-            : "The file's dimensions don't match the original";
-        throw new FsIpcError(code, msg, details);
-      }
+      const probe = await checkReplacementFile(file, req.expected);
       if (req.mode === "reference") return { path: file, probe };
       if (isWithin(dir, file)) return { path: toPosix(path.relative(dir, file)), probe };
       await fs.mkdir(path.join(dir, MEDIA_DIR), { recursive: true });
@@ -783,6 +903,83 @@ export function createProjectHandlers(deps: ProjectDeps): ProjectHandlers {
       const dest = await resolveWithin(fs, dir, path.join(MEDIA_DIR, name));
       await fs.copyFile(file, dest);
       return { path: `${MEDIA_DIR}/${name}`, probe };
+    },
+
+    "project:replaceSource": async (req) => {
+      const dir = requireProjectPath(req.path);
+      await requireDir(dir);
+      await requireProjectFile(dir);
+      const file = requireAbsolute(req.filePath);
+      return withLock(dir, async () => {
+        // Read under the lock: a save queued before this call has landed already.
+        const doc = await validated(await readJson(path.join(dir, PROJECT_FILE)));
+        const current =
+          isPlainObject(doc) && isPlainObject(doc.sources) ? doc.sources[req.source] : null;
+        if (!isPlainObject(current) || current.path !== req.replaces) {
+          return { applied: false, path: null, modifiedAt: null, removed: [] };
+        }
+        await checkReplacementFile(file, req.expected);
+
+        let rel: string;
+        let dest: string | null = null;
+        let moved = false;
+        const disposable = !isWithin(dir, file) && deps.isDisposableMedia?.(file) === true;
+        if (isWithin(dir, file)) {
+          rel = toPosix(path.relative(dir, file));
+        } else {
+          await fs.mkdir(path.join(dir, MEDIA_DIR), { recursive: true });
+          const name = await uniqueName(requireName(path.basename(file)), (c) =>
+            pathExists(fs, path.join(dir, MEDIA_DIR, c)),
+          );
+          dest = await resolveWithin(fs, dir, path.join(MEDIA_DIR, name));
+          if (disposable) {
+            try {
+              await fs.rename(file, dest);
+              moved = true;
+            } catch {
+              await fs.copyFile(file, dest); // Other volume: copy, the temp is removed below.
+            }
+          } else {
+            await fs.copyFile(file, dest);
+          }
+          rel = `${MEDIA_DIR}/${name}`;
+        }
+
+        const swap: SourceReplacement = {
+          source: req.source,
+          from: req.replaces,
+          to: rel,
+          codec: req.codec,
+        };
+        let written: { document: unknown; modifiedAt: string };
+        try {
+          written = await writeProjectFile(dir, applySourceReplacement(doc, swap));
+        } catch (e) {
+          if (dest !== null) {
+            if (moved) await fs.rename(dest, file).catch(() => undefined);
+            else await fs.rm(dest, { force: true }).catch(() => undefined);
+          }
+          throw e;
+        }
+
+        // project.json now points at the new file; nothing below may throw.
+        replacements.set(dir, [...(replacements.get(dir) ?? []), swap]);
+        try {
+          deps.onSourceReplaced?.({
+            path: dir,
+            projectId: documentId(written.document),
+            source: swap.source,
+            from: swap.from,
+            to: swap.to,
+            ...(req.codec === undefined ? {} : { codec: req.codec }),
+          });
+        } catch {
+          // Renderers re-read the document on open; saves are merged regardless.
+        }
+        if (disposable && !moved) await fs.rm(file, { force: true }).catch(() => undefined);
+        const removed = await trashReplaced(dir, written.document, req.replaces);
+        return { applied: true, path: rel, modifiedAt: written.modifiedAt, removed };
+      });
     },
 
     "project:trimSource": async (req) => {

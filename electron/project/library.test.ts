@@ -133,6 +133,16 @@ describe("project:list id + duration", () => {
 });
 
 describe("project:resolve", () => {
+  it("finds a project the moment project:create returns (editor opened right after recording)", async () => {
+    const h = makeHandlers();
+    const res = await h["project:create"]({ name: "Fresh", document: doc("fresh-id", "Fresh") });
+    expect(await h["project:resolve"]({ projectId: "fresh-id" })).toEqual({ path: res.path });
+    // No warm id index (e.g. another handler set): the library scan finds it too.
+    expect(await makeHandlers()["project:resolve"]({ projectId: "fresh-id" })).toEqual({
+      path: res.path,
+    });
+  });
+
   it("finds a library project by id", async () => {
     const dir = await writeProject(library, "A.reelform", doc("id-a", "A"));
     expect(await makeHandlers()["project:resolve"]({ projectId: "id-a" })).toEqual({ path: dir });
@@ -296,6 +306,7 @@ describe("soft trash", () => {
         id: "d1",
         trashedAt: new Date(clock.now()).toISOString(),
         thumbnailPath: null,
+        thumbnailUrl: null,
       },
     ]);
 

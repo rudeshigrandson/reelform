@@ -19,6 +19,17 @@ const preset = (id: string, settings: Record<string, unknown> = { radius: 12 }) 
 });
 
 describe("frameUserPresets setting", () => {
+  it("keeps legacy presets with a project-relative image path (resolved when applied)", () => {
+    const legacy = preset("old", {
+      background: { kind: "image", image: { path: "media/imported/image/bg.png", fit: "fill" } },
+    });
+    const result = migrateSettings(
+      { ...defaults, schemaVersion: SETTINGS_SCHEMA_VERSION, frameUserPresets: [legacy] },
+      defaults,
+    );
+    expect(result.settings.frameUserPresets).toEqual([legacy]);
+  });
+
   it("defaults to an empty list that validates", () => {
     expect(defaults.frameUserPresets).toEqual([]);
     expect(SettingsSchema.parse(defaults)).toEqual(defaults);

@@ -129,6 +129,16 @@ export const systemProjectFileContracts = {
     /** null = missing; an absent key = unknown (e.g. rejected path). */
     z.object({ stats: z.record(z.object({ sizeBytes: z.number().nonnegative() }).nullable()) }),
   ),
+  /**
+   * Copy a project image (a frame background) into the app-level preset assets
+   * folder so a saved frame preset still has its image in other projects.
+   */
+  "system:storeFramePresetImage": channel(
+    "system:storeFramePresetImage",
+    z.object({ projectPath: absPath, relPath: z.string().min(1).max(4096) }),
+    /** Absolute path inside the preset assets folder. */
+    z.object({ path: absPath }),
+  ),
 } as const;
 
 export type SystemProjectFileContracts = typeof systemProjectFileContracts;

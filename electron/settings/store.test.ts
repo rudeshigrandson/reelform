@@ -25,7 +25,7 @@ const setup = (initial?: unknown) => {
 
 /** The M0 on-disk shape (src/settings/types.ts SettingsState, no schemaVersion). */
 const legacyV1 = {
-  theme: "dark",
+  theme: "light",
   recordingsFolder: "/Users/me/Movies/Reelform",
   autoPrune: true,
   autoPruneDays: 0,
@@ -61,7 +61,7 @@ describe("migrateSettings", () => {
     expect(r.needsWrite).toBe(true);
     expect(r.settings).toMatchObject({
       schemaVersion: SETTINGS_SCHEMA_VERSION,
-      theme: "dark",
+      theme: "light",
       recordingsFolder: "/Users/me/Movies/Reelform",
       autoPrune: false,
       autoPruneDays: 14,
@@ -89,7 +89,7 @@ describe("migrateSettings", () => {
     expect(r.repairedKeys.sort()).toEqual(["defaultFps", "theme"]);
     expect(r.droppedKeys).toEqual(["bogus"]);
     expect(r.settings.defaultFps).toBe(60);
-    expect(r.settings.theme).toBe("system");
+    expect(r.settings.theme).toBe("dark");
     expect(r.settings.logLevel).toBe("debug");
     expect(r.needsWrite).toBe(true);
   });
@@ -133,8 +133,8 @@ describe("createSettingsStore", () => {
   it("migrates a v1 file on load and persists the result", async () => {
     const { fs, store } = setup(legacyV1);
     const s = await store.load();
-    expect(s.theme).toBe("dark");
-    expect(fs.json(FILE)).toMatchObject({ schemaVersion: 2, autoPrune: false, theme: "dark" });
+    expect(s.theme).toBe("light");
+    expect(fs.json(FILE)).toMatchObject({ schemaVersion: 2, autoPrune: false, theme: "light" });
   });
 
   it("corrupt JSON is backed up and replaced with defaults", async () => {
@@ -146,21 +146,21 @@ describe("createSettingsStore", () => {
   });
 
   it("an unreadable (non-ENOENT) file is not overwritten with defaults on load", async () => {
-    const { fs, store, log } = setup({ ...defaults, theme: "dark" });
+    const { fs, store, log } = setup({ ...defaults, theme: "light" });
     fs.readFile = async () => {
       throw Object.assign(new Error("EACCES"), { code: "EACCES" });
     };
     expect(await store.load()).toEqual(defaults);
     expect(fs.calls.some((c) => c.startsWith("write") || c.startsWith("rename"))).toBe(false);
-    expect(fs.json(FILE)).toMatchObject({ theme: "dark" });
+    expect(fs.json(FILE)).toMatchObject({ theme: "light" });
     expect(log).toHaveBeenCalledWith("warn", expect.stringContaining("EACCES"));
   });
 
   it("load() resolves to the live settings after later sets", async () => {
     const { store } = setup(defaults);
     await store.load();
-    await store.set({ theme: "dark" });
-    expect((await store.load()).theme).toBe("dark");
+    await store.set({ theme: "light" });
+    expect((await store.load()).theme).toBe("light");
   });
 
   it("does not rewrite a file from a newer app version on load", async () => {
@@ -237,17 +237,17 @@ describe("createSettingsStore", () => {
     const listener = vi.fn();
     store.subscribe(listener);
     fs.failWrite = new Error("EACCES");
-    const res = await store.set({ theme: "dark" });
+    const res = await store.set({ theme: "light" });
     expect(res).toMatchObject({ ok: false, error: { code: "WRITE_FAILED" } });
-    expect(store.get().theme).toBe("system");
+    expect(store.get().theme).toBe("dark");
     expect(listener).not.toHaveBeenCalled();
     expect(fs.json(FILE)).toEqual(defaults);
   });
 
   it("serializes concurrent sets so both land", async () => {
     const { fs, store } = setup(defaults);
-    await Promise.all([store.set({ theme: "dark" }), store.set({ defaultFps: 30 })]);
-    expect(fs.json(FILE)).toMatchObject({ theme: "dark", defaultFps: 30 });
+    await Promise.all([store.set({ theme: "light" }), store.set({ defaultFps: 30 })]);
+    expect(fs.json(FILE)).toMatchObject({ theme: "light", defaultFps: 30 });
   });
 
   it("a throwing listener does not break others", async () => {
@@ -257,7 +257,7 @@ describe("createSettingsStore", () => {
       throw new Error("boom");
     });
     const unsub = store.subscribe(good);
-    await store.set({ theme: "dark" });
+    await store.set({ theme: "light" });
     expect(good).toHaveBeenCalledTimes(1);
     expect(log).toHaveBeenCalledWith("error", expect.stringContaining("boom"));
     unsub();
@@ -266,7 +266,7 @@ describe("createSettingsStore", () => {
   });
 
   it("reset restores defaults", async () => {
-    const { store } = setup({ ...defaults, theme: "dark" });
+    const { store } = setup({ ...defaults, theme: "light" });
     const res = await store.reset();
     expect(res).toMatchObject({ ok: true, changed: ["theme"] });
     expect(store.get()).toEqual(defaults);

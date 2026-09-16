@@ -43,7 +43,7 @@ import {
 } from "./native/mac/cursorMonitorBridge";
 import { createPermissionsHandlers } from "./permissions/contracts";
 import { createElectronPermissionsDeps } from "./permissions/electronAdapter";
-import { createProjectHandlers } from "./project";
+import { createProjectHandlers, createThumbnailUrlResolver } from "./project";
 import type { ProjectListEntry } from "./project/contracts";
 import { createElectronProjectDeps } from "./project/electronAdapter";
 import { documentId } from "./project/handlers";
@@ -69,8 +69,10 @@ import { type TrayController, createElectronTray } from "./tray/electronAdapter"
 import {
   IDLE_TRAY_RECORDING,
   type TrayRecording,
+  createTrayStatusTicker,
   reduceTrayRecording,
   trayActionCommand,
+  trayElapsedMs,
 } from "./tray/recordingTray";
 import type { RecentProject, TrayAction, TrayState } from "./tray/trayMenu";
 import { createUpdaterHandlers } from "./updater/contracts";
@@ -178,8 +180,13 @@ async function boot(): Promise<void> {
   /** Recording session temp/out root; matches `createRecordingMain`'s default. */
   const recordingsRoot = path.join(userData, "recordings");
 
+  // Created before the project handlers so project:list can register thumbnail roots.
+  const mediaRoots = createMediaRootRegistry();
   const projectHandlers = createProjectHandlers(
-    createElectronProjectDeps({ validate: validateProjectDocument }),
+    createElectronProjectDeps({
+      validate: validateProjectDocument,
+      thumbnailUrl: createThumbnailUrlResolver({ registry: mediaRoots, realpath }),
+    }),
   );
 
   // Library + recents snapshot: tray Recent, path policies, trim-trash purge on quit.
@@ -272,7 +279,6 @@ async function boot(): Promise<void> {
     else broadcast("shortcuts:triggered", { id });
   };
 
-  const mediaRoots = createMediaRootRegistry();
   installMediaProtocol(mediaRoots);
   const mediaDeps = createElectronMediaDeps(mediaRoots, {
     // A renderer may only register project folders, the recordings folder or session output.
@@ -334,10 +340,13 @@ async function boot(): Promise<void> {
   let translator = mainTranslator();
   const trayState = (): TrayState => ({
     recording: trayRecording.state,
+    elapsedMs: trayElapsedMs(trayRecording),
     recent: recentProjects(),
     ...trayAccelerators(settings.get().shortcuts),
     t: translator.t,
   });
+  // "● Recording · 00:42.1" row: refreshed once a second while recording only.
+  const trayStatusTicker = createTrayStatusTicker(() => tray?.update(trayState()));
   const onRecordingEvent = (event: RecordingEvent): void => {
     // Global shortcuts are live while HUD open / recording / countdown (§5.6).
     const context = shortcutContextForRecordingEvent(event.type);
@@ -346,6 +355,7 @@ async function boot(): Promise<void> {
     if (next === trayRecording) return;
     trayRecording = next;
     tray?.update(trayState());
+    trayStatusTicker.sync(next.state);
   };
   const sessionActive = (): boolean => {
     const context = shortcuts.getStatus().context;
@@ -609,7 +619,11 @@ async function boot(): Promise<void> {
   registerDomain(diagnosticsHandlers);
   registerDomain(
     createProjectFileHandlers(
-      createNodeProjectFileDeps({ pickedPaths, isProjectPath: isKnownProjectPath }),
+      createNodeProjectFileDeps({
+        pickedPaths,
+        isProjectPath: isKnownProjectPath,
+        presetAssetsDir: path.join(userData, "frame-presets"),
+      }),
     ),
   );
   registerDomain(
@@ -656,6 +670,7 @@ async function boot(): Promise<void> {
   app.on("before-quit", () => {
     clearInterval(pruneTimer);
     clearInterval(projectsTimer);
+    trayStatusTicker.dispose();
     void recording.dispose();
     void exportService.cancelAll();
     void purgeTrimTrash(

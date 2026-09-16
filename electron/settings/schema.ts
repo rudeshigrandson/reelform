@@ -164,7 +164,7 @@ export function createDefaultSettings(env: DefaultSettingsEnv): Settings {
 
     shortcuts: {},
 
-    theme: "system",
+    theme: "dark",
     accentColor: "indigo",
     density: "comfortable",
     reduceMotion: false,

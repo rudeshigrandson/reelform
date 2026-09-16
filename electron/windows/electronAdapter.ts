@@ -29,5 +29,6 @@ export function createElectronWindowManager(opts: {
     loadSource: opts.loadSource,
     hudPositions: opts.hudPositions,
     onHudVisibilityChange: opts.onHudVisibilityChange,
+    platform: process.platform,
   });
 }

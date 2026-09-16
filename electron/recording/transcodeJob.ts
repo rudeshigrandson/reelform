@@ -1,8 +1,13 @@
-import { buildTranscodeToH264Args } from "../media/args";
-import { type H264Encoder, SOFTWARE_H264 } from "../media/encoders";
-import type { FfmpegPaths } from "../media/ffmpegPaths";
+import { SOFTWARE_H264 } from "../media/encoders";
+import type { FfmpegPaths, Platform } from "../media/ffmpegPaths";
 import { type RunnerDeps, runFfmpeg } from "../media/runner";
 import type { FinalizeResponse, TranscodeProgress } from "./contracts";
+import {
+  type H264EncoderSource,
+  type TranscodeEncoder,
+  buildRecordingTranscodeArgs,
+  createH264EncoderProbe,
+} from "./h264Probe";
 import type { PostProcessStep } from "./thumbnailPostProcess";
 
 /**
@@ -16,6 +21,10 @@ import type { PostProcessStep } from "./thumbnailPostProcess";
  * (the recording flow moves media into the new project), the H.264 sibling is
  * kept and reported so the project's video source can be relinked.
  * Nothing is emitted for a video that is already H.264.
+ *
+ * The encoder is a probed hardware H.264 encoder when one works (h264Probe.ts);
+ * if a hardware encode fails mid-run, the encoder is rejected for the session
+ * and the job is retried once with libx264. Progress never moves backwards.
  */
 
 export interface TranscodeJob {
@@ -34,8 +43,10 @@ export interface TranscodeQueueDeps {
   rename(from: string, to: string): Promise<void>;
   exists(path: string): Promise<boolean>;
   emit(progress: TranscodeProgress): void;
-  /** H.264 encoder to use (hardware when probed); default libx264. */
-  encoder?: (() => H264Encoder) | undefined;
+  /** H.264 encoder selection; default: probe hardware for `platform`, else libx264. */
+  encoder?: H264EncoderSource | undefined;
+  /** Default `process.platform`. */
+  platform?: Platform | undefined;
   log?: ((message: string) => void) | undefined;
 }
 
@@ -73,6 +84,14 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
 
 export function createTranscodeQueue(deps: TranscodeQueueDeps): TranscodeQueue {
   const log = deps.log ?? (() => {});
+  const encoders =
+    deps.encoder ??
+    createH264EncoderProbe({
+      runner: deps.runner,
+      resolveBinaries: deps.resolveBinaries,
+      platform: deps.platform ?? process.platform,
+      log,
+    });
   let tail: Promise<void> = Promise.resolve();
 
   const probeCodec = async (ffprobe: string, input: string): Promise<string | null> => {
@@ -113,18 +132,18 @@ export function createTranscodeQueue(deps: TranscodeQueueDeps): TranscodeQueue {
         ...(error === undefined ? {} : { error }),
       });
 
-    emit(0, false, null);
-    try {
+    const encodeWith = async (encoder: TranscodeEncoder): Promise<void> => {
       await runFfmpeg(deps.runner, {
         bin: bins.ffmpeg,
-        args: buildTranscodeToH264Args({
+        args: buildRecordingTranscodeArgs({
           input: job.input,
           output: part,
-          encoder: deps.encoder?.() ?? SOFTWARE_H264,
+          encoder,
           fps: job.fps > 0 ? job.fps : 30,
         }),
         totalDurationMs: job.durationMs > 0 ? job.durationMs : undefined,
         onProgress: (p) => {
+          // A software retry restarts at 0: stay silent until it passes the last report.
           if (p.ratio === null || p.done) return;
           if (p.ratio - last < PROGRESS_STEP) return;
           last = p.ratio;
@@ -133,6 +152,22 @@ export function createTranscodeQueue(deps: TranscodeQueueDeps): TranscodeQueue {
       });
       const bytes = await deps.fileSize(part);
       if (bytes === null || bytes === 0) throw new Error("transcode produced no output");
+    };
+
+    emit(0, false, null);
+    try {
+      const encoder = await encoders.select().catch((): TranscodeEncoder => SOFTWARE_H264);
+      try {
+        await encodeWith(encoder);
+      } catch (err) {
+        if (encoder === SOFTWARE_H264) throw err;
+        log(
+          `${encoder} transcode failed for ${job.input}, retrying with ${SOFTWARE_H264}: ${message(err)}`,
+        );
+        encoders.reject(encoder);
+        await deps.remove(part).catch(() => {});
+        await encodeWith(SOFTWARE_H264);
+      }
       await deps.rename(part, final);
     } catch (err) {
       log(`transcode failed for ${job.input}: ${message(err)}`);

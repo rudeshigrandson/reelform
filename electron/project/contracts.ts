@@ -54,6 +54,10 @@ export const ProjectListEntry = z.object({
   id: z.string().nullable().default(null),
   /** `timeline.durationMs`; null when unreadable. */
   durationMs: z.number().nullable().default(null),
+  /** `reelform-media://` URL of the library thumbnail; null when absent or not servable. */
+  thumbnailUrl: z.string().nullable().default(null),
+  /** On-disk size of the project folder; null when missing or unreadable. */
+  sizeBytes: z.number().nonnegative().nullable().default(null),
 });
 export type ProjectListEntry = z.infer<typeof ProjectListEntry>;
 
@@ -85,6 +89,7 @@ export const TrashedProjectEntry = z.object({
   id: z.string().nullable(),
   trashedAt: Iso.nullable(),
   thumbnailPath: z.string().nullable(),
+  thumbnailUrl: z.string().nullable().default(null),
 });
 export type TrashedProjectEntry = z.infer<typeof TrashedProjectEntry>;
 
@@ -202,7 +207,28 @@ export const projectEvents = {
     name: "project:proxyProgress",
     payload: z.object({ projectId: z.string(), progress: z.number().min(0).max(1) }),
   },
+  /**
+   * `project:replaceSource` rewrote a source's file in `project.json`. Open
+   * editors patch their session (no undo step) so they never save the old path back.
+   */
+  "project:sourceReplaced": {
+    name: "project:sourceReplaced",
+    payload: z.object({
+      /** Project folder. */
+      path: z.string(),
+      projectId: z.string().nullable(),
+      source: z.enum(["video", "webcam"]),
+      /** Previous `sources.<source>.path`. */
+      from: z.string(),
+      /** New `sources.<source>.path` (project-relative, posix). */
+      to: z.string(),
+      codec: z.string().optional(),
+    }),
+  },
 } as const;
+export type SourceReplacedEvent = z.infer<
+  (typeof projectEvents)["project:sourceReplaced"]["payload"]
+>;
 
 export const projectContracts = {
   /** Editor windows are routed by project id; main maps it back to a folder (library + recents). */
@@ -344,6 +370,39 @@ export const projectContracts = {
       /** New value for the source's `path`: project-relative (posix separators) or absolute. */
       path: z.string(),
       probe: MediaProbe,
+    }),
+  ),
+  /**
+   * Background transcode relink (§5.2): validate `filePath`, bring it into
+   * `media/` and point `sources.<source>` at it in `project.json`, atomically
+   * under the project lock. Skipped (`applied: false`) when the saved source no
+   * longer is `replaces`. Later saves of a stale document keep the new path;
+   * the replaced original is trashed unless the project keeps raw recordings.
+   */
+  "project:replaceSource": channel(
+    "project:replaceSource",
+    z.object({
+      path: ProjectPath,
+      source: z.enum(["video", "webcam"]),
+      /** Absolute path of the replacement (e.g. the finished `.h264.mp4`). */
+      filePath: z.string().min(1),
+      /** The source `path` the document must still hold. */
+      replaces: z.string().min(1),
+      expected: z.object({
+        durationMs: z.number().nonnegative(),
+        width: z.number().int().positive().optional(),
+        height: z.number().int().positive().optional(),
+      }),
+      /** New `codec` for the source, when known. */
+      codec: z.string().min(1).optional(),
+    }),
+    z.object({
+      applied: z.boolean(),
+      /** New project-relative source path; null when skipped. */
+      path: z.string().nullable(),
+      modifiedAt: Iso.nullable(),
+      /** Project-relative files moved to the trash (the replaced original). */
+      removed: z.array(z.string()),
     }),
   ),
   ...projectMediaContracts,
