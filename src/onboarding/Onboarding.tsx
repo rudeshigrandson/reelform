@@ -20,6 +20,7 @@ export interface OnboardingContainerProps {
   appVersion?: string | null | undefined;
   onImportProject?: (() => void) | undefined;
   onOpenTerms?: (() => void) | undefined;
+  onOpenPrivacy?: (() => void) | undefined;
   timer?: IntervalTimer | undefined;
   pollIntervalMs?: number | undefined;
 }
@@ -41,6 +42,7 @@ export function Onboarding({
   appVersion,
   onImportProject,
   onOpenTerms,
+  onOpenPrivacy,
   timer = windowTimer,
   pollIntervalMs = PERMISSION_POLL_MS,
 }: OnboardingContainerProps) {
@@ -135,6 +137,7 @@ export function Onboarding({
       appVersion={appVersion}
       onImportProject={onImportProject}
       onOpenTerms={onOpenTerms}
+      onOpenPrivacy={onOpenPrivacy}
     />
   );
 }

@@ -214,7 +214,7 @@ describe("<Onboarding> container", () => {
   it("does not poll on welcome; polls every 2s on permissions; stops after leaving", async () => {
     const port = makePort([mac(), mac({ screen: "granted" })]);
     render(<Onboarding port={port} initialDraft={draft} onFinish={() => {}} appVersion="1.0.0" />);
-    expect(screen.getByText("Version 1.0.0")).toBeInTheDocument();
+    expect(screen.getByTitle("Version 1.0.0")).toHaveTextContent("1.0.0");
     await tick(5000);
     expect(port.calls()).toBe(0);
 
@@ -315,7 +315,7 @@ describe("<Onboarding> container", () => {
     fireEvent.click(screen.getByRole("button", { name: "Change…" }));
     await flush();
     expect(port.pickFolder).toHaveBeenCalledWith(draft.recordingsFolder);
-    expect(screen.getByLabelText("Recordings folder")).toHaveTextContent("/Volumes/Work/Demos");
+    expect(screen.getByLabelText("Save folder")).toHaveTextContent("/Volumes/Work/Demos");
     fireEvent.click(screen.getByRole("radio", { name: "30" }));
     fireEvent.click(screen.getByRole("switch", { name: /auto-delete raw/i }));
     fireEvent.click(screen.getByRole("switch", { name: /open editor automatically/i }));
@@ -365,7 +365,7 @@ describe("<Onboarding> container", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Change…" }));
     await flush();
-    expect(screen.getByLabelText("Recordings folder")).toHaveTextContent(draft.recordingsFolder);
+    expect(screen.getByLabelText("Save folder")).toHaveTextContent(draft.recordingsFolder);
     fireEvent.click(screen.getByRole("button", { name: "Finish" }));
     await flush();
     expect(screen.getByRole("alert")).toHaveTextContent(/couldn't save/i);

@@ -25,8 +25,7 @@ describe("onboarding translator", () => {
   });
 
   it("prefers the shared translator when it knows the key", () => {
-    const base = ((key: string) =>
-      key === "onboarding.nav.back" ? "Zurück" : key) as Parameters<
+    const base = ((key: string) => (key === "onboarding.nav.back" ? "Zurück" : key)) as Parameters<
       typeof createOnboardingTranslator
     >[0];
     const t = createOnboardingTranslator(base, "de");
