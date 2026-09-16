@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ZoomRegion } from "../../editor/inspector/zoom/types";
 import { composeScene } from "../../editor/preview/compose";
 import { initialEditorData } from "../../editor/store";
+import { StreamingDecoder } from "../../export/engine/streamingDecoder";
+import {
+  FakeMuxer,
+  FakePacketSource,
+  FakeRenderer,
+  FakeVideoDecoder,
+  FrameLedger,
+  createFakeWebCodecs,
+} from "../../export/engine/testFakes";
 import { initialProjectSession } from "../project/session";
 import {
   type ExportStoreSnapshot,
@@ -8,6 +18,8 @@ import {
   timelineFromSnapshot,
   webcamTrackFor,
 } from "./defaultDeps";
+import { FakeFlowSink } from "./testFakes";
+import { createVideoRoute } from "./videoRoute";
 
 function snapshot(patch: Partial<ExportStoreSnapshot["editor"]> = {}): ExportStoreSnapshot {
   const editor = { ...initialEditorData(), durationMs: 4000, ...patch };
@@ -132,9 +144,129 @@ describe("timelineFromSnapshot", () => {
 
 describe("clipsFor", () => {
   it("falls back to one identity clip over the editor duration, or none when empty", () => {
-    expect(clipsFor(snapshot())).toEqual([
+    expect(clipsFor(snapshot({ clips: [] }))).toEqual([
       { id: "clip-1", sourceStartMs: 0, sourceEndMs: 4000, timelineStartMs: 0 },
     ]);
-    expect(clipsFor(snapshot({ durationMs: 0 }))).toEqual([]);
+    expect(clipsFor(snapshot({ clips: [], durationMs: 0 }))).toEqual([]);
+  });
+
+  it("the editor's clips win over the clips loaded with the project (preview parity)", () => {
+    const snap = trimmedSnapshot();
+    expect(clipsFor(snap)).toEqual(TRIMMED_CLIPS);
+    expect(clipsFor({ ...snap, editor: { ...snap.editor, clips: [] } })).toEqual(STALE_META_CLIPS);
+  });
+});
+
+const zoom2x = (startMs: number, endMs: number): ZoomRegion => ({
+  id: "z1",
+  startMs,
+  endMs,
+  level: 2,
+  easeInMs: 0,
+  easeOutMs: 0,
+  curve: "linear",
+  source: "manual",
+  focus: { mode: "fixed", x: 0.5, y: 0.5 },
+});
+
+/** Loaded with the project: one 4 s clip. */
+const STALE_META_CLIPS = [
+  { id: "clip-1", sourceStartMs: 0, sourceEndMs: 4000, timelineStartMs: 0 },
+];
+/** After deleting source 1–2 s in the editor: a 3 s timeline. */
+const TRIMMED_CLIPS = [
+  { id: "clip-1", sourceStartMs: 0, sourceEndMs: 1000, timelineStartMs: 0 },
+  { id: "clip-2", sourceStartMs: 2000, sourceEndMs: 4000, timelineStartMs: 1000 },
+];
+
+function trimmedSnapshot(): ExportStoreSnapshot {
+  const base = snapshot({ durationMs: 3000, clips: TRIMMED_CLIPS });
+  const video = { path: "media/screen.mp4", width: 1920, height: 1080, fps: 30, durationMs: 4000 };
+  return {
+    ...base,
+    session: { ...base.session, meta: { sources: { video }, clips: STALE_META_CLIPS } as never },
+  };
+}
+
+/** Runs the real MP4 route (fake WebCodecs/renderer) and records each rendered frame's camera. */
+async function exportCameras(snap: ExportStoreSnapshot, range: { startMs: number; endMs: number }) {
+  const ledger = new FrameLedger();
+  const fake = createFakeWebCodecs(ledger, {});
+  const renderer = new FakeRenderer(ledger);
+  const cameras: {
+    tMs: number;
+    scale: number;
+    regionId: string | null;
+    /** Decoded source frame timestamp (µs), or null when no video was drawn. */
+    sourceUs: number | null;
+  }[] = [];
+  const render = renderer.render.bind(renderer);
+  renderer.render = (state, frame) => {
+    cameras.push({
+      tMs: state.tMs,
+      scale: state.camera.scale,
+      regionId: state.camera.regionId,
+      sourceUs: frame ? frame.timestamp : null,
+    });
+    return render(state, frame);
+  };
+  const route = createVideoRoute({
+    timeline: timelineFromSnapshot(snap, { fetchJson: async () => ({ wallpapers: [] }) }),
+    videoUrl: "reelform-media://root/video.mp4",
+    renderAudio: async () => null,
+    now: () => 0,
+    webcodecs: () => fake.api,
+    openFrameSource: async () =>
+      new StreamingDecoder({
+        source: new FakePacketSource(120, 30, 30),
+        createDecoder: (init) => new FakeVideoDecoder(init, ledger),
+      }),
+    createRenderer: async () => renderer,
+    createMuxer: (opts, sink) => new FakeMuxer(opts, sink),
+  });
+  await route({
+    config: { codec: "h264", container: "mp4", width: 640, height: 360, fps: 30, quality: "High" },
+    range,
+    preferHardware: true,
+    includeAudio: false,
+    burnInCaptions: false,
+    sink: new FakeFlowSink(),
+    signal: new AbortController().signal,
+    onProgress: () => undefined,
+  });
+  return cameras;
+}
+
+describe("zoom regions reach the exported frames", () => {
+  it("renders the camera at 2x inside a zoom region and 1x outside, like the preview", async () => {
+    const region = zoom2x(1000, 2000);
+    const snap = snapshot({ durationMs: 3000, zoomRegions: [region] });
+    const cameras = await exportCameras(snap, { startMs: 0, endMs: 3000 });
+    expect(cameras).toHaveLength(90);
+    const at = (ms: number) => cameras.find((c) => Math.abs(c.tMs - ms) < 1e-6);
+    expect(at(500)).toMatchObject({ scale: 1, regionId: null });
+    expect(at(1500)).toMatchObject({ scale: 2, regionId: "z1" });
+    expect(at(2500)).toMatchObject({ scale: 1, regionId: null });
+    // Every exported frame matches the preview's scene at the same timeline time.
+    const input = timelineFromSnapshot(snap).sceneInput(
+      { width: 640, height: 360 },
+      { fps: 30, burnInCaptions: false },
+    );
+    for (const c of cameras) expect(c.scale).toBe(composeScene(input, c.tMs).camera.scale);
+  });
+
+  it("an edited (trimmed) timeline exports its own length with the zoom at the preview's time", async () => {
+    const snap = trimmedSnapshot();
+    const withZoom = { ...snap, editor: { ...snap.editor, zoomRegions: [zoom2x(1000, 2000)] } };
+    const cameras = await exportCameras(withZoom, { startMs: 0, endMs: 3000 });
+    // Stale project clips would plan a 4 s timeline (120 frames) and shift the zoom.
+    expect(cameras).toHaveLength(90);
+    const zoomed = cameras.filter((c) => c.scale === 2);
+    expect(zoomed[0]?.tMs).toBeCloseTo(1000, 6);
+    expect(zoomed.at(-1)?.tMs).toBeCloseTo(2000, 6);
+    // Inside the zoom, timeline 1.5 s plays source 2.5 s (clip-2), as in the preview;
+    // the stale project clips would decode source 1.5 s — the content that was cut.
+    const mid = cameras.find((c) => Math.abs(c.tMs - 1500) < 1e-6);
+    expect(mid).toMatchObject({ scale: 2, sourceUs: 2_500_000 });
   });
 });

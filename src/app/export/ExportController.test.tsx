@@ -97,7 +97,7 @@ function harness() {
   return { control, system, props, view, onClose };
 }
 
-const exportButton = () => screen.getByRole("button", { name: "Export" });
+const exportButton = () => screen.getByRole("button", { name: /^Export(?! another)/ });
 
 beforeEach(() => {
   useEditorStore.getState().reset();
@@ -290,7 +290,9 @@ describe("ExportController", () => {
     expect(t.onClose.count).toBe(1);
     t.view.rerender(<ExportController {...t.props} open={false} />);
     const toast = screen.getByTestId("export-toast");
-    expect(toast).toHaveTextContent("Exporting 50% · 0:01 left");
+    expect(toast).toHaveAccessibleName("Exporting 50% · 0:01 left");
+    expect(toast).toHaveTextContent("Exporting 50%");
+    expect(toast).toHaveTextContent("0:01 left");
     expect(screen.queryByTestId("export-progress")).toBeNull();
     fireEvent.click(within(toast).getByText("Cancel"));
     await waitFor(() => expect(screen.queryByTestId("export-toast")).toBeNull());
@@ -303,8 +305,11 @@ describe("ExportController", () => {
     await screen.findByTestId("export-progress");
     t.view.rerender(<ExportController {...t.props} open={false} />);
     await act(async () => t.control.gate.resolve());
-    const toast = await screen.findByText("Exported · Export.mp4 (2 MB)");
-    fireEvent.click(within(toast.parentElement as HTMLElement).getByText("Reveal"));
+    await screen.findByText("Exported · Export.mp4");
+    const toast = screen.getByTestId("export-toast");
+    expect(toast).toHaveAccessibleName("Exported · Export.mp4 (2 MB)");
+    expect(toast).toHaveTextContent("2 MB");
+    fireEvent.click(within(toast).getByText("Reveal"));
     expect(t.system.calls[0]).toEqual(["reveal", "/exports/Export.mp4"]);
   });
 
@@ -330,7 +335,7 @@ describe("ExportController", () => {
   it("exports a GIF with the GIF options", async () => {
     const t = harness();
     fireEvent.click(screen.getByText("GIF"));
-    fireEvent.click(screen.getByText("Small 480p"));
+    fireEvent.click(screen.getByText("480p"));
     fireEvent.click(exportButton());
     await screen.findByTestId("export-done");
     expect(t.control.gif[0]?.options).toMatchObject({ width: 854, height: 480, fps: 15 });

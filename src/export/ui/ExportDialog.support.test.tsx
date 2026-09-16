@@ -17,7 +17,7 @@ describe("ExportDialog — device support, estimates and extras", () => {
       "HEVC: Not supported on this device",
     );
     fireEvent.click(screen.getByText("HEVC"));
-    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Export/ }));
     expect(onExport.mock.calls[0]?.[0].codec).toBe("h264");
   });
 
@@ -62,7 +62,7 @@ describe("ExportDialog — device support, estimates and extras", () => {
     expect(screen.getByLabelText("Destination")).toHaveValue("/Users/me/Movies");
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a file name");
     expect(screen.getByTestId("extra-options")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Export/ }));
     expect(onExport.mock.calls[0]?.[0].destinationPath).toBe("/Users/me/Movies");
   });
 
@@ -70,6 +70,6 @@ describe("ExportDialog — device support, estimates and extras", () => {
     render(<ExportDialog {...sampleExportProps} sizeEstimate="3 MB" exportDisabled />);
     fireEvent.click(screen.getByText("GIF"));
     expect(screen.getByTestId("size-value")).toHaveTextContent("~3 MB");
-    expect(screen.getByRole("button", { name: "Export" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Export/ })).toBeDisabled();
   });
 });

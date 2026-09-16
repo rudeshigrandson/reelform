@@ -51,10 +51,10 @@ describe("ExportDialog", () => {
     render(<ExportDialog {...sampleExportProps} onExport={onExport} />);
 
     selectSegment("Max");
-    selectSegment("30");
+    fireEvent.change(screen.getByLabelText("Frame rate"), { target: { value: "30" } });
     selectSegment("HEVC");
 
-    fireEvent.click(screen.getByRole("button", { name: "Export" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Export/ }));
 
     expect(onExport).toHaveBeenCalledTimes(1);
     const config = onExport.mock.calls[0]?.[0];
@@ -74,7 +74,20 @@ describe("ExportDialog", () => {
     expect(screen.getByText("42%")).toBeInTheDocument();
     // The configuration form is gone (no format Segmented).
     expect(screen.queryByText("MP4")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Export" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Export/ })).not.toBeInTheDocument();
+  });
+
+  it("shows the estimate on the Export button and the duration timecode", () => {
+    render(<ExportDialog {...sampleExportProps} sizeEstimate="24 MB" />);
+    expect(screen.getByRole("button", { name: /^Export/ })).toHaveTextContent("Export· ~24 MB");
+    expect(screen.getByText("00:30.000")).toBeInTheDocument();
+  });
+
+  it("closes on Escape", () => {
+    const onClose = vi.fn();
+    render(<ExportDialog {...sampleExportProps} onClose={onClose} />);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("renders the success actions when done", () => {

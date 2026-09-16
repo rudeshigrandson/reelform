@@ -3,11 +3,12 @@ import { type ReactElement, useEffect, useRef, useState } from "react";
 import { useEditorStore } from "../../editor/store";
 import { selectRoute } from "../../export/route";
 import { ExportDialog } from "../../export/ui/ExportDialog";
+import { formatTimecode } from "../../export/ui/controls";
 import type { ExportUiConfig } from "../../export/ui/types";
 import { useT } from "../../i18n";
 import { useProjectSession } from "../project/session";
 import { useAppSettings } from "../settings/store";
-import { ExportOptions } from "./ExportOptions";
+import { ExportAfterOptions, ExportMediaOptions, ExportOutputOptions } from "./ExportOptions";
 import { ExportDoneView, ExportProblemView, ExportProgressView, ExportToast } from "./ExportStatus";
 import {
   type EncoderCapabilities,
@@ -355,10 +356,18 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
     );
   }
 
+  const range = resolveRange(config.range, rangeSources);
+  const rangeMs = range ? range.endMs - range.startMs : Math.max(0, durationMs);
+  const gifSize = gifDimensions(config.gif.sizePreset, sourceSize ?? PLACEHOLDER_SOURCE);
+  const doneDetails =
+    config.format === "gif"
+      ? [`${gifSize.height}p${config.gif.fps}`, formatTimecode(rangeMs)]
+      : [`${config.height}p${config.fps}`, formatTimecode(rangeMs)];
+
   switch (phase.kind) {
     case "running":
       return (
-        <Dialog open={open} onClose={onClose} title={t("exportFlow.title.running")}>
+        <Dialog open={open} onClose={onClose}>
           <ExportProgressView
             phase={phase}
             onCancel={() => runner.cancel()}
@@ -368,10 +377,11 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
       );
     case "done":
       return (
-        <Dialog open={open} onClose={closeDialog} title={t("exportFlow.title")}>
+        <Dialog open={open} onClose={closeDialog}>
           <ExportDoneView
             phase={phase}
             copyState={copyState}
+            details={doneDetails}
             onReveal={reveal}
             onCopy={() => void copy()}
             onExportAnother={backToSettings}
@@ -383,7 +393,7 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
     case "low-disk":
     case "codec-unsupported":
       return (
-        <Dialog open={open} onClose={closeDialog} title={t("exportFlow.title")}>
+        <Dialog open={open} onClose={closeDialog} tone="danger">
           <ExportProblemView
             phase={phase}
             diagnosticsCopied={diagnosticsCopied}
@@ -410,9 +420,6 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
   }
 
   // ── Configuring ───────────────────────────────────────────────────────────
-  const range = resolveRange(config.range, rangeSources);
-  const rangeMs = range ? range.endMs - range.startMs : Math.max(0, durationMs);
-  const gifSize = gifDimensions(config.gif.sizePreset, sourceSize ?? PLACEHOLDER_SOURCE);
   const sizeEstimate = formatBytes(
     config.format === "gif"
       ? roughGifBytes(
@@ -425,6 +432,25 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
         )
       : estimateVideoBytes(config, rangeMs),
   );
+  const optionProps = {
+    config,
+    onChange: patch,
+    hasSelection: resolveRange("selection", rangeSources) !== null,
+    hasInOut: resolveRange("in-out", rangeSources) !== null,
+    hasCaptions: captionCount > 0,
+  };
+  const hardwareEncoder =
+    caps !== null &&
+    config.hardwareAcceleration &&
+    useAppSettings.getState().settings.gpuExport !== "off" &&
+    config.format !== "gif" &&
+    caps[config.codec].hardware;
+  const captionsNote =
+    captionCount === 0 || config.captions === "none"
+      ? null
+      : config.captions === "burn-in"
+        ? t("exportFlow.note.burnIn")
+        : t("exportFlow.note.sidecar", { ext: `.${config.captions}` });
   const shownIssues = issues
     .filter((i) => attempted || i.field === "codec" || i.field === "source")
     .map((i) => i.message);
@@ -454,38 +480,40 @@ export function ExportController(props: ExportControllerProps): ReactElement | n
       sizeEstimate={sizeEstimate}
       issues={shownIssues}
       exportDisabled={issues.length > 0}
-    >
-      {caps === null && config.format !== "gif" ? (
-        <output
-          style={{
-            display: "block",
-            fontFamily: "var(--font-body)",
-            color: "var(--text-3)",
-            marginBottom: "var(--space-3)",
-          }}
-        >
-          {t("exportFlow.checkingEncoders")}
-        </output>
-      ) : null}
-      {phase.kind === "cancelled" ? (
-        <output
-          style={{
-            display: "block",
-            fontFamily: "var(--font-body)",
-            color: "var(--text-2)",
-            marginBottom: "var(--space-3)",
-          }}
-        >
-          {t("exportFlow.cancelled")}
-        </output>
-      ) : null}
-      <ExportOptions
-        config={config}
-        onChange={patch}
-        hasSelection={resolveRange("selection", rangeSources) !== null}
-        hasInOut={resolveRange("in-out", rangeSources) !== null}
-        hasCaptions={captionCount > 0}
-      />
-    </ExportDialog>
+      encoderLabel={
+        caps === null ? (
+          <output>{t("exportFlow.checkingEncoders")}</output>
+        ) : hardwareEncoder ? (
+          t("exportFlow.progress.hardwareEncoder")
+        ) : (
+          t("exportFlow.progress.softwareEncoder")
+        )
+      }
+      encoderTone={hardwareEncoder ? "success" : "muted"}
+      note={captionsNote}
+      status={
+        phase.kind === "cancelled" ? (
+          <output
+            style={{
+              display: "block",
+              padding: "8px 12px",
+              borderRadius: "12px",
+              background: "var(--bg-panel-raised)",
+              color: "var(--text-2)",
+              fontSize: "12px",
+            }}
+          >
+            {t("exportFlow.cancelled")}
+          </output>
+        ) : null
+      }
+      mediaOptions={<ExportMediaOptions {...optionProps} />}
+      outputOptions={
+        <div data-testid="export-options" style={{ display: "contents" }}>
+          <ExportOutputOptions {...optionProps} />
+        </div>
+      }
+      afterOptions={<ExportAfterOptions {...optionProps} />}
+    />
   );
 }

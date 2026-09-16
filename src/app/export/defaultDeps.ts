@@ -1,5 +1,6 @@
 import { useLoudnessStore } from "../../editor/audio/loudnessStore";
 import { defaultNoiseReduction } from "../../editor/audio/usePreviewAudio";
+import { timelineClips } from "../../editor/inspector/host/timeMap";
 import type { Clip } from "../../editor/model/schema";
 import { buildCursorMotion } from "../../editor/preview/cursorEffects";
 import { type FetchJson, fetchJsonViaFetch } from "../../editor/preview/cursorPack";
@@ -49,8 +50,16 @@ export interface ExportBaseDeps {
   now(): number;
 }
 
+/**
+ * The clips the export plans, exactly as the preview plays them: the editor
+ * store's `clips` are the source of truth (splits, trims and deletes land
+ * there); `meta.clips` is only the value loaded with the project, so it is a
+ * fallback, never an override.
+ */
 export function clipsFor(snapshot: ExportStoreSnapshot): Clip[] {
   const { meta } = snapshot.session;
+  const storeClips = snapshot.editor.clips;
+  if (storeClips.length > 0) return timelineClips(storeClips, meta);
   if (meta?.clips && meta.clips.length > 0) return meta.clips;
   const sourceEndMs = meta?.sources.video.durationMs ?? snapshot.editor.durationMs;
   return sourceEndMs > 0

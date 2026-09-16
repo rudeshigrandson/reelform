@@ -152,7 +152,7 @@ describe("createExportAudioRenderer", () => {
     settings.regions = [region()];
     settings.tracks.mic.noiseReduction = true;
     settings.tracks.mic.normalize = true;
-    const d = decoder([], { "/sounds/soft/click.wav": 0.08, [`${BASE}media/song.mp3`]: 30 });
+    const d = decoder([], { "./sounds/soft/click.wav": 0.08, [`${BASE}media/song.mp3`]: 30 });
     let nr = 0;
     const noiseReduction: ProcessorFactory = (ctx) => {
       nr++;
@@ -187,7 +187,7 @@ describe("createExportAudioRenderer", () => {
         .mocked(d.decode)
         .mock.calls.map((c) => c[0])
         .sort(),
-    ).toEqual(["/sounds/soft/click.wav", `${BASE}media/song.mp3`, "mic.m4a"].sort());
+    ).toEqual(["./sounds/soft/click.wav", `${BASE}media/song.mp3`, "mic.m4a"].sort());
     // Lazy: decoding happened, rendering didn't.
     expect(created).toHaveLength(0);
     await collectExportAudio(out as NonNullable<typeof out>);
