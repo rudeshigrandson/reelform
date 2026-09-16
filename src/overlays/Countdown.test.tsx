@@ -25,6 +25,8 @@ describe("Countdown", () => {
     rerender(<Countdown count={0} total={3} onCancel={vi.fn()} />);
     expect(screen.getByTestId("countdown-number")).toHaveTextContent("Go");
     expect(screen.getByTestId("countdown-progress")).toHaveAttribute("data-progress", "1.000");
+    expect(screen.getByTestId("countdown-overlay")).toHaveAttribute("data-go", "true");
+    expect(screen.getByTestId("countdown-progress").style.display).toBe("none");
   });
 
   it("pulses the ring normally and swaps to a static ring with a fade under reduce motion", () => {

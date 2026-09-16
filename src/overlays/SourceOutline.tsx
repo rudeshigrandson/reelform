@@ -1,18 +1,20 @@
+import { useT } from "../i18n";
 import type { Bounds, SourceOutlineProps } from "./types";
 
 /**
- * Source outline (SPEC §5.7): a 2px accent outline around the selected window
- * source plus a small label, drawn in a transparent, click-through,
- * content-protected overlay window covering one display. `bounds` is
- * display-local (CSS px of that window).
+ * Source outline (SPEC §5.7, guide S05): a 2px accent outline offset 4px
+ * around the selected window source, with a "Recording target" chip in its
+ * bottom-left corner. Drawn in a transparent, click-through, content-protected
+ * overlay window covering one display. `bounds` is display-local (CSS px).
  */
 
-const LABEL_HEIGHT = 24;
+const CHIP_HEIGHT = 20;
+const CHIP_INSET = 10;
 
 export function SourceOutline({ bounds, label }: SourceOutlineProps) {
+  const t = useT();
   const b = normalize(bounds);
-  // The label sits above the outline, or just inside it at the top of the display.
-  const labelTop = b.y >= LABEL_HEIGHT + 4 ? b.y - LABEL_HEIGHT - 4 : b.y + 4;
+  const chipFits = b.height >= CHIP_HEIGHT + CHIP_INSET * 2 && b.width >= 80;
   return (
     <div
       data-testid="source-outline"
@@ -28,33 +30,45 @@ export function SourceOutline({ bounds, label }: SourceOutlineProps) {
           width: b.width,
           height: b.height,
           boxSizing: "border-box",
-          border: "2px solid var(--accent)",
-          borderRadius: "var(--radius-sm)",
+          outline: "2px solid var(--accent)",
+          outlineOffset: 4,
+          borderRadius: 12,
         }}
       />
-      {label ? (
+      {chipFits ? (
         <span
-          data-testid="source-outline-label"
+          data-testid="source-outline-chip"
+          title={label}
           style={{
             position: "absolute",
-            left: b.x + 4,
-            top: labelTop,
-            maxWidth: Math.max(80, b.width - 8),
-            height: LABEL_HEIGHT,
+            left: b.x + 12,
+            top: b.y + b.height - CHIP_INSET - CHIP_HEIGHT,
+            maxWidth: Math.max(60, b.width - 24),
+            height: CHIP_HEIGHT,
             boxSizing: "border-box",
             display: "inline-flex",
             alignItems: "center",
-            padding: "0 var(--space-2)",
+            gap: 6,
+            padding: "0 10px",
             borderRadius: "var(--radius-full)",
             background: "var(--accent)",
             color: "var(--on-accent)",
-            fontSize: 12,
+            fontSize: 10,
             whiteSpace: "nowrap",
             overflow: "hidden",
-            textOverflow: "ellipsis",
           }}
         >
-          {label}
+          <span style={{ fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+            {t("overlays.outline.target")}
+          </span>
+          {label ? (
+            <span
+              data-testid="source-outline-label"
+              style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis" }}
+            >
+              {label}
+            </span>
+          ) : null}
         </span>
       ) : null}
     </div>

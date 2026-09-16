@@ -1,11 +1,16 @@
+import type { ResponseOf } from "@contracts";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { LauncherNotice } from "../../launcher/types";
+import type { ProjectInvoke } from "../project/openProject";
+import { type FakeHandlers, fakeIpc } from "../project/testing";
 import {
   type DeviceLike,
   type IntervalTimers,
   LauncherContainer,
   type VisibilitySource,
   toDeviceLists,
+  toLauncherProject,
 } from "./LauncherContainer";
 import { createMemoryBusHub } from "./bus";
 import { createRecordingFlow } from "./flow";
@@ -72,7 +77,16 @@ async function flushUi(rounds = 40) {
   });
 }
 
-function setup(opts: { platform?: "darwin" | "linux"; openEditor?: boolean } = {}) {
+function setup(
+  opts: {
+    platform?: "darwin" | "linux";
+    openEditor?: boolean;
+    projectInvoke?: ProjectInvoke;
+    version?: string;
+    insetTitleBar?: boolean;
+    extraNotices?: LauncherNotice[];
+  } = {},
+) {
   const log: string[] = [];
   const port = new FakeAppPort();
   const windows = new FakeWindows();
@@ -111,6 +125,10 @@ function setup(opts: { platform?: "darwin" | "linux"; openEditor?: boolean } = {
       }}
       timers={timers.timers}
       visibility={visibility.v}
+      projectInvoke={opts.projectInvoke}
+      version={opts.version}
+      insetTitleBar={opts.insetTitleBar}
+      extraNotices={opts.extraNotices}
     />,
   );
   return {
@@ -134,6 +152,324 @@ describe("toDeviceLists", () => {
       mic: [{ id: "mic-1", label: "Microphone 1" }],
       webcam: [{ id: "cam-1", label: "FaceTime HD Camera" }],
     });
+  });
+});
+
+describe("LauncherContainer — project shelf", () => {
+  function fakeProjectInvoke() {
+    return vi.fn(async (channel: string, _payload: unknown) => {
+      if (channel === "project:list") {
+        return {
+          projects: [
+            {
+              path: "/Projects/demo.reelform",
+              id: "proj-1",
+              name: "Demo walkthrough",
+              modifiedAt: "2026-09-15T10:00:00.000Z",
+              durationMs: 42180,
+              recent: true,
+              missing: false,
+              corrupt: false,
+            },
+            {
+              path: "/Projects/gone.reelform",
+              id: null,
+              name: "Gone project",
+              modifiedAt: null,
+              durationMs: null,
+              recent: true,
+              missing: true,
+              corrupt: false,
+            },
+          ],
+        };
+      }
+      if (channel === "project:listTrash") return { projects: [] };
+      return {};
+    });
+  }
+
+  it("loads project:list into the shelf, shows the version, and opens only openable projects", async () => {
+    const invoke = fakeProjectInvoke();
+    setup({ projectInvoke: invoke as unknown as ProjectInvoke, version: "1.2.0" });
+    await flushUi();
+    expect(invoke).toHaveBeenCalledWith("project:list", {});
+    expect(screen.getByText("1.2.0")).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByText("Demo walkthrough"));
+    expect(invoke).toHaveBeenCalledWith("windows:openEditor", { projectId: "proj-1" });
+
+    invoke.mockClear();
+    fireEvent.click(screen.getByText("Gone project"));
+    expect(invoke).not.toHaveBeenCalledWith("windows:openEditor", expect.anything());
+  });
+
+  it("shows no shelf when no project channel is given", async () => {
+    setup();
+    await flushUi();
+    expect(screen.queryByText("Demo walkthrough")).toBeNull();
+  });
+});
+
+describe("LauncherContainer — project card menu and Open project…", () => {
+  type ListEntry = ResponseOf<"project:list">["projects"][number];
+  const listEntry = (over: Partial<ListEntry> = {}): ListEntry => ({
+    path: "/lib/Alpha.reelform",
+    name: "Alpha",
+    modifiedAt: "2026-09-14T10:00:00.000Z",
+    thumbnailPath: null,
+    thumbnailUrl: null,
+    sizeBytes: null,
+    missing: false,
+    corrupt: false,
+    recent: true,
+    id: "alpha",
+    durationMs: 5000,
+    ...over,
+  });
+
+  function shelfIpc(handlers: FakeHandlers = {}) {
+    let projects = [listEntry()];
+    return fakeIpc({
+      "project:list": () => ({ projects }),
+      "project:listTrash": () => ({
+        projects: [
+          {
+            path: "/lib/.trash/Old.reelform",
+            name: "Old",
+            id: "old",
+            trashedAt: "2026-09-10T10:00:00.000Z",
+            thumbnailPath: null,
+            thumbnailUrl: null,
+          },
+        ],
+      }),
+      "project:rename": (req) => {
+        projects = projects.map((p) => (p.path === req.path ? { ...p, name: req.name } : p));
+        return { path: req.path, document: {}, modifiedAt: "x" };
+      },
+      "project:open": (req) => ({
+        path: req.path,
+        document: { id: "doc-1" },
+        modifiedAt: null,
+        recovery: null,
+      }),
+      "project:saveAs": (req) => ({
+        path: `/lib/${req.name}.reelform`,
+        document: {},
+        modifiedAt: "x",
+      }),
+      "project:moveToTrash": () => ({ path: "/lib/.trash/Alpha.reelform" }),
+      "project:restoreFromTrash": () => ({ path: "/lib/Old.reelform" }),
+      "project:trash": () => ({ trashed: true as const }),
+      "system:reveal": () => ({ ok: true }),
+      "system:pickFile": () => ({ path: "/Users/me/Talk.reelform" }),
+      "windows:openEditor": () => ({ ok: true }),
+      ...handlers,
+    });
+  }
+
+  const pick = (card: string, item: string) => {
+    fireEvent.click(screen.getByRole("button", { name: `More actions for ${card}` }));
+    fireEvent.click(screen.getByRole("menuitem", { name: item }));
+  };
+
+  it("rename → name dialog → project:rename → shelf reloads", async () => {
+    const ipc = shelfIpc();
+    setup({ projectInvoke: ipc.invoke });
+    await flushUi();
+    pick("Alpha", "Rename…");
+    const dialog = screen.getByRole("dialog");
+    const input = within(dialog).getByRole("textbox", { name: "Project name" });
+    expect(input).toHaveValue("Alpha");
+    fireEvent.change(input, { target: { value: "Launch demo" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
+    await flushUi();
+    expect(ipc.callsTo("project:rename")).toEqual([
+      { path: "/lib/Alpha.reelform", name: "Launch demo" },
+    ]);
+    expect(ipc.callsTo("project:list")).toHaveLength(2);
+    expect(screen.getByText("Launch demo")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("duplicate → reads the document and saves a copy", async () => {
+    const ipc = shelfIpc();
+    setup({ projectInvoke: ipc.invoke });
+    await flushUi();
+    pick("Alpha", "Duplicate…");
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("textbox")).toHaveValue("Alpha copy");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Duplicate" }));
+    await flushUi();
+    expect(ipc.callsTo("project:saveAs")).toEqual([
+      { path: "/lib/Alpha.reelform", document: { id: "doc-1" }, name: "Alpha copy" },
+    ]);
+  });
+
+  it("move to trash and reveal", async () => {
+    const ipc = shelfIpc();
+    setup({ projectInvoke: ipc.invoke, platform: "darwin" });
+    await flushUi();
+    pick("Alpha", "Reveal in Finder");
+    await flushUi();
+    expect(ipc.callsTo("system:reveal")).toEqual([{ path: "/lib/Alpha.reelform" }]);
+    expect(ipc.callsTo("project:list")).toHaveLength(1);
+    pick("Alpha", "Move to Trash");
+    await flushUi();
+    expect(ipc.callsTo("project:moveToTrash")).toEqual([{ path: "/lib/Alpha.reelform" }]);
+    expect(ipc.callsTo("project:list")).toHaveLength(2);
+  });
+
+  it("trash view: restore, and delete forever only after confirming", async () => {
+    const ipc = shelfIpc();
+    setup({ projectInvoke: ipc.invoke });
+    await flushUi();
+    fireEvent.click(
+      within(screen.getByRole("navigation", { name: "Projects" })).getByRole("button", {
+        name: /Trash/,
+      }),
+    );
+    pick("Old", "Restore");
+    await flushUi();
+    expect(ipc.callsTo("project:restoreFromTrash")).toEqual([{ path: "/lib/.trash/Old.reelform" }]);
+
+    pick("Old", "Delete forever…");
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("“Old” and its recording files");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(ipc.callsTo("project:trash")).toEqual([]);
+
+    pick("Old", "Delete forever…");
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Delete forever" }),
+    );
+    await flushUi();
+    expect(ipc.callsTo("project:trash")).toEqual([{ path: "/lib/.trash/Old.reelform" }]);
+  });
+
+  it("a failed action shows a dismissable notice", async () => {
+    const ipc = shelfIpc({
+      "project:moveToTrash": () => {
+        throw { code: "EBUSY", message: "Folder is in use" };
+      },
+    });
+    setup({ projectInvoke: ipc.invoke, platform: "linux" });
+    await flushUi();
+    pick("Alpha", "Move to Trash");
+    await flushUi();
+    const notice = screen.getByTestId("launcher-notice-project-action");
+    expect(notice).toHaveTextContent("Folder is in use");
+    fireEvent.click(within(notice).getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByTestId("launcher-notice-project-action")).toBeNull();
+  });
+
+  it("Open project… picks a .reelform, opens it and routes to the editor", async () => {
+    const ipc = shelfIpc();
+    setup({ projectInvoke: ipc.invoke });
+    await flushUi();
+    fireEvent.click(screen.getByRole("button", { name: "Open project…" }));
+    await flushUi();
+    expect(ipc.callsTo("system:pickFile")).toEqual([
+      expect.objectContaining({
+        filters: [{ name: "Reelform project", extensions: ["reelform", "json"] }],
+      }),
+    ]);
+    expect(ipc.callsTo("project:open")).toEqual([{ path: "/Users/me/Talk.reelform" }]);
+    expect(ipc.callsTo("windows:openEditor")).toEqual([{ projectId: "doc-1" }]);
+  });
+
+  it("Open project… accepts the project.json inside a folder", async () => {
+    const ipc = shelfIpc({
+      "system:pickFile": () => ({ path: "C:\\Work\\Talk.reelform\\project.json" }),
+    });
+    setup({ projectInvoke: ipc.invoke });
+    await flushUi();
+    fireEvent.click(screen.getByRole("button", { name: "Open project…" }));
+    await flushUi();
+    expect(ipc.callsTo("project:open")).toEqual([{ path: "C:\\Work\\Talk.reelform" }]);
+  });
+
+  it("Open project… cancel does nothing", async () => {
+    const ipc = shelfIpc({ "system:pickFile": () => ({ path: null }) });
+    setup({ projectInvoke: ipc.invoke });
+    await flushUi();
+    fireEvent.click(screen.getByRole("button", { name: "Open project…" }));
+    await flushUi();
+    expect(ipc.callsTo("project:open")).toEqual([]);
+    expect(ipc.callsTo("windows:openEditor")).toEqual([]);
+    expect(screen.queryByTestId("launcher-notice-project-action")).toBeNull();
+  });
+
+  it("Open project… on a folder that isn't a project explains why", async () => {
+    const ipc = shelfIpc({
+      "project:open": () => {
+        throw { code: "PROJECT_NOT_FOUND", message: "project.json not found" };
+      },
+    });
+    setup({ projectInvoke: ipc.invoke });
+    await flushUi();
+    fireEvent.click(screen.getByRole("button", { name: "Open project…" }));
+    await flushUi();
+    expect(screen.getByTestId("launcher-notice-project-action")).toHaveTextContent(
+      "project.json not found",
+    );
+    expect(ipc.callsTo("windows:openEditor")).toEqual([]);
+  });
+
+  it("passes thumbnail URLs and sizes to the shelf, keeping gradients without one", async () => {
+    const ipc = shelfIpc({
+      "project:list": () => ({
+        projects: [
+          listEntry({ thumbnailUrl: "reelform-media://p-1/thumbnail.jpg?v=2", sizeBytes: 1024 }),
+          listEntry({ path: "/lib/Beta.reelform", name: "Beta", id: "beta" }),
+        ],
+      }),
+    });
+    setup({ projectInvoke: ipc.invoke });
+    await flushUi();
+    const [withThumb, without] = [
+      within(screen.getByTestId("launcher-project-/lib/Alpha.reelform")),
+      within(screen.getByTestId("launcher-project-/lib/Beta.reelform")),
+    ];
+    expect(withThumb.getByTestId("launcher-project-thumbnail").style.backgroundImage).toContain(
+      "reelform-media://p-1/thumbnail.jpg?v=2",
+    );
+    expect(without.getByTestId("launcher-project-thumbnail").style.backgroundImage).toBe("");
+    expect(
+      toLauncherProject(listEntry({ thumbnailUrl: "reelform-media://x/t.jpg", sizeBytes: 9 })),
+    ).toMatchObject({ thumbnailUrl: "reelform-media://x/t.jpg", sizeBytes: 9 });
+    expect("sizeBytes" in toLauncherProject(listEntry())).toBe(false);
+  });
+
+  it("insetTitleBar adds the draggable strip; off by default", async () => {
+    const { unmount } = setup({ insetTitleBar: true });
+    await flushUi();
+    expect(screen.getByTestId("launcher-titlebar")).toHaveAttribute("data-app-region", "drag");
+    unmount();
+    setup();
+    await flushUi();
+    expect(screen.queryByTestId("launcher-titlebar")).toBeNull();
+  });
+
+  it("extraNotices render inside the inset strip", async () => {
+    const onClick = vi.fn();
+    setup({
+      insetTitleBar: true,
+      extraNotices: [
+        {
+          id: "update",
+          tone: "info",
+          message: "Reelform 1.2 is available",
+          action: { label: "Restart to update", onClick },
+        },
+      ],
+    });
+    await flushUi();
+    const notice = screen.getByTestId("launcher-notice-update");
+    expect(screen.getByTestId("launcher-titlebar")).toContainElement(notice);
+    fireEvent.click(within(notice).getByRole("button", { name: "Restart to update" }));
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 });
 

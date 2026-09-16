@@ -44,10 +44,10 @@ describe("formatElapsed / formatTimerTenths", () => {
 });
 
 describe("RecordingHud (S10)", () => {
-  it("is a 300x48 pill with dot, tenths timer, meter, Pause, Stop and overflow", () => {
+  it("is a 340x48 pill with dot, tenths timer, meter, Pause, Stop and overflow", () => {
     renderHud({ elapsedMs: 42_180 });
     const pill = screen.getByTestId("recording-hud");
-    expect(pill).toHaveStyle({ width: "300px", height: "48px" });
+    expect(pill).toHaveStyle({ width: "340px", height: "48px" });
     expect(screen.getByTestId("hud-timer")).toHaveTextContent("00:42.1");
     expect(screen.getByTestId("hud-record-dot")).toHaveAttribute("data-pulse", "true");
     expect(screen.getByTestId("mic-meter")).toBeInTheDocument();
@@ -164,7 +164,7 @@ describe("RecordingHud (S10)", () => {
   it("shows the countdown value during the countdown phase", () => {
     renderHud({ phase: "countdown", countdownValue: 3 });
     expect(screen.getByTestId("countdown-value")).toHaveTextContent("3");
-    expect(screen.getByTestId("recording-hud")).toHaveStyle({ width: "300px" });
+    expect(screen.getByTestId("recording-hud")).toHaveStyle({ width: "340px" });
     expect(screen.queryByRole("button", { name: "Stop recording" })).toBeNull();
   });
 
@@ -178,7 +178,7 @@ describe("RecordingHud (S10)", () => {
 
   it("lights meter bars proportional to micLevel; no input dims it", () => {
     const { unmount } = renderHud({ micLevel: 0.5 });
-    expect(screen.getByTestId("mic-meter").querySelectorAll('[data-lit="true"]')).toHaveLength(4);
+    expect(screen.getByTestId("mic-meter").querySelectorAll('[data-lit="true"]')).toHaveLength(2);
     unmount();
     renderHud({ micLevel: undefined });
     const meter = screen.getByTestId("mic-meter");
@@ -193,17 +193,40 @@ describe("RecordingHud (S10)", () => {
     expect(screen.queryByRole("button", { name: "Stop recording" })).toBeNull();
   });
 
-  it("interrupted keeps the wide warning pill with what was saved and why", () => {
+  it("interrupted shows the capture-interrupted card with what was saved and why", () => {
     renderHud({
       phase: "interrupted",
       elapsedMs: 42_000,
       interruptedMessage: "The display was disconnected",
     });
-    expect(screen.getByTestId("recording-hud")).toHaveStyle({ width: "560px" });
+    expect(screen.getByTestId("recording-hud")).toHaveStyle({ width: "340px" });
     const status = screen.getByTestId("hud-status");
     expect(status).toHaveTextContent("Recording saved up to 00:42");
     expect(status).toHaveTextContent("The display was disconnected");
-    expect(screen.getByText("Interrupted")).toBeInTheDocument();
+    expect(screen.getByText("Capture interrupted")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "More recording options" })).toBeNull();
+  });
+
+  it("paused shows the Paused label and a Resume pill in place of the meter", () => {
+    const { onPauseToggle } = renderHud({ phase: "paused" });
+    expect(screen.queryByTestId("mic-meter")).toBeNull();
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    const resume = screen.getByRole("button", { name: "Resume recording" });
+    expect(resume).toHaveTextContent("Resume");
+    fireEvent.click(resume);
+    expect(onPauseToggle).toHaveBeenCalledOnce();
+  });
+
+  it("muted tints the pill and offers an unmute button when the toggle is wired", () => {
+    const onMuteToggle = vi.fn();
+    const { unmount } = renderHud({ micMuted: true, onMuteToggle });
+    expect(screen.getByTestId("recording-hud")).toHaveAttribute("data-muted", "true");
+    expect(screen.getByTestId("mic-meter")).toHaveTextContent("Mic muted");
+    fireEvent.click(screen.getByRole("button", { name: "Unmute mic" }));
+    expect(onMuteToggle).toHaveBeenCalledOnce();
+    unmount();
+    renderHud({ micMuted: true });
+    expect(screen.getByTestId("mic-muted-icon")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Unmute mic" })).toBeNull();
   });
 });

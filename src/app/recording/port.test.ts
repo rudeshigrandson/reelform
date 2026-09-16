@@ -402,6 +402,12 @@ describe("windows / project / system ports", () => {
       }),
       "project:save": async () => ({ path: "/p.reelform", modifiedAt: "x", backupName: null }),
       "project:trash": async () => ({ trashed: true }),
+      "project:replaceSource": async () => ({
+        applied: true,
+        path: "media/screen.h264.mp4",
+        modifiedAt: "x",
+        removed: [],
+      }),
       "project:relink": async () => ({
         path: "media/screen.h264.mp4",
         probe: { durationMs: 42_000, width: 3024, height: 1964 },
@@ -429,6 +435,16 @@ describe("windows / project / system ports", () => {
       path: "media/screen.h264.mp4",
       probe: { durationMs: 42_000, width: 3024, height: 1964 },
     });
+    await expect(
+      projects.replaceSource?.({
+        path: "/p.reelform",
+        source: "video",
+        filePath: "/rec/s1/screen.h264.mp4",
+        replaces: "media/screen.mp4",
+        expected: { durationMs: 42_000 },
+        codec: "h264",
+      }),
+    ).resolves.toMatchObject({ applied: true, path: "media/screen.h264.mp4" });
     await expect(projects.open?.({ path: "/p.reelform" })).resolves.toMatchObject({
       document: { v: 1 },
     });
@@ -442,6 +458,7 @@ describe("windows / project / system ports", () => {
       "project:create",
       "project:save",
       "project:relink",
+      "project:replaceSource",
       "project:open",
       "project:trash",
       "permissions:openSettings",

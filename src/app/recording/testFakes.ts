@@ -31,6 +31,8 @@ import type {
   ProjectPort,
   RelinkProjectRequest,
   RelinkProjectResult,
+  ReplaceSourceRequest,
+  ReplaceSourceResult,
   SaveProjectRequest,
   SourcesResult,
   StartRecordingRequest,
@@ -245,6 +247,20 @@ export class FakeProjects implements ProjectPort {
     if (doc === undefined) throw { code: "PROJECT_NOT_FOUND", message: req.path };
     return { path: req.path, document: doc, modifiedAt: null, recovery: null };
   }
+  replaced: ReplaceSourceRequest[] = [];
+  replaceError: Failure | null = null;
+  async replaceSource(req: ReplaceSourceRequest): Promise<ReplaceSourceResult> {
+    this.replaced.push(req);
+    if (this.replaceError) throw this.replaceError;
+    const current = (await this.open({ path: req.path }).catch(() => null))?.document as
+      | { sources?: { video?: { path?: string } } }
+      | undefined;
+    if (current?.sources?.video?.path !== req.replaces) {
+      return { applied: false, path: null, modifiedAt: null, removed: [] };
+    }
+    const name = req.filePath.split(/[\\/]/).at(-1) ?? "video";
+    return { applied: true, path: `media/${name}`, modifiedAt: "x", removed: [] };
+  }
   async relink(req: RelinkProjectRequest): Promise<RelinkProjectResult> {
     this.relinked.push(req);
     if (this.relinkError) throw this.relinkError;
@@ -334,14 +350,16 @@ export function fakeCaptureFactory(log: string[]) {
 // ---- HUD pre-record -----------------------------------------------------------------
 
 export class FakeHudWindows implements HudWindowsPort {
-  /** Prepares and other requests, e.g. `expand:560x104`, `collapse`, `size:300x48:center`. */
+  /** Prepares and other requests, e.g. `expand:620x104`, `collapse`, `size:340x48:center`. */
   calls: string[] = [];
   /** Commit ids in the order the renderer committed them. */
   commits: number[] = [];
+  /** Commit ids the renderer grew the window for first (`stage: "grow"`). */
+  grows: number[] = [];
   /** Current window bounds (moves only on commit). */
-  bounds: HudRect = { x: 440, y: 836, width: 560, height: 64 };
+  bounds: HudRect = { x: 410, y: 836, width: 620, height: 64 };
   /** The pill inside the window (screen coordinates). */
-  pill: HudRect = { x: 440, y: 836, width: 560, height: 64 };
+  pill: HudRect = { x: 410, y: 836, width: 620, height: 64 };
   /** False simulates "no HUD open" (every prepare resolves null). */
   hudOpen = true;
   private seq = 0;
@@ -384,9 +402,23 @@ export class FakeHudWindows implements HudWindowsPort {
         : { x: p.x, y: p.y, width: req.width, height: req.height };
     return this.prepare(target, { ...target });
   }
-  async commitHudLayout(commitId: number): Promise<boolean> {
-    this.commits.push(commitId);
+  async commitHudLayout(commitId: number, stage: "grow" | "final" = "final"): Promise<boolean> {
     const p = this.pending;
+    if (stage === "grow") {
+      this.grows.push(commitId);
+      if (!p || p.commitId !== commitId) return false;
+      const b = this.bounds;
+      const x = Math.min(b.x, p.target.x);
+      const y = Math.min(b.y, p.target.y);
+      this.bounds = {
+        x,
+        y,
+        width: Math.max(b.x + b.width, p.target.x + p.target.width) - x,
+        height: Math.max(b.y + b.height, p.target.y + p.target.height) - y,
+      };
+      return true;
+    }
+    this.commits.push(commitId);
     if (!p || p.commitId !== commitId) return false;
     this.pending = null;
     this.bounds = p.target;

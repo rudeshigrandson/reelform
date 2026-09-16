@@ -1,5 +1,5 @@
 import { type StoreApi, createStore } from "zustand/vanilla";
-import { type ProjectV1, loadProject } from "../../editor/model/v1";
+import type { ProjectV1 } from "../../editor/model/v1";
 import type { CaptureDeps, CaptureOptions, CaptureSession } from "../../recording/captureSession";
 import type { Platform } from "../../recording/constraints";
 import {
@@ -425,29 +425,23 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
 
   const relinkTranscoded = async (w: TranscodeWatch): Promise<void> => {
     const { done, target } = w;
-    if (!done?.outputPath || !target || !deps.projects.relink) return;
+    if (!done?.outputPath || !target || !deps.projects.replaceSource) return;
     endTranscodeWatch(w);
     try {
-      const res = await deps.projects.relink({
+      // Main patches project.json under its lock (keeping edits saved since create),
+      // tells open editors, and merges the new path into their later saves.
+      const res = await deps.projects.replaceSource({
         path: target.projectPath,
+        source: "video",
         filePath: done.outputPath,
+        replaces: target.document.sources.video.path,
         expected: { durationMs: w.durationMs },
-        mode: "copy",
+        // The transcode always writes H.264.
+        codec: "h264",
       });
-      // The editor may have saved edits since create: patch the document as saved now.
-      const doc = deps.projects.open
-        ? loadProject((await deps.projects.open({ path: target.projectPath })).document)
-        : target.document;
-      if (doc.sources.video.path !== target.document.sources.video.path) {
+      if (!res.applied) {
         log(`transcode relink skipped for ${target.projectPath}: the screen video was replaced`);
-        return;
       }
-      // The relink reply carries no codec; the transcode always writes H.264.
-      const document: ProjectV1 = {
-        ...doc,
-        sources: { ...doc.sources, video: { ...doc.sources.video, path: res.path, codec: "h264" } },
-      };
-      await deps.projects.save({ path: target.projectPath, document });
     } catch (err) {
       const e = toRecordingError(err, "RELINK_FAILED");
       log(`transcode relink failed for ${target.projectPath}: ${e.code} ${e.message}`);
@@ -456,7 +450,7 @@ export function createRecordingFlow(deps: RecordingFlowDeps): RecordingFlow {
 
   /** Watch the background transcode of a finalized Electron-backend video. */
   const watchTranscode = (fin: FinalizeResult): void => {
-    if (!deps.port.onTranscodeProgress || !deps.projects.relink) return;
+    if (!deps.port.onTranscodeProgress || !deps.projects.replaceSource) return;
     if (fin.meta.backend !== "electron") return;
     if (transcodeWatches.has(fin.recordingId) || disposed) return;
     const w: TranscodeWatch = {

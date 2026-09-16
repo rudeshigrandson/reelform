@@ -4,9 +4,10 @@ import { usePrefersReducedMotion } from "./reducedMotion";
 import type { CountdownProps } from "./types";
 
 /**
- * Centered pre-record countdown. Shows a large number with a pulsing ring
- * and an Esc-to-cancel hint. Escape calls onCancel. With reduce motion the
- * ring is static and each numeral fades in instead.
+ * Centered pre-record countdown (guide S08): a glass disc with a Caprasimo
+ * numeral and an accent progress ring, an Esc-to-cancel hint, and a crimson
+ * "Go" pill at zero. Escape calls onCancel. With reduce motion the disc is
+ * static and each numeral fades in instead.
  */
 export function Countdown({ count, total, onCancel }: CountdownProps) {
   const t = useT();
@@ -27,6 +28,7 @@ export function Countdown({ count, total, onCancel }: CountdownProps) {
       data-testid="countdown-overlay"
       role="dialog"
       aria-label={t("overlays.countdown.label")}
+      data-go={go ? "true" : undefined}
       style={{
         position: "fixed",
         inset: 0,
@@ -35,8 +37,8 @@ export function Countdown({ count, total, onCancel }: CountdownProps) {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: "var(--space-4)",
-        background: "var(--scrim)",
+        gap: "var(--space-5)",
+        background: `color-mix(in srgb, var(--bg-sunken) ${go ? 20 : 35}%, transparent)`,
         fontFamily: "var(--font-body)",
       }}
     >
@@ -45,21 +47,30 @@ export function Countdown({ count, total, onCancel }: CountdownProps) {
         data-motion={reduceMotion ? "reduced" : "full"}
         style={{
           position: "relative",
-          width: 160,
-          height: 160,
+          boxSizing: "border-box",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          borderRadius: "50%",
-          // Ring progress: accent sweep over a hairline track.
-          border: "4px solid transparent",
-          backgroundClip: "padding-box",
-          outline: "1px solid var(--border-strong)",
-          // Glass disc (guide §2.4) so the numeral reads in both themes.
-          background: "color-mix(in srgb, var(--bg-panel) 70%, transparent)",
-          backdropFilter: "blur(24px)",
-          boxShadow: "0 0 0 8px var(--accent-soft), var(--shadow-lg)",
+          borderRadius: "var(--radius-full)",
+          color: "var(--text-1)",
+          fontFamily: "var(--font-heading)",
+          fontWeight: "var(--font-heading-weight)",
+          lineHeight: 1,
           animation: reduceMotion ? "none" : "reelform-countdown-pulse 1s ease-out infinite",
+          ...(go
+            ? {
+                padding: "14px 26px",
+                background: "color-mix(in srgb, var(--record) 90%, transparent)",
+                fontSize: 28,
+              }
+            : {
+                width: 120,
+                height: 120,
+                background: "color-mix(in srgb, var(--bg-panel) 70%, transparent)",
+                backdropFilter: "blur(24px)",
+                border: "1px solid color-mix(in srgb, var(--text-1) 18%, transparent)",
+                fontSize: 54,
+              }),
         }}
       >
         <span
@@ -68,11 +79,12 @@ export function Countdown({ count, total, onCancel }: CountdownProps) {
           data-progress={progress.toFixed(3)}
           style={{
             position: "absolute",
-            inset: -4,
-            borderRadius: "50%",
-            background: `conic-gradient(var(--accent) ${progress * 360}deg, var(--accent-soft) 0deg)`,
-            WebkitMask: "radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0)",
-            mask: "radial-gradient(farthest-side, transparent calc(100% - 4px), #000 0)",
+            inset: -7,
+            display: go ? "none" : undefined,
+            borderRadius: "var(--radius-full)",
+            background: `conic-gradient(var(--accent) ${progress * 360}deg, color-mix(in srgb, var(--text-1) 14%, transparent) 0deg)`,
+            WebkitMask: "radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0)",
+            mask: "radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0)",
           }}
         />
         <span
@@ -80,12 +92,8 @@ export function Countdown({ count, total, onCancel }: CountdownProps) {
           data-testid="countdown-number"
           aria-live="assertive"
           style={{
+            position: "relative",
             animation: reduceMotion ? "reelform-countdown-fade 240ms ease-out" : undefined,
-            fontFamily: "var(--font-heading)",
-            fontSize: 56,
-            fontWeight: 700,
-            lineHeight: 1,
-            color: "var(--text-1)",
             fontVariantNumeric: "tabular-nums",
           }}
         >
@@ -97,22 +105,18 @@ export function Countdown({ count, total, onCancel }: CountdownProps) {
         data-testid="countdown-hint"
         style={{
           margin: 0,
-          padding: "var(--space-1) var(--space-3)",
-          borderRadius: "var(--radius-full)",
-          background: "color-mix(in srgb, var(--bg-panel) 70%, transparent)",
-          backdropFilter: "blur(24px)",
-          color: "var(--text-2)",
-          fontSize: 14,
+          color: "color-mix(in srgb, var(--text-1) 75%, transparent)",
+          fontSize: 11,
+          visibility: go ? "hidden" : undefined,
         }}
       >
         {t("overlays.countdown.hint")}
       </p>
 
-      {/* Keyframes for the pulse; scoped by a unique animation name. */}
       <style>
         {`@keyframes reelform-countdown-pulse {
             0% { transform: scale(1); opacity: 1; }
-            70% { transform: scale(1.08); opacity: 0.85; }
+            70% { transform: scale(1.06); opacity: 0.9; }
             100% { transform: scale(1); opacity: 1; }
           }
           @keyframes reelform-countdown-fade { from { opacity: 0; } to { opacity: 1; } }`}

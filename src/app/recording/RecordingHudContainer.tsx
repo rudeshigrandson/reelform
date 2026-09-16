@@ -8,7 +8,7 @@ import {
   RecordingWarningStrip,
 } from "../../hud/RecordingHud";
 import {
-  PRE_RECORD_PILL,
+  INTERRUPTED_CARD,
   RECORDING_PILL,
   type RecordingPanel,
   recordingExpansionSize,
@@ -67,7 +67,7 @@ export function RecordingHudContainer({
   }, [live]);
 
   const wide = hud.phase === "interrupted";
-  const pillSize = wide ? PRE_RECORD_PILL : RECORDING_PILL;
+  const pillSize = wide ? INTERRUPTED_CARD : RECORDING_PILL;
   const warningRows = live && hud.warning ? 1 : 0;
   const expansion = wide ? null : recordingExpansionSize(openPanel, warningRows, pillSize);
   const expansionKey = expansion ? `${expansion.width}x${expansion.height}` : "";
@@ -91,6 +91,9 @@ export function RecordingHudContainer({
       {
         isCurrent: () => mounted.current && wantedKey.current === key,
         prepare: () => windows.setHudExpansion(size),
+        hold: (s) => {
+          if (mounted.current) flushSync(() => setShift(s));
+        },
         apply: (plan) => {
           if (!mounted.current) return;
           setLayout(plan?.layout ?? null);

@@ -28,6 +28,8 @@ export type CreateProjectResult = ResponseOf<"project:create">;
 export type SaveProjectRequest = RequestOf<"project:save">;
 export type RelinkProjectRequest = RequestOf<"project:relink">;
 export type RelinkProjectResult = ResponseOf<"project:relink">;
+export type ReplaceSourceRequest = RequestOf<"project:replaceSource">;
+export type ReplaceSourceResult = ResponseOf<"project:replaceSource">;
 export type OpenProjectRequest = RequestOf<"project:open">;
 export type OpenProjectResult = ResponseOf<"project:open">;
 export type TranscodeProgressEvent = EventPayloadOf<"recording:transcodeProgress">;
@@ -36,6 +38,7 @@ export type HudExpansionSize = NonNullable<RequestOf<"windows:setHudExpansion">[
 export type HudLayoutInfo = NonNullable<ResponseOf<"windows:setHudExpansion">["layout"]>;
 export type HudSizeRequest = RequestOf<"windows:setHudSize">;
 export type HudRect = HudLayoutInfo["bounds"];
+export type HudCommitStage = NonNullable<RequestOf<"windows:commitHudExpansion">["stage"]>;
 
 /**
  * A prepared HUD window change (SPEC §5.7): main computed the target bounds
@@ -85,8 +88,12 @@ export interface HudWindowsPort extends Pick<WindowsPort, "openWebcamBubble" | "
   setHudExpansion(size: HudExpansionSize | null): Promise<HudExpansionPlan | null>;
   /** Prepare resizing the pill itself (recording pill, hidden dot). Null when no HUD is open. */
   setHudSize(req: HudSizeRequest): Promise<HudWindowPlan | null>;
-  /** Apply a prepared change; false when stale or the HUD is gone. */
-  commitHudLayout(commitId: number): Promise<boolean>;
+  /**
+   * Apply a prepared change; false when stale or the HUD is gone. `"grow"`
+   * only grows the window to fit both the current and target bounds (the
+   * change stays pending); `"final"` (default) applies it.
+   */
+  commitHudLayout(commitId: number, stage?: HudCommitStage): Promise<boolean>;
   /** Click-through outline of the selected window source on its display. */
   openSourceOutline(displayId: string): Promise<void>;
   openSettings(): Promise<void>;
@@ -97,6 +104,8 @@ export interface ProjectPort {
   save(req: SaveProjectRequest): Promise<void>;
   /** `project:relink` — validate a replacement file and copy/reference it; the document is not written. */
   relink?(req: RelinkProjectRequest): Promise<RelinkProjectResult>;
+  /** `project:replaceSource` — swap a source's file and write the document in main. */
+  replaceSource?(req: ReplaceSourceRequest): Promise<ReplaceSourceResult>;
   /** `project:open` — the document as currently saved (unvalidated). */
   open?(req: OpenProjectRequest): Promise<OpenProjectResult>;
 }
@@ -281,8 +290,14 @@ export function createIpcHudWindowsPort(ipc: IpcClient = defaultIpcClient): HudW
         ? null
         : { commitId: res.commitId, previous: res.previous, target: res.target };
     },
-    commitHudLayout: async (commitId) =>
-      (await call(ipc, "windows:commitHudExpansion", { commitId })).applied,
+    commitHudLayout: async (commitId, stage) =>
+      (
+        await call(
+          ipc,
+          "windows:commitHudExpansion",
+          stage === "grow" ? { commitId, stage } : { commitId },
+        )
+      ).applied,
     openSourceOutline: async (displayId) => {
       await call(ipc, "windows:openSourceOutline", { displayId });
     },
@@ -299,6 +314,7 @@ export function createIpcProjectPort(ipc: IpcClient = defaultIpcClient): Project
       await call(ipc, "project:save", req);
     },
     relink: (req) => call(ipc, "project:relink", req),
+    replaceSource: (req) => call(ipc, "project:replaceSource", req),
     open: (req) => call(ipc, "project:open", req),
   };
 }

@@ -1,4 +1,3 @@
-import { Button, Tag } from "@design/components";
 import { useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { usePrefersReducedMotion } from "../overlays/reducedMotion";
@@ -8,8 +7,7 @@ import {
   CHIP_ROW_HEIGHT,
   DISCARD_CONFIRM_SIZE,
   HUD_GAP,
-  PILL_HEIGHT,
-  PILL_WIDTH,
+  INTERRUPTED_CARD,
   RECORDING_MENU_SIZE,
   RECORDING_PILL,
   type RecordingPanel,
@@ -17,15 +15,16 @@ import {
 import type { RecordingHudProps } from "./types";
 
 /**
- * S10 — recording control pill (300×48 glass): pulsing red dot, mono timer
+ * S10 — recording control pill (340×48 glass): pulsing red dot, mono timer
  * `00:42.1`, mini mic meter, Pause/Resume, Stop (red square) and an overflow
  * (Restart, Discard, Hide pill, Mute mic). The overflow menu and the discard
  * confirm are separate panels the container places in the grown HUD window;
  * {@link RecordingHud} composes everything in flow for previews and tests.
- * The interrupted state keeps the wide warning pill for its message.
+ * Interrupted capture shows the crimson "Capture interrupted" card instead.
  */
 
-const METER_BARS = 8;
+const METER_HEIGHTS = [5, 10, 12, 6] as const;
+const METER_BARS = METER_HEIGHTS.length;
 
 /** Format a millisecond duration as mm:ss (clamps negatives to 0). */
 export function formatElapsed(ms: number): string {
@@ -43,12 +42,15 @@ export function formatTimerTenths(ms: number): string {
   return `${formatElapsed(Math.floor(tenths / 10) * 1000)}.${tenths % 10}`;
 }
 
+/** Warm tinted text for warning / danger surfaces (no dedicated token). */
+const warnText = "color-mix(in srgb, var(--warning) 35%, var(--text-1))";
+const dangerText = "color-mix(in srgb, var(--record) 35%, var(--text-1))";
+
 const glass: CSSProperties = {
   display: "flex",
   alignItems: "center",
   boxSizing: "border-box",
-  // Glass pill (guide §2.4): 88% panel + blur, 1px strong hairline.
-  background: "color-mix(in srgb, var(--bg-panel) 88%, transparent)",
+  background: "color-mix(in srgb, var(--bg-panel) 90%, transparent)",
   backdropFilter: "blur(24px)",
   border: "1px solid var(--border-strong)",
   color: "var(--text-1)",
@@ -60,29 +62,37 @@ const glass: CSSProperties = {
 
 const pillStyle: CSSProperties = {
   ...glass,
-  gap: 6,
+  gap: 10,
   width: RECORDING_PILL.width,
   height: RECORDING_PILL.height,
-  padding: "0 var(--space-2) 0 var(--space-3)",
+  padding: "0 8px 0 8px",
 };
 
-const widePillStyle: CSSProperties = {
-  ...glass,
-  gap: "var(--space-3)",
-  width: PILL_WIDTH,
-  height: PILL_HEIGHT,
-  padding: "0 var(--space-4)",
-};
-
-const smallIcon: CSSProperties = { width: 28, height: 28, minWidth: 28, padding: 0 };
+const roundButton = (size: number): CSSProperties => ({
+  flex: "none",
+  width: size,
+  height: size,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 2,
+  padding: 0,
+  margin: 0,
+  border: "none",
+  borderRadius: "var(--radius-full)",
+  font: "inherit",
+  cursor: "pointer",
+});
 
 const gripStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   gap: 3,
-  padding: "0 var(--space-1)",
+  flex: "none",
+  padding: "0 2px",
   cursor: "grab",
   color: "var(--text-3)",
+  opacity: 0.7,
 };
 
 const gripDotRow: CSSProperties = { display: "flex", gap: 3 };
@@ -126,72 +136,93 @@ const timerStyle: CSSProperties = {
   fontSize: 13,
 };
 
+/** Struck-through mic (guide S10 muted state). */
+function MutedMicGlyph() {
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="mic-muted-icon"
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <span
+        style={{ width: 6, height: 12, borderRadius: "var(--radius-full)", background: warnText }}
+      />
+      <span
+        style={{
+          position: "absolute",
+          width: 22,
+          height: 1.5,
+          background: warnText,
+          transform: "rotate(-45deg)",
+        }}
+      />
+    </span>
+  );
+}
+
 function MicMeter({ micLevel, muted }: { micLevel: number | undefined; muted: boolean }) {
   const t = useHudT();
   const silent = muted || micLevel === undefined;
   const clamped = silent ? 0 : Math.max(0, Math.min(1, micLevel ?? 0));
   const litCount = silent ? 0 : Math.round(clamped * METER_BARS);
-  const bars = Array.from({ length: METER_BARS }, (_, i) => i < litCount);
+  const label = t(
+    muted ? "hud.rec.micMuted" : micLevel === undefined ? "hud.rec.noMicInput" : "hud.rec.micLevel",
+  );
+
+  if (muted) {
+    return (
+      <span
+        role="meter"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={1}
+        aria-disabled
+        data-testid="mic-meter"
+        data-muted="true"
+        style={{ fontSize: 11, whiteSpace: "nowrap" }}
+      >
+        {t("hud.rec.micMutedShort")}
+      </span>
+    );
+  }
 
   return (
     <div
       role="meter"
-      aria-label={t(
-        muted
-          ? "hud.rec.micMuted"
-          : micLevel === undefined
-            ? "hud.rec.noMicInput"
-            : "hud.rec.micLevel",
-      )}
+      aria-label={label}
       aria-valuemin={0}
       aria-valuemax={1}
       aria-valuenow={silent ? undefined : clamped}
       aria-disabled={silent || undefined}
       data-testid="mic-meter"
-      data-muted={muted ? "true" : undefined}
       style={{
-        position: "relative",
         display: "flex",
         alignItems: "flex-end",
         gap: 2,
-        height: 16,
-        opacity: silent && !muted ? 0.35 : 1,
+        height: 12,
+        opacity: silent ? 0.35 : 1,
       }}
     >
-      {bars.map((lit, i) => (
+      {METER_HEIGHTS.map((h, i) => (
         <span
           // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length static meter
           key={i}
-          data-lit={lit ? "true" : "false"}
+          data-lit={i < litCount ? "true" : "false"}
           style={{
             width: 2,
-            height: 6 + i,
-            borderRadius: 1,
-            background: lit ? "var(--accent)" : muted ? "var(--warning)" : "var(--border-strong)",
-            opacity: muted ? 0.5 : 1,
+            height: h,
+            background:
+              i < litCount
+                ? "var(--success)"
+                : "color-mix(in srgb, var(--success) 40%, transparent)",
           }}
         />
       ))}
-      {muted ? (
-        // Struck-through mic (guide S10 muted state), warning tint.
-        <span
-          aria-hidden="true"
-          data-testid="mic-muted-icon"
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "var(--warning)",
-            fontSize: 12,
-            textDecoration: "line-through",
-            textDecorationThickness: 2,
-          }}
-        >
-          🎙
-        </span>
-      ) : null}
     </div>
   );
 }
@@ -205,14 +236,15 @@ function Spinner() {
       data-motion={reduceMotion ? "reduced" : "full"}
       style={{
         flex: "none",
-        width: 14,
-        height: 14,
+        boxSizing: "border-box",
+        width: 13,
+        height: 13,
         borderRadius: "50%",
         border: "2px solid var(--border-strong)",
         borderTopColor: "var(--accent)",
         animation: reduceMotion
           ? "reelform-hud-fade 1.6s ease-in-out infinite alternate"
-          : "reelform-hud-spin 900ms linear infinite",
+          : "reelform-hud-spin 1s linear infinite",
       }}
     />
   );
@@ -228,11 +260,11 @@ function RecordingDot({ paused }: { paused: boolean }) {
       data-pulse={pulse ? "true" : "false"}
       style={{
         flex: "none",
-        width: 8,
-        height: 8,
+        width: 9,
+        height: 9,
         borderRadius: "50%",
-        background: "var(--record)",
-        animation: pulse ? "reelform-hud-pulse 1.2s ease-in-out infinite" : "none",
+        background: paused ? "var(--text-3)" : "var(--record)",
+        animation: pulse ? "reelform-hud-pulse 1.4s ease-in-out infinite" : "none",
       }}
     />
   );
@@ -248,6 +280,45 @@ export type RecordingPillProps = RecordingHudProps & {
   onPanelChange: (panel: RecordingPanel | null) => void;
 };
 
+function StopSquare() {
+  return (
+    <span
+      aria-hidden="true"
+      style={{ width: 12, height: 12, borderRadius: 2, background: "var(--text-1)" }}
+    />
+  );
+}
+
+/** "{message}. Recording saved up to <mono>00:42</mono>." */
+function InterruptedDetail({ elapsedMs, message }: { elapsedMs: number; message?: string }) {
+  const t = useHudT();
+  const time = formatElapsed(elapsedMs);
+  const [before = "", after = ""] = t("hud.rec.savedUpToSentence", { time: " " }).split(" ");
+  const lead = message
+    ? /[.!?…]$/.test(message.trim())
+      ? message.trim()
+      : `${message.trim()}.`
+    : "";
+  return (
+    <span
+      data-testid="hud-status"
+      style={{
+        display: "-webkit-box",
+        WebkitLineClamp: 2,
+        WebkitBoxOrient: "vertical",
+        overflow: "hidden",
+      }}
+    >
+      {lead ? `${lead} ` : null}
+      {before}
+      <span data-testid="hud-timer" style={{ fontFamily: "var(--font-mono)" }}>
+        {time}
+      </span>
+      {after}
+    </span>
+  );
+}
+
 /** The pill itself (what the HUD window is sized to). */
 export function RecordingPill(props: RecordingPillProps) {
   const { phase, elapsedMs, micLevel, sourceLabel, countdownValue, onStop, onPauseToggle } = props;
@@ -257,33 +328,48 @@ export function RecordingPill(props: RecordingPillProps) {
   if (phase === "interrupted") {
     return (
       <output
-        style={{ ...widePillStyle, borderColor: "var(--warning)" }}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 4,
+          boxSizing: "border-box",
+          width: INTERRUPTED_CARD.width,
+          height: INTERRUPTED_CARD.height,
+          padding: "12px 14px",
+          borderRadius: "var(--radius-md)",
+          background: "color-mix(in srgb, var(--record) 14%, var(--bg-panel))",
+          border: "1px solid color-mix(in srgb, var(--record) 50%, transparent)",
+          boxShadow: "var(--shadow-lg)",
+          color: dangerText,
+          fontFamily: "var(--font-body)",
+          fontSize: 12,
+          lineHeight: 1.4,
+          userSelect: "none",
+        }}
         data-testid="recording-hud"
         data-phase={phase}
       >
-        <DragGrip />
-        <Tag variant="outline" style={{ color: "var(--warning)", borderColor: "var(--warning)" }}>
-          {t("hud.rec.interrupted")}
-        </Tag>
-        <span
-          data-testid="hud-status"
-          style={{ flex: 1, minWidth: 0, fontSize: 13, color: "var(--text-1)" }}
-        >
-          {t("hud.rec.savedUpTo", { time: formatElapsed(elapsedMs) })}
-          {props.interruptedMessage ? (
-            <span style={{ color: "var(--text-2)" }}> — {props.interruptedMessage}</span>
-          ) : null}
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <DragGrip />
+          <span style={{ fontWeight: 600, color: "var(--text-1)" }}>
+            {t("hud.rec.interrupted")}
+          </span>
         </span>
-        <span data-testid="hud-timer" style={{ ...timerStyle, color: "var(--text-2)" }}>
-          {formatElapsed(elapsedMs)}
-        </span>
+        <InterruptedDetail
+          elapsedMs={elapsedMs}
+          {...(props.interruptedMessage ? { message: props.interruptedMessage } : {})}
+        />
       </output>
     );
   }
 
   if (phase === "finalizing") {
     return (
-      <output style={pillStyle} data-testid="recording-hud" data-phase={phase}>
+      <output
+        style={{ ...pillStyle, paddingRight: 14 }}
+        data-testid="recording-hud"
+        data-phase={phase}
+      >
         <DragGrip />
         <Spinner />
         <span
@@ -291,7 +377,7 @@ export function RecordingPill(props: RecordingPillProps) {
           style={{
             flex: 1,
             minWidth: 0,
-            fontSize: 13,
+            fontSize: 12,
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -299,7 +385,7 @@ export function RecordingPill(props: RecordingPillProps) {
         >
           {t("hud.rec.processing")}
         </span>
-        <span data-testid="hud-timer" style={{ ...timerStyle, color: "var(--text-2)" }}>
+        <span data-testid="hud-timer" style={{ ...timerStyle, color: "var(--text-3)" }}>
           {formatTimerTenths(elapsedMs)}
         </span>
         <style>{KEYFRAMES}</style>
@@ -309,35 +395,48 @@ export function RecordingPill(props: RecordingPillProps) {
 
   if (phase === "countdown") {
     return (
-      <div style={pillStyle} data-testid="recording-hud" data-phase={phase}>
+      <div
+        style={{ ...pillStyle, paddingRight: 14 }}
+        data-testid="recording-hud"
+        data-phase={phase}
+      >
         <DragGrip />
         <span
           data-testid="countdown-value"
           style={{
             fontFamily: "var(--font-heading)",
-            fontSize: 24,
-            fontWeight: 700,
+            fontSize: 22,
             lineHeight: 1,
-            color: "var(--accent)",
-            minWidth: 24,
+            color: "var(--accent-hover)",
+            minWidth: 22,
             textAlign: "center",
           }}
         >
           {countdownValue ?? ""}
         </span>
-        <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: "var(--text-2)" }}>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: "var(--text-2)" }}>
           {t("hud.rec.startsSoon")}
         </span>
       </div>
     );
   }
 
+  const muted = props.micMuted === true;
   const menuOpen = props.openPanel === "menu";
+  const mutedSurface: CSSProperties = muted
+    ? {
+        background: "color-mix(in srgb, var(--warning) 16%, var(--bg-panel))",
+        borderColor: "color-mix(in srgb, var(--warning) 50%, transparent)",
+        color: warnText,
+      }
+    : {};
+
   return (
     <div
-      style={pillStyle}
+      style={{ ...pillStyle, ...mutedSurface }}
       data-testid="recording-hud"
       data-phase={phase}
+      data-muted={muted ? "true" : undefined}
       title={sourceLabel ? t("hud.rec.recordingSource", { source: sourceLabel }) : undefined}
       onKeyDown={(e) => {
         if (e.key === "Escape" && props.openPanel) props.onPanelChange(null);
@@ -348,57 +447,107 @@ export function RecordingPill(props: RecordingPillProps) {
       <span
         data-testid="hud-timer"
         aria-label={t(isPaused ? "hud.rec.paused" : "hud.rec.elapsed")}
-        style={{ ...timerStyle, minWidth: 54, opacity: isPaused ? 0.55 : 1 }}
+        style={{ ...timerStyle, color: isPaused ? "var(--text-3)" : undefined }}
       >
         {formatTimerTenths(elapsedMs)}
       </span>
-      <MicMeter micLevel={micLevel} muted={props.micMuted === true} />
-      <span style={{ flex: 1 }} />
-      <Button
-        variant="ghost"
-        icon
-        onClick={onPauseToggle}
-        aria-label={t(isPaused ? "hud.rec.resumeRecording" : "hud.rec.pauseRecording")}
-        title={t(isPaused ? "hud.rec.resume" : "hud.rec.pause")}
-        style={smallIcon}
-      >
-        {isPaused ? "▶" : "❚❚"}
-      </Button>
-      <Button
-        variant="primary"
-        icon
-        onClick={onStop}
-        aria-label={t("hud.rec.stopRecording")}
-        title={t("hud.rec.stop")}
-        style={{
-          ...smallIcon,
-          background: "var(--record)",
-          borderColor: "var(--record)",
-          color: "var(--on-accent)",
-        }}
-      >
-        <span
+      {isPaused && !muted ? (
+        <span style={{ fontSize: 11, color: "var(--text-3)" }}>{t("hud.rec.paused")}</span>
+      ) : (
+        <MicMeter micLevel={micLevel} muted={muted} />
+      )}
+      <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+        {muted ? (
+          props.onMuteToggle ? (
+            <button
+              type="button"
+              onClick={props.onMuteToggle}
+              aria-label={t("hud.rec.unmuteMic")}
+              title={t("hud.rec.unmuteMic")}
+              style={{
+                ...roundButton(30),
+                background: "color-mix(in srgb, var(--bg-sunken) 40%, transparent)",
+              }}
+            >
+              <MutedMicGlyph />
+            </button>
+          ) : (
+            <span
+              style={{
+                ...roundButton(30),
+                cursor: "default",
+                background: "color-mix(in srgb, var(--bg-sunken) 40%, transparent)",
+              }}
+            >
+              <MutedMicGlyph />
+            </span>
+          )
+        ) : null}
+        {isPaused ? (
+          <button
+            type="button"
+            onClick={onPauseToggle}
+            aria-label={t("hud.rec.resumeRecording")}
+            title={t("hud.rec.resume")}
+            style={{
+              flex: "none",
+              padding: "7px 14px",
+              margin: 0,
+              border: "none",
+              borderRadius: "var(--radius-full)",
+              background: "var(--accent)",
+              color: "var(--on-accent)",
+              font: "inherit",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {t("hud.rec.resume")}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onPauseToggle}
+            aria-label={t("hud.rec.pauseRecording")}
+            title={t("hud.rec.pause")}
+            style={{ ...roundButton(30), background: "var(--bg-panel-raised)" }}
+          >
+            <span
+              aria-hidden="true"
+              style={{ width: 3, height: 11, background: "var(--text-1)" }}
+            />
+            <span
+              aria-hidden="true"
+              style={{ width: 3, height: 11, background: "var(--text-1)" }}
+            />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onStop}
+          aria-label={t("hud.rec.stopRecording")}
+          title={t("hud.rec.stop")}
+          style={{ ...roundButton(34), background: "var(--record)" }}
+        >
+          <StopSquare />
+        </button>
+        <button
+          type="button"
+          onClick={() => props.onPanelChange(menuOpen ? null : "menu")}
+          aria-label={t("hud.rec.moreOptions")}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          title={t("hud.more")}
           style={{
-            display: "inline-block",
-            width: 10,
-            height: 10,
-            borderRadius: 2,
-            background: "var(--on-accent)",
+            ...roundButton(24),
+            background: menuOpen ? "var(--bg-active)" : "transparent",
+            color: muted ? warnText : "var(--text-2)",
           }}
-        />
-      </Button>
-      <Button
-        variant="ghost"
-        icon
-        onClick={() => props.onPanelChange(menuOpen ? null : "menu")}
-        aria-label={t("hud.rec.moreOptions")}
-        aria-haspopup="menu"
-        aria-expanded={menuOpen}
-        title={t("hud.more")}
-        style={smallIcon}
-      >
-        ⋯
-      </Button>
+        >
+          ⋯
+        </button>
+      </span>
       <style>{KEYFRAMES}</style>
     </div>
   );
@@ -406,14 +555,15 @@ export function RecordingPill(props: RecordingPillProps) {
 
 const panelStyle: CSSProperties = {
   boxSizing: "border-box",
-  padding: "var(--space-2)",
-  background: "var(--bg-panel-raised)",
+  padding: 8,
+  background: "color-mix(in srgb, var(--bg-panel) 94%, transparent)",
+  backdropFilter: "blur(24px)",
   border: "1px solid var(--border-strong)",
   borderRadius: "var(--radius-md)",
   boxShadow: "var(--shadow-lg)",
   color: "var(--text-1)",
   fontFamily: "var(--font-body)",
-  fontSize: 13,
+  fontSize: 12,
 };
 
 function MenuItem({
@@ -439,20 +589,26 @@ function MenuItem({
       style={{
         display: "flex",
         alignItems: "center",
+        justifyContent: "space-between",
         width: "100%",
-        height: 32,
-        padding: "0 var(--space-2)",
+        height: 30,
+        padding: "0 10px",
         border: "none",
-        borderRadius: "var(--radius-sm)",
+        borderRadius: 10,
         background: checked ? "var(--accent-soft)" : "transparent",
-        color: danger ? "var(--danger)" : "var(--text-1)",
+        color: danger ? dangerText : "var(--text-1)",
         opacity: disabled ? 0.45 : 1,
         font: "inherit",
         textAlign: "left",
         cursor: disabled ? "default" : "pointer",
       }}
     >
-      {children}
+      <span>{children}</span>
+      {checked ? (
+        <span aria-hidden="true" style={{ color: "var(--accent-hover)" }}>
+          ✓
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -468,6 +624,9 @@ export function RecordingHudMenu(props: RecordingPillProps) {
       data-testid="hud-recording-menu"
       style={{
         ...panelStyle,
+        display: "flex",
+        flexDirection: "column",
+        gap: 2,
         width: RECORDING_MENU_SIZE.width,
         maxHeight: RECORDING_MENU_SIZE.height,
       }}
@@ -479,9 +638,9 @@ export function RecordingHudMenu(props: RecordingPillProps) {
         data-testid="hud-source"
         title={props.sourceLabel}
         style={{
-          padding: "var(--space-1) var(--space-2)",
+          padding: "4px 10px",
           color: "var(--text-3)",
-          fontSize: 12,
+          fontSize: 11,
           whiteSpace: "nowrap",
           overflow: "hidden",
           textOverflow: "ellipsis",
@@ -497,9 +656,6 @@ export function RecordingHudMenu(props: RecordingPillProps) {
         }}
       >
         {t("hud.rec.restart")}
-      </MenuItem>
-      <MenuItem danger onClick={() => props.onPanelChange("confirm")}>
-        {t("hud.rec.discardEllipsis")}
       </MenuItem>
       <MenuItem
         disabled={!props.onHidePill}
@@ -520,9 +676,22 @@ export function RecordingHudMenu(props: RecordingPillProps) {
       >
         {t("hud.rec.muteMic")}
       </MenuItem>
+      <MenuItem danger onClick={() => props.onPanelChange("confirm")}>
+        {t("hud.rec.discardEllipsis")}
+      </MenuItem>
     </div>
   );
 }
+
+const pillAction: CSSProperties = {
+  padding: "7px 14px",
+  margin: 0,
+  borderRadius: "var(--radius-full)",
+  font: "inherit",
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: "pointer",
+};
 
 /** Inline discard confirm next to the pill (a system dialog would be clipped by the HUD window). */
 export function DiscardConfirm(props: RecordingPillProps) {
@@ -540,31 +709,49 @@ export function DiscardConfirm(props: RecordingPillProps) {
         height: DISCARD_CONFIRM_SIZE.height,
         display: "flex",
         flexDirection: "column",
-        gap: "var(--space-2)",
-        borderColor: "var(--danger)",
-        padding: "var(--space-3)",
+        gap: 6,
+        borderColor: "color-mix(in srgb, var(--record) 50%, transparent)",
+        padding: "12px 14px",
       }}
       onKeyDown={(e) => {
         if (e.key === "Escape") close();
       }}
     >
-      <strong style={{ fontSize: 13 }}>{t("hud.rec.discardTitle")}</strong>
+      <strong style={{ fontSize: 13, fontWeight: 600 }}>{t("hud.rec.discardTitle")}</strong>
       <span id="hud-discard-detail" style={{ fontSize: 12, color: "var(--text-2)" }}>
         {t("hud.rec.discardDetail", { time: formatTimerTenths(props.elapsedMs) })}
       </span>
-      <span style={{ display: "flex", justifyContent: "flex-end", gap: "var(--space-2)" }}>
-        <Button variant="ghost" autoFocus onClick={close}>
+      <span style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: "auto" }}>
+        <button
+          type="button"
+          // biome-ignore lint/a11y/noAutofocus: focus the safe action in the confirm
+          autoFocus
+          onClick={close}
+          style={{
+            ...pillAction,
+            fontWeight: 400,
+            background: "var(--bg-panel-raised)",
+            border: "1px solid var(--border-strong)",
+            color: "var(--text-1)",
+          }}
+        >
           {t("hud.rec.keepRecording")}
-        </Button>
-        <Button
-          variant="danger"
+        </button>
+        <button
+          type="button"
           onClick={() => {
             close();
             props.onDiscard();
           }}
+          style={{
+            ...pillAction,
+            border: "none",
+            background: "var(--record)",
+            color: "var(--text-1)",
+          }}
         >
           {t("hud.rec.discard")}
-        </Button>
+        </button>
       </span>
     </div>
   );
@@ -582,28 +769,28 @@ export function RecordingHudPanel(props: RecordingPillProps) {
 export function RecordingWarningStrip({ warning }: { warning: string | undefined }) {
   if (!warning) return null;
   return (
-    // <output> is the live status region; the tag is only the chip look.
-    <output style={{ display: "contents" }}>
-      <Tag
-        variant="outline"
-        data-testid="hud-warning"
-        title={warning}
-        style={{
-          boxSizing: "border-box",
-          height: CHIP_ROW_HEIGHT,
-          display: "inline-flex",
-          alignItems: "center",
-          maxWidth: RECORDING_PILL.width,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          color: "var(--warning)",
-          borderColor: "var(--warning)",
-          background: "var(--bg-panel-raised)",
-        }}
-      >
-        {warning}
-      </Tag>
+    <output
+      data-testid="hud-warning"
+      title={warning}
+      style={{
+        boxSizing: "border-box",
+        height: CHIP_ROW_HEIGHT,
+        width: RECORDING_PILL.width,
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "0 14px",
+        borderRadius: "var(--radius-md)",
+        background: "color-mix(in srgb, var(--warning) 14%, var(--bg-panel))",
+        border: "1px solid color-mix(in srgb, var(--warning) 45%, transparent)",
+        color: warnText,
+        fontFamily: "var(--font-body)",
+        fontSize: 12,
+        whiteSpace: "nowrap",
+      }}
+    >
+      <span aria-hidden="true">⚠</span>
+      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{warning}</span>
     </output>
   );
 }

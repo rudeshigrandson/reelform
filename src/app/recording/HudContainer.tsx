@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { HIDDEN_DOT_SIZE, type HudView, hudPillSize } from "../../hud/layout";
 import type { RecordingHudProps } from "../../hud/types";
@@ -44,8 +44,10 @@ import type { HudWindowsPort } from "./port";
  * session from the launcher's bus snapshot or the first live event. With no
  * live session it shows the S05 pre-record pill ({@link PreRecordContainer}).
  *
- * The window is sized to what it shows (560×64 pre-record, 300×48 recording,
- * 36×36 hidden dot) through the prepare → paint → commit handshake.
+ * The window is sized to what it shows (620×64 pre-record, 340×48 recording,
+ * 36×36 hidden dot) through the prepare → (grow) → paint → commit handshake:
+ * what is on screen stays until main has a plan, a bigger pill is only drawn
+ * once the window grew, a smaller one before the window shrinks.
  *
  * Global shortcuts (`shortcuts:triggered`): record.toggle → stop (start in
  * pre-record), record.pause → pause/resume, record.cancelCountdown → discard
@@ -288,13 +290,12 @@ export function HudContainer({
   const wantedSize = useRef(sizeKey);
   wantedSize.current = sizeKey;
   /**
-   * Where the pill sits inside the window as it is on screen now: a child grew
-   * it for a menu, chips or a confirm (null: the window is the bare pill).
+   * The content last rendered for the window as it is on screen. While a pill
+   * resize is prepared (and, for a bigger pill, while the window grows first)
+   * it stays up, so new content is never drawn clipped into a window too small
+   * for it (SPEC §5.7).
    */
-  const pillOffset = useRef<Shift | null>(null);
-  const onPillOffsetChange = useCallback((offset: Shift | null) => {
-    pillOffset.current = offset;
-  }, []);
+  const shownNode = useRef<ReactNode>(null);
   useEffect(() => {
     if (!hudWindows || !sizeKey) return;
     const key = sizeKey;
@@ -304,14 +305,15 @@ export function HudContainer({
       {
         isCurrent: () => mounted.current && wantedSize.current === key,
         prepare: () => hudWindows.setHudSize({ width, height, anchor: "center" }),
+        hold: (s) => {
+          if (mounted.current) flushSync(() => setSizeShift(s));
+        },
         apply: (plan) => {
           if (!mounted.current) return;
           setReadyKey(key);
           setSizeShift(plan ? planShift(plan) : null);
         },
         settle: () => {
-          // A pill resize also collapses any growth around the pill.
-          pillOffset.current = null;
           if (mounted.current) flushSync(() => setSizeShift(null));
         },
       },
@@ -319,34 +321,27 @@ export function HudContainer({
   }, [hudWindows, sizeKey, frames, onResize]);
 
   const windowReady = !hudWindows || readyKey === sizeKey;
-  // Until main answers, draw the new content centred on the old pill (which may
-  // sit inside a window grown for a menu or chips) so it doesn't jump.
-  const offsetNow = pillOffset.current;
-  const shift = useMemo<Shift | null>(() => {
-    if (!hudWindows) return null;
-    if (windowReady || readyKey === null || !sizeKey) return sizeShift;
-    const from = parseKey(readyKey);
-    const to = parseKey(sizeKey);
-    return {
-      x: (offsetNow?.x ?? 0) + Math.round((from.width - to.width) / 2),
-      y: (offsetNow?.y ?? 0) + Math.round((from.height - to.height) / 2),
-    };
-  }, [hudWindows, windowReady, readyKey, sizeKey, sizeShift, offsetNow]);
+  // Until main has a plan for the new pill, keep what is on screen (never on first mount).
+  const holding = !!hudWindows && !windowReady && readyKey !== null && shownNode.current !== null;
+  const shift = hudWindows ? sizeShift : null;
 
-  const frame = (node: React.ReactNode) => (
-    <div
-      data-testid="hud-window"
-      data-view={view ?? "waiting"}
-      data-ready={windowReady ? "true" : "false"}
-      style={
-        shift && (shift.x !== 0 || shift.y !== 0)
-          ? { transform: `translate(${shift.x}px, ${shift.y}px)` }
-          : undefined
-      }
-    >
-      {node}
-    </div>
-  );
+  const frame = (node: ReactNode) => {
+    if (!holding) shownNode.current = node;
+    return (
+      <div
+        data-testid="hud-window"
+        data-view={view ?? "waiting"}
+        data-ready={windowReady ? "true" : "false"}
+        style={
+          shift && (shift.x !== 0 || shift.y !== 0)
+            ? { transform: `translate(${shift.x}px, ${shift.y}px)` }
+            : undefined
+        }
+      >
+        {holding ? shownNode.current : node}
+      </div>
+    );
+  };
 
   if (props && view === "hidden") {
     const dotWindow = hudPillSize("hidden");
@@ -395,7 +390,6 @@ export function HudContainer({
           lastSetup.current = setup;
         }}
         windowReady={windowReady}
-        onPillOffsetChange={onPillOffsetChange}
       />,
     );
   }
@@ -423,7 +417,6 @@ export function HudContainer({
       frames={frames}
       onResize={onResize}
       windowReady={windowReady}
-      onPillOffsetChange={onPillOffsetChange}
     />,
   );
 }

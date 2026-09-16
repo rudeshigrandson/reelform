@@ -29,7 +29,7 @@ describe("createHudTranslator", () => {
   it("formats English with arguments and locale numbers", () => {
     const t = createHudTranslator("en");
     expect(t("hud.rec.discard")).toBe("Discard");
-    expect(t("hud.rec.savedUpTo", { time: "00:42" })).toBe("Recording saved up to 00:42");
+    expect(t("hud.rec.savedUpToSentence", { time: "00:42" })).toBe("Recording saved up to 00:42.");
     expect(t("hud.menu.fps", { fps: 60 })).toBe("60 fps");
   });
 

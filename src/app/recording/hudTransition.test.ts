@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { type HudTransition, NO_SHIFT, planShift, runHudTransition } from "./hudTransition";
+import {
+  type HudTransition,
+  NO_SHIFT,
+  growBounds,
+  planShift,
+  runHudTransition,
+} from "./hudTransition";
 import type { HudWindowPlan } from "./port";
 
 const rect = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
@@ -59,6 +65,103 @@ describe("planShift", () => {
       y: 5,
     });
     expect(NO_SHIFT).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe("growBounds", () => {
+  it("is null when the target fits inside the window, else the union of both", () => {
+    expect(growBounds(rect(0, 0, 620, 352), rect(0, 288, 620, 64))).toBeNull();
+    expect(growBounds(rect(0, 288, 620, 64), rect(0, 0, 620, 352))).toEqual(rect(0, 0, 620, 352));
+    // Wider but shorter (interrupted card → pre-record pill): grows to fit both.
+    expect(growBounds(rect(140, 0, 340, 84), rect(0, 10, 620, 64))).toEqual(rect(0, 0, 620, 84));
+  });
+});
+
+describe("runHudTransition — grow before render, shrink after render", () => {
+  function growEnv(log: string[]) {
+    const e = env(log);
+    const resize = e.resize;
+    e.value.windows.commitHudLayout = async (id: number, stage?: "grow" | "final") => {
+      log.push(stage === "grow" ? `grow:${id}` : `commit:${id}`);
+      // setBounds fires the window resize before the reply is handled.
+      for (const l of [...resize]) l();
+      return true;
+    };
+    return e;
+  }
+
+  it("grows the window, holds the old content in place, then renders the bigger layout", async () => {
+    const log: string[] = [];
+    const e = growEnv(log);
+    const previous = rect(440, 836, 340, 48);
+    const target = rect(440, 644, 340, 240);
+    const applied: HudWindowPlan[] = [];
+    const done = runHudTransition(e.value, {
+      prepare: async () => ({ commitId: 1, previous, target }),
+      hold: (s) => log.push(`hold:${s.x},${s.y}`),
+      apply: (p) => {
+        if (p) applied.push(p);
+        log.push("apply");
+      },
+      settle: () => log.push("settle"),
+    });
+    await expect(done).resolves.toBe(true);
+    // Grown straight to the target: no paint wait before the (no-op) final commit.
+    expect(log).toEqual(["grow:1", "hold:0,192", "apply", "commit:1", "settle"]);
+    expect(applied[0]?.previous).toEqual(target);
+    expect(planShift(applied[0] ?? plan(0))).toEqual(NO_SHIFT);
+  });
+
+  it("mixed change: grows to the union, renders, waits for paint, then shrinks", async () => {
+    const log: string[] = [];
+    const e = growEnv(log);
+    const previous = rect(140, 0, 340, 84);
+    const target = rect(0, 10, 620, 64);
+    const done = runHudTransition(e.value, {
+      prepare: async () => ({ commitId: 2, previous, target }),
+      hold: (s) => log.push(`hold:${s.x},${s.y}`),
+      apply: (p) => log.push(`apply:${p ? JSON.stringify(planShift(p)) : "none"}`),
+      settle: () => log.push("settle"),
+    });
+    await flush();
+    expect(log).toEqual(["grow:2", "hold:140,0", 'apply:{"x":0,"y":10}', "frames"]);
+    e.releaseFrames();
+    await done;
+    expect(log.slice(-2)).toEqual(["commit:2", "settle"]);
+  });
+
+  it("a shrink renders first and never grows", async () => {
+    const log: string[] = [];
+    const e = growEnv(log);
+    const done = runHudTransition(e.value, transition(log, 3));
+    await flush();
+    expect(log).toEqual(["prepare:3", "apply:3", "frames"]);
+    e.releaseFrames();
+    await done;
+    expect(log.some((l) => l.startsWith("grow"))).toBe(false);
+  });
+
+  it("a refused grow falls back to the in-place layout", async () => {
+    const log: string[] = [];
+    const e = env(log);
+    e.value.windows.commitHudLayout = async (id: number, stage?: "grow" | "final") => {
+      log.push(stage === "grow" ? `grow:${id}` : `commit:${id}`);
+      return stage !== "grow";
+    };
+    const previous = rect(0, 100, 36, 36);
+    const target = rect(0, 94, 340, 48);
+    const shifts: string[] = [];
+    const done = runHudTransition(e.value, {
+      prepare: async () => ({ commitId: 4, previous, target }),
+      hold: () => log.push("hold"),
+      apply: (p) => shifts.push(p ? JSON.stringify(planShift(p)) : "none"),
+      settle: () => {},
+    });
+    await flush();
+    e.releaseFrames();
+    await done;
+    expect(log).toEqual(["grow:4", "frames", "commit:4"]);
+    expect(shifts).toEqual(['{"x":0,"y":-6}']);
   });
 });
 

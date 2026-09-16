@@ -79,10 +79,10 @@ describe("PreRecordContainer — sources, chips and window growth", () => {
     );
     // macOS + Electron backend: system audio disabled with the reason.
     expect(screen.getByRole("button", { name: "System audio" })).toBeDisabled();
-    expect(t.windows.calls).toEqual(["collapse", "expand:560x104"]);
+    expect(t.windows.calls).toEqual(["collapse", "expand:620x104"]);
     const stage = screen.getByTestId("hud-stage");
     expect(stage).toHaveAttribute("data-expanded", "true");
-    expect(stage).toHaveStyle({ width: "560px", height: "104px" });
+    expect(stage).toHaveStyle({ width: "620px", height: "104px" });
     expect(screen.getByTestId("hud-pill-slot")).toHaveStyle({ left: "0px", top: "40px" });
     expect(screen.getByRole("button", { name: "Start recording" })).toHaveAttribute(
       "title",
@@ -142,7 +142,7 @@ describe("PreRecordContainer — source picker", () => {
     await flushUi();
     expect(screen.getByRole("dialog", { name: "Choose a source" })).toBeInTheDocument();
     expect(t.windows.calls.at(-1)).toBe("expand:720x532");
-    expect(screen.getByTestId("hud-pill-slot")).toHaveStyle({ left: "80px", top: "468px" });
+    expect(screen.getByTestId("hud-pill-slot")).toHaveStyle({ left: "50px", top: "468px" });
     expect(listCalls()).toBe(2); // immediate refresh on open
     await t.tick();
     await t.tick();
@@ -155,7 +155,7 @@ describe("PreRecordContainer — source picker", () => {
     expect(screen.queryByRole("dialog", { name: "Choose a source" })).toBeNull();
     expect(screen.getByLabelText("Window")).toBeChecked();
     expect(screen.getByTestId("hud-source-chip")).toHaveTextContent("Figma — Onboarding.fig");
-    expect(t.windows.calls.at(-1)).toBe("expand:560x104");
+    expect(t.windows.calls.at(-1)).toBe("expand:620x104");
     await t.tick();
     // Picker closed: no thumbnail refresh, but the selected window's outline polls at 4 Hz.
     expect(listCalls()).toBe(5);
@@ -208,7 +208,7 @@ describe("PreRecordContainer — devices", () => {
     await flushUi();
     fireEvent.click(screen.getByRole("button", { name: "Microphone off" }));
     await flushUi();
-    expect(t.windows.calls.at(-1)).toBe("expand:560x392");
+    expect(t.windows.calls.at(-1)).toBe("expand:620x392");
     fireEvent.click(screen.getByRole("menuitemradio", { name: "Shure MV7" }));
     await flushUi();
     expect(t.log).toContain("mic.open:mic-2");
@@ -240,7 +240,7 @@ describe("PreRecordContainer — devices", () => {
     );
     expect(t.log).toEqual(expect.arrayContaining(["mic.stop:mic-2", "mic.open:mic-1"]));
     // Fallback + mic chips stack in two rows: the window grows for both.
-    expect(t.windows.calls.at(-1)).toBe("expand:560x144");
+    expect(t.windows.calls.at(-1)).toBe("expand:620x144");
     expect(screen.getByTestId("hud-pill-slot")).toHaveStyle({ top: "80px" });
   });
 
@@ -389,7 +389,7 @@ describe("PreRecordContainer — start", () => {
 });
 
 describe("PreRecordContainer — flicker-free window growth (SPEC §5.7)", () => {
-  it("lays out for the prepared bounds shifted in place, commits after paint, then drops the shift", async () => {
+  it("grows the window before drawing the menu, and shrinks it only after the pill painted", async () => {
     let releasePaint: (() => void) | null = null;
     const fake = fakePreRecordDeps({
       platform: "linux",
@@ -409,22 +409,15 @@ describe("PreRecordContainer — flicker-free window growth (SPEC §5.7)", () =>
 
     fireEvent.click(screen.getByRole("button", { name: "More options" }));
     await flushUi();
-    expect(fake.windows.calls.at(-1)).toBe("expand:560x352");
-    // Before the commit the window has not moved: the grown stage is drawn shifted
-    // so the pill stays where it was.
+    expect(fake.windows.calls.at(-1)).toBe("expand:620x352");
+    // Growth: the window grew first (grow commit), then the menu was laid out
+    // unshifted in the window that already fits it; no paint wait, nothing left to move.
+    expect(fake.windows.grows).toEqual([2]);
+    expect(fake.windows.commits).toEqual([1, 2]);
     const stage = screen.getByTestId("hud-stage");
     expect(stage).toHaveAttribute("data-expanded", "true");
-    expect(stage).toHaveAttribute("data-shifted", "true");
-    expect(stage.style.transform).toBe("translate(0px, -288px)");
-    expect(fake.windows.commits).toEqual([1]);
-    expect(fake.windows.bounds).toMatchObject({ width: 560, height: 64 });
-
-    await act(async () => {
-      releasePaint?.();
-      await drain(40);
-    });
-    expect(fake.windows.commits).toEqual([1, 2]);
-    expect(fake.windows.bounds).toMatchObject({ width: 560, height: 352 });
+    expect(stage).not.toHaveAttribute("data-shifted");
+    expect(fake.windows.bounds).toMatchObject({ width: 620, height: 352 });
     expect(screen.getByTestId("hud-stage")).not.toHaveAttribute("data-shifted");
 
     // Collapse: the bare pill is drawn at its old spot in the still-large window first.
@@ -438,8 +431,10 @@ describe("PreRecordContainer — flicker-free window growth (SPEC §5.7)", () =>
       releasePaint?.();
       await drain(40);
     });
-    expect(fake.windows.bounds).toMatchObject({ width: 560, height: 64 });
+    expect(fake.windows.bounds).toMatchObject({ width: 620, height: 64 });
     expect(screen.getByTestId("hud-stage").style.transform).toBe("");
+    // A shrink never grows first.
+    expect(fake.windows.grows).toEqual([2]);
   });
 
   it("requests no growth while the HUD is still resizing its pill", async () => {

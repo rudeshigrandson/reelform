@@ -370,6 +370,9 @@ export function PreRecordContainer({
       {
         isCurrent: () => mounted.current && wantedKey.current === key,
         prepare: () => windows.setHudExpansion(size),
+        hold: (s) => {
+          if (mounted.current) flushSync(() => setShift(s));
+        },
         apply: (plan) => {
           if (!mounted.current) return;
           setLayout(plan?.layout ?? null);

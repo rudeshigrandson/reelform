@@ -1,5 +1,6 @@
-import { Button, Card, CardMeta, CardTitle, Dialog } from "@design/components";
+import { Button, Dialog } from "@design/components";
 import { useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { formatElapsed } from "../../hud/RecordingHud";
 import { usePrefersReducedMotion } from "../../overlays/reducedMotion";
 import type { RecordingFlowState } from "./flow";
@@ -18,46 +19,104 @@ export interface PostRecordCardProps {
   onRecordAnother: () => void;
   onDelete: () => void;
   onRetry: () => void;
+  /** Processing progress 0..1; omitted → indeterminate bar. */
+  progress?: number | undefined;
+  /** Poster frame for the card thumbnail; omitted → warm gradient. */
+  thumbnailUrl?: string | undefined;
+  /** Technical line under the name, e.g. "1512 × 982 · 60 fps · 248 MB". */
+  meta?: string | undefined;
 }
 
-const wrap = {
+const dangerText = "color-mix(in srgb, var(--record) 35%, var(--text-1))";
+
+const wrap: CSSProperties = {
   width: "100%",
-  maxWidth: 480,
   margin: "var(--space-8) auto",
   display: "flex",
   flexDirection: "column",
+  alignItems: "center",
   gap: "var(--space-3)",
   fontFamily: "var(--font-body)",
   color: "var(--text-1)",
-} as const;
+};
 
-/** Spins; with reduce motion it is a static ring that gently fades instead. */
-function Spinner() {
+const shell = (width: number): CSSProperties => ({
+  boxSizing: "border-box",
+  width,
+  maxWidth: "100%",
+  background: "var(--bg-panel)",
+  border: "1px solid var(--border-strong)",
+  borderRadius: "var(--radius-md)",
+  boxShadow: "var(--shadow-lg)",
+  color: "var(--text-1)",
+});
+
+const heading: CSSProperties = {
+  margin: 0,
+  fontFamily: "var(--font-heading)",
+  fontWeight: "var(--font-heading-weight)",
+  fontSize: 18,
+  lineHeight: 1.2,
+};
+
+const action: CSSProperties = {
+  fontFamily: "var(--font-body)",
+  fontSize: 13,
+  fontWeight: 400,
+  padding: "9px 14px",
+};
+
+/** `00:42.180` for the thumbnail chip. */
+function formatDuration(ms: number): string {
+  const safe = Number.isFinite(ms) ? Math.max(0, Math.floor(ms)) : 0;
+  return `${formatElapsed(safe)}.${String(safe % 1000).padStart(3, "0")}`;
+}
+
+/** Slides an accent segment along the track; with reduce motion a full bar gently fades instead. */
+function ProgressBar({ progress }: { progress: number | undefined }) {
   const reduceMotion = usePrefersReducedMotion();
+  const determinate = progress !== undefined && Number.isFinite(progress);
+  const pct = determinate ? Math.max(0, Math.min(1, progress)) * 100 : 0;
   return (
-    <span
+    <div
       aria-hidden="true"
-      data-testid="post-record-spinner"
-      data-motion={reduceMotion ? "reduced" : "full"}
       style={{
-        display: "inline-block",
-        width: 16,
-        height: 16,
+        position: "relative",
+        height: 4,
         borderRadius: "var(--radius-full)",
-        border: "2px solid var(--border-strong)",
-        borderTopColor: "var(--accent)",
-        animation: reduceMotion
-          ? "reelform-post-fade 1.6s ease-in-out infinite alternate"
-          : "reelform-post-spin 900ms linear infinite",
+        background: "var(--bg-sunken)",
+        overflow: "hidden",
       }}
     >
+      <span
+        data-testid="post-record-spinner"
+        data-motion={reduceMotion ? "reduced" : "full"}
+        style={{
+          position: "absolute",
+          top: 0,
+          bottom: 0,
+          left: 0,
+          borderRadius: "var(--radius-full)",
+          background: "var(--accent)",
+          width: determinate ? `${pct}%` : reduceMotion ? "100%" : "40%",
+          animation: determinate
+            ? undefined
+            : reduceMotion
+              ? "reelform-post-fade 1.6s ease-in-out infinite alternate"
+              : "reelform-post-slide 1.4s ease-in-out infinite",
+        }}
+      />
       <style>
         {
-          "@keyframes reelform-post-spin { to { transform: rotate(360deg); } } @keyframes reelform-post-fade { from { opacity: 1; } to { opacity: 0.45; } }"
+          "@keyframes reelform-post-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } } @keyframes reelform-post-fade { from { opacity: 1; } to { opacity: 0.45; } }"
         }
       </style>
-    </span>
+    </div>
   );
+}
+
+function Caption({ children }: { children: ReactNode }) {
+  return <div style={{ fontSize: 12, color: "var(--text-3)" }}>{children}</div>;
 }
 
 export function PostRecordCard({
@@ -67,6 +126,9 @@ export function PostRecordCard({
   onRecordAnother,
   onDelete,
   onRetry,
+  progress,
+  thumbnailUrl,
+  meta,
 }: PostRecordCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const { phase, error, result, interrupted } = state;
@@ -74,29 +136,35 @@ export function PostRecordCard({
   const interruptedNote = interrupted ? (
     <output
       data-testid="post-record-interrupted"
-      style={{ margin: 0, fontSize: 13, color: "var(--warning)" }}
+      style={{ margin: 0, fontSize: 12, color: "var(--warning)" }}
     >
-      Recording saved up to {formatElapsed(interrupted.elapsedMs)} — {interrupted.message}
+      Recording saved up to{" "}
+      <span style={{ fontFamily: "var(--font-mono)" }}>{formatElapsed(interrupted.elapsedMs)}</span>{" "}
+      — {interrupted.message}
     </output>
   ) : null;
 
   if (phase === "finalizing" || phase === "creatingProject") {
     return (
       <div style={wrap} data-testid="post-record-processing">
-        <Card elevation="md" style={{ padding: "var(--space-5)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
-            <Spinner />
-            <output>
-              <CardTitle>Processing recording…</CardTitle>
-              <CardMeta>
-                {phase === "finalizing"
-                  ? "Finalizing file and extracting cursor data"
-                  : "Creating project"}
-              </CardMeta>
-            </output>
-          </div>
+        <output
+          style={{
+            ...shell(320),
+            padding: 22,
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+          }}
+        >
+          <h2 style={heading}>Processing recording…</h2>
+          <ProgressBar progress={progress} />
+          <Caption>
+            {phase === "finalizing"
+              ? "Finalizing file and extracting cursor data"
+              : "Creating project"}
+          </Caption>
           {interruptedNote}
-        </Card>
+        </output>
       </div>
     );
   }
@@ -104,28 +172,35 @@ export function PostRecordCard({
   if (phase === "error" && (error?.stage === "finalize" || error?.stage === "create")) {
     return (
       <div style={wrap} data-testid="post-record-error">
-        <Card elevation="md" style={{ padding: "var(--space-5)" }}>
-          <CardTitle>
+        <div
+          style={{ ...shell(340), padding: 22, display: "flex", flexDirection: "column", gap: 12 }}
+        >
+          <h2 style={heading}>
             {error.stage === "finalize"
               ? "Couldn't finish the recording"
               : "Couldn't create the project"}
-          </CardTitle>
-          <p
-            role="alert"
-            style={{ margin: "var(--space-2) 0", color: "var(--danger)", fontSize: 13 }}
-          >
+          </h2>
+          <p role="alert" style={{ margin: 0, color: dangerText, fontSize: 12 }}>
             {error.message}
           </p>
           {interruptedNote}
-          <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-3)" }}>
-            <Button variant="primary" onClick={onRetry}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <Button
+              variant="primary"
+              onClick={onRetry}
+              style={{ ...action, fontWeight: 600, padding: "9px 18px" }}
+            >
               Retry
             </Button>
-            <Button variant="ghost" onClick={onRecordAnother}>
+            <Button
+              variant="secondary"
+              onClick={onRecordAnother}
+              style={{ ...action, background: "var(--bg-panel-raised)" }}
+            >
               Record another
             </Button>
           </div>
-        </Card>
+        </div>
       </div>
     );
   }
@@ -139,55 +214,91 @@ export function PostRecordCard({
 
   return (
     <div style={wrap} data-testid="post-record-card">
-      <Card elevation="md" style={{ padding: "var(--space-4)" }}>
-        <div
-          aria-hidden="true"
-          style={{
-            width: "100%",
-            aspectRatio: "16 / 9",
-            borderRadius: "var(--radius-sm)",
-            background: "var(--bg-sunken)",
-            marginBottom: "var(--space-3)",
-          }}
-        />
-        <CardTitle>{result.name}</CardTitle>
-        <CardMeta>
-          <span data-testid="post-record-duration" style={{ fontFamily: "var(--font-mono)" }}>
-            {formatElapsed(result.durationMs)}
-          </span>
-          {result.openedEditor ? <span> · Opened in the editor</span> : null}
-        </CardMeta>
-        {interruptedNote}
-        {actionError ? (
-          <p
-            role="alert"
-            style={{ margin: "var(--space-2) 0 0", color: "var(--danger)", fontSize: 13 }}
-          >
-            {actionError.message}
-          </p>
-        ) : null}
+      <div style={{ ...shell(340), overflow: "hidden" }}>
         <div
           style={{
+            position: "relative",
+            height: 150,
             display: "flex",
-            flexWrap: "wrap",
-            gap: "var(--space-2)",
-            marginTop: "var(--space-4)",
+            alignItems: "center",
+            justifyContent: "center",
+            background:
+              "linear-gradient(140deg, color-mix(in srgb, var(--success) 55%, var(--bg-sunken)), color-mix(in srgb, var(--accent) 55%, var(--bg-sunken)))",
           }}
         >
-          <Button variant="primary" onClick={onOpenInEditor}>
-            Open in editor
-          </Button>
-          <Button variant="secondary" onClick={onReveal}>
-            Reveal file
-          </Button>
-          <Button variant="ghost" onClick={onRecordAnother}>
-            Record another
-          </Button>
-          <Button variant="danger" onClick={() => setConfirmDelete(true)}>
-            Delete
-          </Button>
+          {thumbnailUrl ? (
+            <img
+              src={thumbnailUrl}
+              alt=""
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : null}
+          <span
+            data-testid="post-record-duration"
+            style={{
+              position: "absolute",
+              right: 12,
+              bottom: 10,
+              padding: "4px 10px",
+              borderRadius: "var(--radius-full)",
+              background: "color-mix(in srgb, var(--bg-sunken) 75%, transparent)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {formatDuration(result.durationMs)}
+          </span>
         </div>
-      </Card>
+        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>{result.name}</div>
+            {meta || result.openedEditor ? (
+              <div style={{ fontSize: 11, color: "var(--text-3)" }}>
+                {meta}
+                {meta && result.openedEditor ? " · " : null}
+                {result.openedEditor ? "Opened in the editor" : null}
+              </div>
+            ) : null}
+          </div>
+          {interruptedNote}
+          {actionError ? (
+            <p role="alert" style={{ margin: 0, color: dangerText, fontSize: 12 }}>
+              {actionError.message}
+            </p>
+          ) : null}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <Button
+              variant="primary"
+              onClick={onOpenInEditor}
+              style={{ ...action, fontWeight: 600, padding: "9px 18px" }}
+            >
+              Open in editor
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={onReveal}
+              style={{ ...action, background: "var(--bg-panel-raised)" }}
+            >
+              Reveal file
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={onRecordAnother}
+              style={{ ...action, background: "var(--bg-panel-raised)" }}
+            >
+              Record another
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setConfirmDelete(true)}
+              style={{ ...action, color: dangerText }}
+            >
+              Delete
+            </Button>
+          </div>
+        </div>
+      </div>
       <Dialog
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}

@@ -1,9 +1,14 @@
-import { Button, Segmented, Tag } from "@design/components";
-import type { SegmentedOption } from "@design/components";
 import type { CSSProperties, ReactNode } from "react";
 import { DragGrip } from "./RecordingHud";
 import { type HudMessageKey, useHudT } from "./i18n";
-import { CHIP_ROW_HEIGHT, HUD_GAP, MENU_SIZE, PILL_HEIGHT, PILL_WIDTH } from "./layout";
+import {
+  CHIP_ROW_HEIGHT,
+  HUD_GAP,
+  MENU_PANEL_WIDTH,
+  MENU_SIZE,
+  PILL_HEIGHT,
+  PILL_WIDTH,
+} from "./layout";
 import type {
   HudChip,
   HudDevice,
@@ -13,7 +18,7 @@ import type {
 } from "./types";
 
 /**
- * S05 — pre-record HUD pill (560×64 glass): source segmented, source chip
+ * S05 — pre-record HUD pill (620×64 glass): source segmented, source chip
  * (opens S06), mic with 5-bar live meter + device menu, system audio toggle,
  * camera + device menu + "Show preview", red Record, overflow. Presentational:
  * the container owns data, window growth and where menus are placed.
@@ -26,32 +31,50 @@ const MODE_OPTIONS: ReadonlyArray<{ value: PreRecordMode; labelKey: HudMessageKe
 ];
 
 export const MINI_METER_BARS = 5;
+const MINI_METER_HEIGHTS = [6, 11, 14, 8, 4] as const;
+
+const accentTint = (pct: number) => `color-mix(in srgb, var(--accent) ${pct}%, transparent)`;
 
 export const prePillStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: "var(--space-2)",
+  gap: 10,
   width: PILL_WIDTH,
   height: PILL_HEIGHT,
   boxSizing: "border-box",
-  padding: "0 var(--space-3)",
-  background: "color-mix(in srgb, var(--bg-panel) 88%, transparent)",
+  padding: "0 12px",
+  background: "color-mix(in srgb, var(--bg-panel) 72%, transparent)",
   backdropFilter: "blur(24px)",
   border: "1px solid var(--border-strong)",
   borderRadius: "var(--radius-full)",
   boxShadow: "var(--shadow-lg)",
   color: "var(--text-1)",
   fontFamily: "var(--font-body)",
-  fontSize: 13,
+  fontSize: 12,
   userSelect: "none",
+};
+
+const resetButton: CSSProperties = {
+  font: "inherit",
+  color: "inherit",
+  margin: 0,
+  cursor: "pointer",
 };
 
 function Divider() {
   return (
     <span
       aria-hidden="true"
-      style={{ width: 1, alignSelf: "stretch", margin: "14px 0", background: "var(--border)" }}
+      style={{ flex: "none", width: 1, height: 28, background: "var(--border-strong)" }}
     />
+  );
+}
+
+function Chevron() {
+  return (
+    <span aria-hidden="true" style={{ color: "var(--text-2)", fontSize: 11, lineHeight: 1 }}>
+      ⌄
+    </span>
   );
 }
 
@@ -70,16 +93,20 @@ export function MiniMeter({ level, active }: { level: number | undefined; active
       data-testid="pre-mic-meter"
       style={{ display: "inline-flex", alignItems: "flex-end", gap: 2, height: 14 }}
     >
-      {Array.from({ length: MINI_METER_BARS }, (_, i) => (
+      {MINI_METER_HEIGHTS.map((h, i) => (
         <span
           // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length static meter
           key={i}
           data-lit={i < lit ? "true" : "false"}
           style={{
-            width: 2,
-            height: 5 + i * 2,
-            borderRadius: 1,
-            background: i < lit ? "var(--accent)" : "var(--border-strong)",
+            width: 3,
+            height: h,
+            borderRadius: "var(--radius-full)",
+            background: active
+              ? i < lit
+                ? "var(--accent-hover)"
+                : "color-mix(in srgb, var(--accent-hover) 40%, transparent)"
+              : "var(--border-strong)",
           }}
         />
       ))}
@@ -87,10 +114,100 @@ export function MiniMeter({ level, active }: { level: number | undefined; active
   );
 }
 
+/** On: accent tint + hairline; off: quiet outline. */
 const toggleStyle = (on: boolean): CSSProperties => ({
-  color: on ? "var(--accent)" : "var(--text-2)",
-  background: on ? "var(--accent-soft)" : undefined,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 6,
+  flex: "none",
+  boxSizing: "border-box",
+  borderRadius: "var(--radius-full)",
+  border: `1px solid ${on ? accentTint(50) : "var(--border)"}`,
+  background: on ? accentTint(24) : "transparent",
+  color: on ? "var(--accent-hover)" : "var(--text-2)",
 });
+
+function ModeSegmented({
+  value,
+  onChange,
+}: {
+  value: PreRecordMode;
+  onChange: (mode: PreRecordMode) => void;
+}) {
+  const t = useHudT();
+  return (
+    <div
+      role="radiogroup"
+      style={{
+        display: "flex",
+        flex: "none",
+        padding: 3,
+        borderRadius: "var(--radius-full)",
+        background: "color-mix(in srgb, var(--bg-sunken) 60%, transparent)",
+      }}
+    >
+      {MODE_OPTIONS.map((o) => {
+        const checked = o.value === value;
+        return (
+          <label
+            key={o.value}
+            style={{
+              padding: "6px 12px",
+              borderRadius: "var(--radius-full)",
+              background: checked ? "var(--accent)" : "transparent",
+              color: checked ? "var(--on-accent)" : "var(--text-2)",
+              fontWeight: checked ? 600 : 400,
+              whiteSpace: "nowrap",
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="radio"
+              name="hud-mode"
+              value={o.value}
+              checked={checked}
+              onChange={() => onChange(o.value)}
+              style={{ position: "absolute", opacity: 0, width: 0, height: 0, margin: 0 }}
+            />
+            {t(o.labelKey)}
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+function MicGlyph({ on }: { on: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        flex: "none",
+        width: 7,
+        height: 13,
+        borderRadius: "var(--radius-full)",
+        background: on ? "var(--accent-hover)" : "var(--text-3)",
+      }}
+    />
+  );
+}
+
+function CameraGlyph({ on }: { on: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        flex: "none",
+        boxSizing: "border-box",
+        width: 15,
+        height: 11,
+        borderRadius: 3,
+        border: `1.5px solid ${on ? "var(--accent-hover)" : "var(--text-3)"}`,
+      }}
+    />
+  );
+}
 
 export function PreRecordHud(props: PreRecordHudProps) {
   const {
@@ -115,23 +232,14 @@ export function PreRecordHud(props: PreRecordHudProps) {
   } = props;
 
   const t = useHudT();
-  const modeOptions: ReadonlyArray<SegmentedOption<PreRecordMode>> = MODE_OPTIONS.map((o) => ({
-    value: o.value,
-    label: t(o.labelKey),
-  }));
   const toggleMenu = (menu: NonNullable<PreRecordHudProps["openMenu"]>) =>
     onMenuChange(openMenu === menu ? null : menu);
+  const systemOn = systemAudioSupported && systemAudio;
 
   return (
     <div style={prePillStyle} data-testid="pre-record-hud" data-mode={mode}>
       <DragGrip />
-      <Segmented<PreRecordMode>
-        name="hud-mode"
-        size="sm"
-        value={mode}
-        options={modeOptions}
-        onChange={onModeChange}
-      />
+      <ModeSegmented value={mode} onChange={onModeChange} />
       <Divider />
       <button
         type="button"
@@ -142,46 +250,44 @@ export function PreRecordHud(props: PreRecordHudProps) {
         data-testid="hud-source-chip"
         title={sourceLabel}
         style={{
-          flex: 1,
+          ...resetButton,
+          flex: "0 1 auto",
           minWidth: 0,
+          maxWidth: 190,
           display: "inline-flex",
           alignItems: "center",
-          gap: "var(--space-1)",
-          padding: "var(--space-1) var(--space-2)",
-          border: "1px solid var(--border)",
+          gap: 8,
+          padding: "7px 12px",
+          border: `1px solid ${sourcePickerOpen ? accentTint(50) : "transparent"}`,
           borderRadius: "var(--radius-full)",
-          background: sourcePickerOpen ? "var(--bg-active)" : "transparent",
+          background: sourcePickerOpen
+            ? accentTint(24)
+            : "color-mix(in srgb, var(--bg-sunken) 50%, transparent)",
           color: "var(--text-1)",
-          font: "inherit",
-          cursor: "pointer",
         }}
       >
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {sourceLabel}
         </span>
-        <span aria-hidden="true" style={{ color: "var(--text-3)" }}>
-          ▾
-        </span>
+        <Chevron />
       </button>
       <Divider />
-      <Button
-        variant="ghost"
+      <button
+        type="button"
         onClick={() => toggleMenu("mic")}
         aria-haspopup="menu"
         aria-expanded={openMenu === "mic"}
         aria-label={t(micOn ? "hud.pre.micOn" : "hud.pre.micOff")}
         title={t("hud.pre.microphone")}
-        style={{ ...toggleStyle(micOn), gap: 4, padding: "0 var(--space-2)" }}
+        style={{ ...resetButton, ...toggleStyle(micOn), padding: "7px 10px" }}
       >
-        <span aria-hidden="true" style={{ textDecoration: micOn ? undefined : "line-through" }}>
-          🎙
-        </span>
+        <MicGlyph on={micOn} />
         <MiniMeter level={micLevel} active={micOn} />
-      </Button>
-      <Button
-        variant="ghost"
-        icon
-        aria-pressed={systemAudioSupported && systemAudio}
+        <Chevron />
+      </button>
+      <button
+        type="button"
+        aria-pressed={systemOn}
         aria-label={t("hud.pre.systemAudio")}
         disabled={!systemAudioSupported}
         title={
@@ -190,22 +296,31 @@ export function PreRecordHud(props: PreRecordHudProps) {
             : (systemAudioNote ?? t("hud.pre.unavailable"))
         }
         onClick={() => onSystemAudioChange(!systemAudio)}
-        style={toggleStyle(systemAudioSupported && systemAudio)}
+        style={{
+          ...resetButton,
+          ...toggleStyle(systemOn),
+          width: 34,
+          height: 34,
+          padding: 0,
+          fontSize: 14,
+          opacity: systemAudioSupported ? 1 : 0.45,
+          cursor: systemAudioSupported ? "pointer" : "not-allowed",
+        }}
       >
-        <span aria-hidden="true">🔊</span>
-      </Button>
-      <Button
-        variant="ghost"
-        icon
+        <span aria-hidden="true">♪</span>
+      </button>
+      <button
+        type="button"
         onClick={() => toggleMenu("camera")}
         aria-haspopup="menu"
         aria-expanded={openMenu === "camera"}
         aria-label={t(cameraOn ? "hud.pre.cameraOn" : "hud.pre.cameraOff")}
         title={t("hud.pre.camera")}
-        style={toggleStyle(cameraOn)}
+        style={{ ...resetButton, ...toggleStyle(cameraOn), padding: "7px 10px" }}
       >
-        <span aria-hidden="true">📷</span>
-      </Button>
+        <CameraGlyph on={cameraOn} />
+        <Chevron />
+      </button>
       <Divider />
       <button
         type="button"
@@ -215,27 +330,56 @@ export function PreRecordHud(props: PreRecordHudProps) {
         title={busyLabel ?? t("hud.pre.startRecordingShortcut", { shortcut: recordShortcut })}
         data-testid="hud-record"
         style={{
-          width: 40,
-          height: 40,
+          ...resetButton,
+          width: 44,
+          height: 44,
           flex: "none",
-          borderRadius: "50%",
-          border: "3px solid var(--text-1)",
+          marginLeft: "auto",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 0,
+          borderRadius: "var(--radius-full)",
+          border: "none",
           background: "var(--record)",
+          boxShadow: "0 6px 18px color-mix(in srgb, var(--record) 45%, transparent)",
           cursor: recordDisabled ? "not-allowed" : "pointer",
           opacity: recordDisabled ? 0.5 : 1,
         }}
-      />
-      <Button
-        variant="ghost"
-        icon
+      >
+        <span
+          aria-hidden="true"
+          style={{
+            boxSizing: "border-box",
+            width: 16,
+            height: 16,
+            borderRadius: "var(--radius-full)",
+            border: "3px solid var(--text-1)",
+          }}
+        />
+      </button>
+      <button
+        type="button"
         onClick={() => toggleMenu("overflow")}
         aria-haspopup="menu"
         aria-expanded={openMenu === "overflow"}
         aria-label={t("hud.pre.moreOptions")}
         title={t("hud.more")}
+        style={{
+          ...resetButton,
+          flex: "none",
+          width: 28,
+          height: 28,
+          padding: 0,
+          border: "none",
+          borderRadius: "var(--radius-full)",
+          background: openMenu === "overflow" ? "var(--bg-active)" : "transparent",
+          color: "var(--text-2)",
+          fontSize: 14,
+        }}
       >
         ⋯
-      </Button>
+      </button>
     </div>
   );
 }
@@ -243,18 +387,22 @@ export function PreRecordHud(props: PreRecordHudProps) {
 // ---- menus ----------------------------------------------------------------------
 
 const menuStyle: CSSProperties = {
-  width: MENU_SIZE.width,
+  display: "flex",
+  flexDirection: "column",
+  gap: 2,
+  width: MENU_PANEL_WIDTH,
   maxHeight: MENU_SIZE.height,
   boxSizing: "border-box",
   overflow: "auto",
-  padding: "var(--space-2)",
-  background: "var(--bg-panel-raised)",
+  padding: 8,
+  background: "color-mix(in srgb, var(--bg-panel) 94%, transparent)",
+  backdropFilter: "blur(24px)",
   border: "1px solid var(--border-strong)",
   borderRadius: "var(--radius-md)",
   boxShadow: "var(--shadow-lg)",
   color: "var(--text-1)",
   fontFamily: "var(--font-body)",
-  fontSize: 13,
+  fontSize: 12,
 };
 
 function MenuItem({
@@ -275,11 +423,13 @@ function MenuItem({
       style={{
         display: "flex",
         alignItems: "center",
-        gap: "var(--space-2)",
+        justifyContent: "space-between",
+        gap: 8,
+        flex: "none",
         width: "100%",
-        padding: "var(--space-1) var(--space-2)",
+        padding: "7px 10px",
         border: "none",
-        borderRadius: "var(--radius-sm)",
+        borderRadius: 10,
         background: checked ? "var(--accent-soft)" : "transparent",
         color: "var(--text-1)",
         font: "inherit",
@@ -287,16 +437,42 @@ function MenuItem({
         cursor: "pointer",
       }}
     >
-      {children}
+      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{children}</span>
+      {checked ? (
+        <span aria-hidden="true" style={{ color: "var(--accent-hover)" }}>
+          ✓
+        </span>
+      ) : null}
     </button>
   );
 }
 
-function MenuLabel({ children }: { children: ReactNode }) {
+/** Group heading with the current value on the right (guide S05 "Countdown   3 s ›"). */
+function MenuLabel({ children, value }: { children: ReactNode; value?: ReactNode }) {
   return (
-    <div style={{ padding: "var(--space-1) var(--space-2)", color: "var(--text-3)", fontSize: 12 }}>
-      {children}
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 8,
+        flex: "none",
+        padding: "7px 10px 3px",
+        color: "var(--text-3)",
+        fontSize: 11,
+      }}
+    >
+      <span>{children}</span>
+      {value !== undefined ? <span style={{ color: "var(--accent-hover)" }}>{value} ›</span> : null}
     </div>
+  );
+}
+
+function MenuSeparator() {
+  return (
+    <div
+      aria-hidden="true"
+      style={{ flex: "none", height: 1, margin: "4px 8px", background: "var(--border)" }}
+    />
   );
 }
 
@@ -378,6 +554,7 @@ export function PreRecordMenuPanel(props: PreRecordHudProps) {
             close();
           }}
         />
+        <MenuSeparator />
         <MenuItem
           onClick={() => {
             props.onShowPreview();
@@ -390,24 +567,29 @@ export function PreRecordMenuPanel(props: PreRecordHudProps) {
     );
   }
 
+  const countdownLabel = (c: PreRecordOptions["countdown"]) =>
+    c === 0 ? t("hud.menu.off") : t("hud.menu.countdownSeconds", { seconds: c });
+
   return (
     <div
       role="menu"
       aria-label={t("hud.pre.moreOptions")}
-      style={menuStyle}
+      style={{ ...menuStyle, alignSelf: "flex-end" }}
       data-testid="hud-menu-overflow"
     >
-      <MenuLabel>{t("hud.menu.countdown")}</MenuLabel>
+      <MenuLabel value={countdownLabel(options.countdown)}>{t("hud.menu.countdown")}</MenuLabel>
       {COUNTDOWNS.map((c) => (
         <MenuItem
           key={c}
           checked={options.countdown === c}
           onClick={() => onOptionsChange({ countdown: c })}
         >
-          {c === 0 ? t("hud.menu.off") : t("hud.menu.countdownSeconds", { seconds: c })}
+          {countdownLabel(c)}
         </MenuItem>
       ))}
-      <MenuLabel>{t("hud.menu.cursor")}</MenuLabel>
+      <MenuLabel value={t(options.hideCursor ? "hud.menu.cursorHide" : "hud.menu.cursorShow")}>
+        {t("hud.menu.cursor")}
+      </MenuLabel>
       <MenuItem
         checked={!options.hideCursor}
         onClick={() => onOptionsChange({ hideCursor: false })}
@@ -417,12 +599,13 @@ export function PreRecordMenuPanel(props: PreRecordHudProps) {
       <MenuItem checked={options.hideCursor} onClick={() => onOptionsChange({ hideCursor: true })}>
         {t("hud.menu.cursorHide")}
       </MenuItem>
-      <MenuLabel>{t("hud.menu.frameRate")}</MenuLabel>
+      <MenuLabel value={options.fps}>{t("hud.menu.frameRate")}</MenuLabel>
       {([30, 60] as const).map((f) => (
         <MenuItem key={f} checked={options.fps === f} onClick={() => onOptionsChange({ fps: f })}>
           {t("hud.menu.fps", { fps: f })}
         </MenuItem>
       ))}
+      <MenuSeparator />
       <MenuItem
         checked={options.hideHudWhileRecording}
         onClick={() => onOptionsChange({ hideHudWhileRecording: !options.hideHudWhileRecording })}
@@ -430,17 +613,30 @@ export function PreRecordMenuPanel(props: PreRecordHudProps) {
         {t("hud.menu.hideHudWhileRecording")}
       </MenuItem>
       {props.onOpenSettings ? (
-        <MenuItem
-          onClick={() => {
-            props.onOpenSettings?.();
-            close();
-          }}
-        >
-          {t("hud.menu.settings")}
-        </MenuItem>
+        <>
+          <MenuSeparator />
+          <MenuItem
+            onClick={() => {
+              props.onOpenSettings?.();
+              close();
+            }}
+          >
+            {t("hud.menu.settings")}
+          </MenuItem>
+        </>
       ) : null}
     </div>
   );
+}
+
+/** Warm tint for a chip / strip: warning (terracotta) or danger (record crimson). */
+export function toneStyle(tone: "warning" | "danger"): CSSProperties {
+  const c = tone === "danger" ? "var(--record)" : "var(--warning)";
+  return {
+    background: `color-mix(in srgb, ${c} ${tone === "danger" ? 14 : 20}%, transparent)`,
+    border: `1px solid color-mix(in srgb, ${c} ${tone === "danger" ? 50 : 55}%, transparent)`,
+    color: `color-mix(in srgb, ${c} 35%, var(--text-1))`,
+  };
 }
 
 /** Chips above the pill (fallback capture, device errors). */
@@ -458,29 +654,34 @@ export function HudChips({ chips }: { chips: ReadonlyArray<HudChip> }) {
       }}
     >
       {chips.map((c) => (
-        <Tag
+        <span
           key={c.id}
-          variant="outline"
           role={c.tone === "danger" ? "alert" : "status"}
           data-testid={`hud-chip-${c.id}`}
           data-tone={c.tone}
           title={c.message}
           style={{
+            ...toneStyle(c.tone),
             boxSizing: "border-box",
-            height: CHIP_ROW_HEIGHT,
+            height: CHIP_ROW_HEIGHT - 4,
+            margin: "2px 0",
             display: "inline-flex",
             alignItems: "center",
+            gap: 8,
             maxWidth: PILL_WIDTH,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
+            padding: "0 14px",
+            borderRadius: "var(--radius-full)",
+            backdropFilter: "blur(18px)",
+            fontFamily: "var(--font-body)",
+            fontSize: 11,
             whiteSpace: "nowrap",
-            color: c.tone === "danger" ? "var(--danger)" : "var(--warning)",
-            borderColor: c.tone === "danger" ? "var(--danger)" : "var(--warning)",
-            background: "var(--bg-panel-raised)",
           }}
         >
-          {c.message}
-        </Tag>
+          <span aria-hidden="true">⚠</span>
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+            {c.message}
+          </span>
+        </span>
       ))}
     </div>
   );

@@ -1,5 +1,5 @@
-import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { WebcamBubble } from "./WebcamBubble";
 import { sampleWebcamProps } from "./types";
 
@@ -55,5 +55,42 @@ describe("WebcamBubble", () => {
     pointer("pointerup", window, 0, 0);
     expect(bubble.style.left).toBe("0px");
     expect(bubble.style.top).toBe("0px");
+  });
+
+  it("without a feed draws the dashed No camera placeholder", () => {
+    render(<WebcamBubble size={110} shape="circle" />);
+    const bubble = screen.getByTestId("webcam-bubble");
+    expect(bubble).toHaveTextContent("No camera");
+    expect(bubble.style.border).toContain("dashed");
+    expect(screen.getByTestId("webcam-glyph")).toBeInTheDocument();
+  });
+
+  it("mirrored gets the accent rim; controls sit on the bottom bar without starting a drag", () => {
+    const onClick = vi.fn();
+    render(
+      <WebcamBubble
+        size={110}
+        shape="circle"
+        mirrored
+        initialPosition={{ x: 10, y: 10 }}
+        controls={
+          <button type="button" onClick={onClick}>
+            S
+          </button>
+        }
+      >
+        <span>feed</span>
+      </WebcamBubble>,
+    );
+    const bubble = screen.getByTestId("webcam-bubble");
+    expect(bubble).toHaveAttribute("data-mirrored", "true");
+    expect(bubble.style.border).toContain("var(--accent)");
+    const button = screen.getByRole("button", { name: "S" });
+    pointer("pointerdown", button, 50, 50);
+    pointer("pointermove", window, 90, 90);
+    pointer("pointerup", window, 90, 90);
+    expect(bubble.style.left).toBe("10px");
+    fireEvent.click(button);
+    expect(onClick).toHaveBeenCalledOnce();
   });
 });

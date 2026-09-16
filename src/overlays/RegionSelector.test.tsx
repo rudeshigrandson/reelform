@@ -19,7 +19,7 @@ describe("RegionSelector", () => {
         onCancel={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("region-readout")).toHaveTextContent("640×360 px");
+    expect(screen.getByTestId("region-readout")).toHaveTextContent("640 × 360");
   });
 
   it("keeps large pixel sizes ungrouped and localizes the default hint and labels", () => {
@@ -30,7 +30,7 @@ describe("RegionSelector", () => {
         onCancel={vi.fn()}
       />,
     );
-    expect(screen.getByTestId("region-readout")).toHaveTextContent("1920×1080 px");
+    expect(screen.getByTestId("region-readout")).toHaveTextContent("1920 × 1080");
     expect(screen.getByTestId("region-hint")).toHaveTextContent(
       "Drag to select a region · Esc to cancel",
     );
@@ -60,7 +60,7 @@ describe("RegionSelector", () => {
         onCancel={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    fireEvent.click(screen.getByRole("button", { name: "Record this region" }));
     expect(onConfirm).toHaveBeenCalledOnce();
     expect(onConfirm).toHaveBeenCalledWith(sampleRegionProps.initialBounds);
   });
@@ -104,7 +104,7 @@ describe("RegionSelector", () => {
     pointer("pointerdown", rect, 150, 150);
     pointer("pointermove", window, 180, 170);
     pointer("pointerup", window, 180, 170);
-    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    fireEvent.click(screen.getByRole("button", { name: "Record this region" }));
     expect(onConfirm).toHaveBeenCalledWith({ x: 130, y: 120, width: 200, height: 150 });
   });
 
@@ -123,7 +123,7 @@ describe("RegionSelector", () => {
     pointer("pointerdown", rect, 150, 150);
     pointer("pointermove", window, 105, 154);
     pointer("pointerup", window, 105, 154);
-    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    fireEvent.click(screen.getByRole("button", { name: "Record this region" }));
     expect(onConfirm).toHaveBeenLastCalledWith({ x: 50, y: 104, width: 200, height: 150 });
 
     // Drag the east handle to 645: the right edge lands on the window's 650.
@@ -131,7 +131,7 @@ describe("RegionSelector", () => {
     pointer("pointerdown", east, 250, 179);
     pointer("pointermove", window, 645, 179);
     pointer("pointerup", window, 645, 179);
-    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    fireEvent.click(screen.getByRole("button", { name: "Record this region" }));
     expect(onConfirm).toHaveBeenLastCalledWith({ x: 50, y: 104, width: 600, height: 150 });
   });
 
@@ -148,7 +148,51 @@ describe("RegionSelector", () => {
     pointer("pointerdown", screen.getByTestId("region-rect"), 150, 150);
     pointer("pointermove", window, 105, 154);
     pointer("pointerup", window, 105, 154);
-    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    fireEvent.click(screen.getByRole("button", { name: "Record this region" }));
     expect(onConfirm).toHaveBeenCalledWith({ x: 55, y: 104, width: 200, height: 150 });
+  });
+
+  it("aspect presets reshape the selection and lock the ratio while resizing", () => {
+    const onConfirm = vi.fn();
+    render(
+      <RegionSelector
+        initialBounds={{ x: 100, y: 100, width: 320, height: 100 }}
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: "Custom" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByTestId("region-lock")).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "16:9" }));
+    expect(screen.getByRole("radio", { name: "16:9" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByTestId("region-readout")).toHaveTextContent("320 × 180");
+    expect(screen.getByTestId("region-lock")).toBeInTheDocument();
+    // Dragging the east handle keeps 16:9.
+    const east = screen.getByTestId("handle-e");
+    pointer("pointerdown", east, 420, 190);
+    pointer("pointermove", window, 500, 190);
+    pointer("pointerup", window, 500, 190);
+    fireEvent.click(screen.getByRole("button", { name: "Record this region" }));
+    expect(onConfirm).toHaveBeenLastCalledWith({ x: 100, y: 100, width: 400, height: 225 });
+    fireEvent.click(screen.getByRole("radio", { name: "Custom" }));
+    expect(screen.queryByTestId("region-lock")).toBeNull();
+  });
+
+  it("draws accent guides on snapped edges only while dragging", () => {
+    render(
+      <RegionSelector
+        initialBounds={{ x: 100, y: 100, width: 200, height: 150 }}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        snapTargets={[{ x: 50, y: 60, width: 600, height: 400 }]}
+      />,
+    );
+    expect(screen.queryAllByTestId("region-guide")).toHaveLength(0);
+    const rect = screen.getByTestId("region-rect");
+    pointer("pointerdown", rect, 150, 150);
+    pointer("pointermove", window, 105, 154);
+    expect(screen.queryAllByTestId("region-guide")).toHaveLength(1);
+    pointer("pointerup", window, 105, 154);
+    expect(screen.queryAllByTestId("region-guide")).toHaveLength(0);
   });
 });

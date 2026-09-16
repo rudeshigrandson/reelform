@@ -470,6 +470,8 @@ export function buildRecordingDocument(input: BuildDocumentInput): ProjectV1 {
 
   const data = initialEditorData();
   data.durationMs = durationMs;
+  // The store's initial clip is a placeholder: no clips → one clip over the whole source.
+  data.clips = [];
   data.cursorPointCount = fin.telemetry.pointCount;
   data.frame = applyFrameDefaults(data.frame, input.defaults);
   data.frame.crop = initialRegionCrop(fin, input.sources);

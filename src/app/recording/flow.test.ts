@@ -95,6 +95,37 @@ async function toRecording(t: ReturnType<typeof harness>, setup: RecordingSetup 
   await drain();
 }
 
+describe("recording flow — project → editor handoff", () => {
+  it("opens the editor only after create resolved, with the id written into project.json", async () => {
+    const t = harness();
+    const create = t.projects.create.bind(t.projects);
+    t.projects.create = async (req) => {
+      await drain(5); // A slow main: the editor must not open before the folder exists.
+      const res = await create(req);
+      t.log.push("create.done");
+      return res;
+    };
+    const openEditor = t.windows.openEditor.bind(t.windows);
+    t.windows.openEditor = (projectId) => {
+      t.log.push(`openEditor:${projectId}`);
+      return openEditor(projectId);
+    };
+    await toRecording(t);
+    t.emit({ sessionId: "s1", type: "stopped", elapsedMs: 42_180, reason: "user" });
+    await drain(80);
+
+    expect(t.log.slice(-3)).toEqual(["create", "create.done", "openEditor:p1"]);
+    const doc = t.projects.created[0]?.document as {
+      id: string;
+      timeline: { clips: { sourceEndMs: number }[] };
+    };
+    // The id the editor window routes by is the one main indexes the folder under.
+    expect(doc.id).toBe("p1");
+    expect(doc.timeline.clips.map((c) => c.sourceEndMs)).toEqual([42_180]);
+    expect(t.state().result).toMatchObject({ projectId: "p1", openedEditor: true });
+  });
+});
+
 describe("recording flow — happy path", () => {
   it("start → countdown → capture → pause/resume → stop → flush → finalize → create → editor", async () => {
     const t = harness();
@@ -789,51 +820,37 @@ describe("recording flow — background transcode relink", () => {
     expect(t.state().phase).toBe("done");
   }
 
-  it("relinks the project's screen video to the H.264 sibling and saves the document", async () => {
+  it("asks main to replace the project's screen video with the H.264 file", async () => {
     const t = harness();
     await recorded(t);
     expect(t.port.transcodeListeners.size).toBe(1);
     const projectPath = t.state().result?.projectPath ?? "";
+    const created = t.projects.created[0]?.document as { sources: { video: { path: string } } };
     t.port.emitTranscode({ sessionId: "s1", progress: 0.4, done: false, outputPath: null });
     t.port.emitTranscode({ ...done(null), sessionId: "other" });
     await drain();
-    expect(t.projects.relinked).toEqual([]);
+    expect(t.projects.replaced).toEqual([]);
+    const savedBefore = t.projects.saved.length;
     t.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
     await drain();
-    expect(t.projects.relinked).toEqual([
+    expect(t.projects.replaced).toEqual([
       {
         path: projectPath,
+        source: "video",
         filePath: "/rec/s1/screen.h264.mp4",
+        replaces: created.sources.video.path,
         expected: { durationMs: 42_180 },
-        mode: "copy",
+        codec: "h264",
       },
     ]);
-    const doc = t.projects.saved.at(-1)?.document as {
-      sources: { video: { path: string; codec: string; durationMs: number } };
-    };
-    expect(t.projects.saved.at(-1)?.path).toBe(projectPath);
-    expect(projectV1Schema.safeParse(doc).success).toBe(true);
-    expect(doc.sources.video).toMatchObject({ path: "media/screen.h264.mp4", codec: "h264" });
+    // Main writes the document under its lock: the renderer never saves a copy over edits.
+    expect(t.projects.saved).toHaveLength(savedBefore);
+    expect(t.projects.relinked).toEqual([]);
     expect(t.port.transcodeListeners.size).toBe(0);
   });
 
-  it("patches the document as currently saved, keeping edits made after create", async () => {
+  it("logs a skipped swap when the screen video was replaced meanwhile", async () => {
     const logged: string[] = [];
-    const t = harness({ log: (m) => logged.push(m) });
-    await recorded(t);
-    const projectPath = t.state().result?.projectPath ?? "";
-    const created = t.projects.created[0]?.document as { name: string };
-    t.projects.saved.push({ path: projectPath, document: { ...created, name: "Edited" } });
-    t.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
-    await drain();
-    const doc = t.projects.saved.at(-1)?.document as {
-      name: string;
-      sources: { video: { path: string; codec: string } };
-    };
-    expect(doc.name).toBe("Edited");
-    expect(doc.sources.video).toMatchObject({ path: "media/screen.h264.mp4", codec: "h264" });
-
-    // The user replaced the video in the meantime: nothing is saved over it.
     const u = harness({ log: (m) => logged.push(m) });
     await recorded(u);
     const uPath = u.state().result?.projectPath ?? "";
@@ -844,10 +861,9 @@ describe("recording flow — background transcode relink", () => {
       sources: { ...b.sources, video: { ...b.sources.video, path: "/x.mp4" } },
     };
     u.projects.saved.push({ path: uPath, document: replaced });
-    const savedBefore = u.projects.saved.length;
     u.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
     await drain();
-    expect(u.projects.saved).toHaveLength(savedBefore);
+    expect(u.projects.replaced).toHaveLength(1);
     expect(logged.at(-1)).toContain("replaced");
   });
 
@@ -859,8 +875,7 @@ describe("recording flow — background transcode relink", () => {
       return create(req);
     };
     await recorded(t);
-    expect(t.projects.relinked).toHaveLength(1);
-    expect(t.projects.saved).toHaveLength(1);
+    expect(t.projects.replaced).toHaveLength(1);
   });
 
   it("failed transcodes and failed relinks are logged; the project keeps its video", async () => {
@@ -869,17 +884,16 @@ describe("recording flow — background transcode relink", () => {
     await recorded(t);
     t.port.emitTranscode(done(null, { error: "ffmpeg exited 1" }));
     await drain();
-    expect(t.projects.relinked).toEqual([]);
+    expect(t.projects.replaced).toEqual([]);
     expect(t.port.transcodeListeners.size).toBe(0);
     expect(logged).toEqual([expect.stringContaining("ffmpeg exited 1")]);
 
     const u = harness({ log: (m) => logged.push(m) });
-    u.projects.relinkError = { code: "RELINK_DURATION_MISMATCH", message: "duration" };
+    u.projects.replaceError = { code: "RELINK_DURATION_MISMATCH", message: "duration" };
     await recorded(u);
     u.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
     await drain();
-    expect(u.projects.relinked).toHaveLength(1);
-    expect(u.projects.saved).toEqual([]);
+    expect(u.projects.replaced).toHaveLength(1);
     expect(logged.at(-1)).toContain("RELINK_DURATION_MISMATCH");
   });
 
@@ -918,7 +932,7 @@ describe("recording flow — background transcode relink", () => {
     expect(t.port.transcodeListeners.size).toBe(0);
     t.port.emitTranscode(done("/rec/s1/screen.h264.mp4"));
     await drain();
-    expect(t.projects.relinked).toEqual([]);
+    expect(t.projects.replaced).toEqual([]);
 
     const u = harness();
     await recorded(u);

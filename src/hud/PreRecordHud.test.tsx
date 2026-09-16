@@ -50,11 +50,11 @@ function Harness(overrides: Partial<PreRecordHudProps>) {
 }
 
 describe("PreRecordHud pill", () => {
-  it("renders mode, source chip, record tooltip and the 560x64 pill", () => {
+  it("renders mode, source chip, record tooltip and the 620x64 pill", () => {
     const props = baseProps();
     render(<PreRecordHud {...props} />);
     const pill = screen.getByTestId("pre-record-hud");
-    expect(pill).toHaveStyle({ width: "560px", height: "64px" });
+    expect(pill).toHaveStyle({ width: "620px", height: "64px" });
     // Draggable (guide S05): the grip is the window's drag region.
     expect(screen.getByTestId("hud-grip")).toHaveAttribute("data-app-region", "drag");
     expect(screen.getByLabelText("Display")).toBeChecked();

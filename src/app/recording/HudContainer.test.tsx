@@ -113,9 +113,9 @@ describe("HudContainer", () => {
     await t.emit({ sessionId: "s1", type: "started", backend: "electron" });
     await t.post({ type: "micLevel", sessionId: "s1", level: 0.5 });
     const meter = screen.getByTestId("mic-meter");
-    expect(meter.querySelectorAll('[data-lit="true"]')).toHaveLength(4);
+    expect(meter.querySelectorAll('[data-lit="true"]')).toHaveLength(2);
     await t.post({ type: "micLevel", sessionId: "other", level: 1 });
-    expect(meter.querySelectorAll('[data-lit="true"]')).toHaveLength(4);
+    expect(meter.querySelectorAll('[data-lit="true"]')).toHaveLength(2);
   });
 
   it("disk low and capture warnings show in the pill", async () => {
@@ -129,7 +129,7 @@ describe("HudContainer", () => {
     );
   });
 
-  it("interrupted: warning pill with what was saved", async () => {
+  it("interrupted: capture-interrupted card with what was saved", async () => {
     const t = setup({ sessionId: "s1" });
     await t.emit({ sessionId: "s1", type: "started", backend: "electron" });
     await t.emit({
@@ -140,7 +140,7 @@ describe("HudContainer", () => {
     });
     expect(screen.getByTestId("recording-hud")).toHaveAttribute("data-phase", "interrupted");
     expect(screen.getByTestId("hud-status")).toHaveTextContent(
-      "Recording saved up to 00:42 — The display was disconnected",
+      "The display was disconnected. Recording saved up to 00:42.",
     );
   });
 
@@ -289,10 +289,10 @@ describe("HudContainer — pre-record pill driven by the launcher flow", () => {
     });
     expect(screen.queryByTestId("pre-record-hud")).toBeNull();
     expect(screen.getByRole("button", { name: "Stop recording" })).toBeInTheDocument();
-    // Leaving pre-record collapses the grown window, then shrinks it to the 300x48 pill.
+    // Leaving pre-record collapses the grown window, then shrinks it to the 340x48 pill.
     expect(t.pre.windows.calls).toContain("collapse");
-    expect(lastSize(t.pre.windows.calls)).toBe("size:300x48:center");
-    expect(t.pre.windows.pill).toMatchObject({ width: 300, height: 48 });
+    expect(lastSize(t.pre.windows.calls)).toBe("size:340x48:center");
+    expect(t.pre.windows.pill).toMatchObject({ width: 340, height: 48 });
     expect(screen.getByTestId("hud-window")).toHaveAttribute("data-view", "recording");
     t.flow.dispose();
   });
@@ -319,16 +319,20 @@ describe("HudContainer — pre-record pill driven by the launcher flow", () => {
     });
     const dot = screen.getByRole("button", { name: "Show recording controls" });
     expect(screen.queryByRole("button", { name: "Stop recording" })).toBeNull();
-    // The window shrinks to the dot, not a 560x64 always-on-top strip.
+    // The window shrinks to the dot, not a 620x64 always-on-top strip.
     expect(lastSize(t.pre.windows.calls)).toBe("size:36x36:center");
     expect(t.pre.windows.bounds).toMatchObject({ width: 36, height: 36 });
     // Shortcuts still work while hidden.
     await t.shortcuts.fire("record.pause");
     expect(t.port.calls).toContain("pause:s1");
+    const growsBefore = t.pre.windows.grows.length;
     fireEvent.click(dot);
-    expect(screen.getByRole("button", { name: "Resume recording" })).toBeInTheDocument();
+    // The 340x48 pill is only drawn once the 36x36 window grew for it.
+    expect(screen.queryByRole("button", { name: "Resume recording" })).toBeNull();
     await t.flush();
-    expect(lastSize(t.pre.windows.calls)).toBe("size:300x48:center");
+    expect(t.pre.windows.grows.length).toBeGreaterThan(growsBefore);
+    expect(screen.getByRole("button", { name: "Resume recording" })).toBeInTheDocument();
+    expect(lastSize(t.pre.windows.calls)).toBe("size:340x48:center");
     t.flow.dispose();
   });
 
@@ -347,13 +351,14 @@ describe("HudContainer — pre-record pill driven by the launcher flow", () => {
     await startRecording(t);
     fireEvent.click(screen.getByRole("button", { name: "More recording options" }));
     await t.flush();
-    // The menu grows the 300x48 window upward around the pill.
-    expect(t.pre.windows.calls.at(-1)).toBe("expand:300x240");
+    // The menu grows the 340x48 window upward around the pill.
+    expect(t.pre.windows.calls.at(-1)).toBe("expand:340x240");
     expect(screen.getByTestId("hud-stage")).toHaveAttribute("data-expanded", "true");
     fireEvent.click(screen.getByRole("menuitem", { name: "Hide pill" }));
-    // Before main answers, the dot is drawn centred on the pill where it sits in
-    // the still-grown window (pill offset 0,192), not at the window's top-left.
-    expect(screen.getByTestId("hud-window").style.transform).toBe("translate(132px, 198px)");
+    // Before main answers, what is on screen stays: no dot drawn at the wrong spot.
+    expect(screen.getByTestId("hud-window")).toHaveAttribute("data-ready", "false");
+    expect(screen.queryByTestId("hud-hidden-dot")).toBeNull();
+    expect(screen.getByTestId("hud-window").style.transform).toBe("");
     await t.flush();
     expect(screen.getByTestId("hud-hidden-dot")).toBeInTheDocument();
     expect(screen.getByTestId("hud-window").style.transform).toBe("");

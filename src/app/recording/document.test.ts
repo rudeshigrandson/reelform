@@ -228,7 +228,10 @@ describe("finalized recording → project", () => {
       recordedFps: 60,
     });
     expect(doc.timeline.durationMs).toBe(42_180);
-    expect(doc.timeline.clips).toHaveLength(1);
+    // One clip over the whole recording, never the store's 92s placeholder.
+    expect(doc.timeline.clips).toEqual([
+      { id: "clip-1", sourceStartMs: 0, sourceEndMs: 42_180, timelineStartMs: 0 },
+    ]);
     expect(doc.frame.crop).toBeNull();
   });
 
