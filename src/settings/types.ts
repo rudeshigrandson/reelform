@@ -83,7 +83,7 @@ export const sampleSettings: SettingsState = {
 
   shortcuts: {},
 
-  theme: "system",
+  theme: "dark",
   accentColor: "indigo",
   density: "comfortable",
   reduceMotion: false,

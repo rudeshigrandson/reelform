@@ -4,8 +4,9 @@ import type { AccentColor } from "./types";
 /**
  * The six user-selectable accent colours (S24 Appearance). These are palette
  * *data* the user picks from — applied at runtime as `--accent*` overrides by
- * `src/app/settings/appearance.ts` — not ad-hoc styling. `indigo` is the
- * theme's built-in accent, so it applies no override.
+ * `src/app/settings/appearance.ts` — not ad-hoc styling. The first swatch is
+ * the theme's built-in terracotta accent, so it applies no override (its
+ * stored id stays `indigo`, the persisted schema value).
  */
 export interface AccentSwatch {
   id: AccentColor;
@@ -17,7 +18,12 @@ export interface AccentSwatch {
 }
 
 export const ACCENT_SWATCHES: readonly AccentSwatch[] = [
-  { id: "indigo", label: "Indigo", labelKey: "settings.appearance.accent.indigo", color: null },
+  {
+    id: "indigo",
+    label: "Terracotta",
+    labelKey: "settings.appearance.accent.terracotta",
+    color: null,
+  },
   {
     id: "blue",
     label: "Blue",

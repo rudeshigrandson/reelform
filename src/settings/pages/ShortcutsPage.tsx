@@ -1,11 +1,12 @@
 import { Button, Tag } from "@design/components";
-import { Fragment, type KeyboardEvent as ReactKeyboardEvent, useMemo, useState } from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, useId, useMemo, useState } from "react";
 import { type Translate, useT } from "../../i18n";
-import { kbdStyle } from "../../shortcuts/ShortcutsOverlay";
 import { detectConflicts } from "../../shortcuts/conflicts";
+import { useShortcutsT } from "../../shortcuts/i18n";
 import {
   type RecordOutcome,
   evaluateRecordedKey,
+  filterShortcuts,
   groupShortcuts,
   shortcutLabelFor,
 } from "../../shortcuts/recorder";
@@ -15,7 +16,7 @@ import {
   resolveShortcuts,
   setShortcutOverride,
 } from "../../shortcuts/registry";
-import { PageHeading, StatusText, helpStyle } from "../controls";
+import { Page, StatusText } from "../controls";
 import type { GlobalShortcutStatus } from "../services";
 import type { SettingsProps } from "../types";
 
@@ -42,14 +43,18 @@ export function osConflictsById(
   return out;
 }
 
+/** S24/04 — grouped cards of action · keycap · Reset, inline key recording with conflicts. */
 export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
   const t = useT();
+  const sht = useShortcutsT();
+  const helpId = useId();
   const platform = services?.platform ?? "mac";
   const resolved = useMemo(
     () => resolveShortcuts(platform, settings.shortcuts),
     [platform, settings.shortcuts],
   );
-  const groups = useMemo(() => groupShortcuts(resolved), [resolved]);
+  const [query, setQuery] = useState("");
+  const groups = groupShortcuts(filterShortcuts(resolved, query, sht));
   const existingDuplicates = useMemo(
     () => detectConflicts(resolved).filter((c) => c.kind === "duplicate"),
     [resolved],
@@ -120,30 +125,38 @@ export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
   };
 
   return (
-    <div>
-      <PageHeading>{t("settings.section.shortcuts")}</PageHeading>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "var(--space-3)",
-          marginBottom: "var(--space-4)",
-        }}
-      >
-        <p style={helpStyle}>{t("settings.shortcuts.help")}</p>
-        <Button
-          variant="ghost"
-          disabled={Object.keys(settings.shortcuts).length === 0}
-          onClick={() => {
-            setNotice(null);
-            stop();
-            onChange({ shortcuts: {} });
-          }}
-        >
-          {t("settings.shortcuts.resetAll")}
-        </Button>
-      </div>
+    <Page
+      title={t("settings.section.shortcuts")}
+      actions={
+        <div className="rf-set-tools">
+          <span className="rf-sc-search">
+            <span aria-hidden="true">⌕</span>
+            <input
+              type="search"
+              aria-label={t("settings.shortcuts.search")}
+              placeholder={t("settings.shortcuts.search")}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </span>
+          <Button
+            variant="ghost"
+            className="rf-set-btn-sm"
+            disabled={Object.keys(settings.shortcuts).length === 0}
+            onClick={() => {
+              setNotice(null);
+              stop();
+              onChange({ shortcuts: {} });
+            }}
+          >
+            {t("settings.shortcuts.resetAll")}
+          </Button>
+        </div>
+      }
+    >
+      <p id={helpId} className="rf-sr-only">
+        {t("settings.shortcuts.help")}
+      </p>
 
       {existingDuplicates.length > 0 ? (
         <StatusText tone="warning">
@@ -151,119 +164,115 @@ export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
         </StatusText>
       ) : null}
 
-      <table className="table" aria-label={t("settings.shortcuts.table")}>
-        <thead>
+      {groups.length === 0 ? (
+        <p className="rf-set-help">{sht("shortcuts.overlay.noMatch", { query })}</p>
+      ) : null}
+
+      <table
+        className="rf-sc-table"
+        aria-label={t("settings.shortcuts.table")}
+        aria-describedby={helpId}
+      >
+        <thead className="rf-sr-only">
           <tr>
             <th scope="col">{t("settings.shortcuts.column.action")}</th>
             <th scope="col">{t("settings.shortcuts.column.shortcut")}</th>
-            <th scope="col" style={{ textAlign: "right" }}>
-              {t("settings.shortcuts.column.reset")}
-            </th>
+            <th scope="col">{t("settings.shortcuts.column.reset")}</th>
           </tr>
         </thead>
-        <tbody>
-          {groups.map(({ group, rows }) => (
-            <Fragment key={group}>
-              <tr>
-                <th
-                  colSpan={3}
-                  scope="colgroup"
-                  style={{ paddingTop: "var(--space-4)", color: "var(--text-3)" }}
+        {groups.map(({ group, rows }) => (
+          <tbody key={group}>
+            <tr className="rf-sc-group">
+              <th colSpan={3} scope="colgroup">
+                {group}
+              </th>
+            </tr>
+            {rows.map((row) => {
+              const recording = recordingId === row.id;
+              const rowNotice = notice?.id === row.id ? notice : null;
+              const osConflict = osConflicts.get(row.id);
+              return (
+                <tr
+                  key={row.id}
+                  className="rf-sc-row"
+                  data-recording={recording ? "true" : undefined}
                 >
-                  {group}
-                </th>
-              </tr>
-              {rows.map((row) => {
-                const recording = recordingId === row.id;
-                const rowNotice = notice?.id === row.id ? notice : null;
-                const osConflict = osConflicts.get(row.id);
-                return (
-                  <tr key={row.id}>
-                    <td>
-                      {row.def.label}
-                      {rowNotice ? (
-                        <div style={{ marginTop: "var(--space-1)" }}>
-                          <StatusText tone={rowNotice.tone}>{rowNotice.text}</StatusText>
-                        </div>
-                      ) : null}
-                      {osConflict !== undefined && !rowNotice ? (
-                        <div style={{ marginTop: "var(--space-1)" }}>
-                          <StatusText tone="warning">
-                            {t("settings.shortcuts.osConflict", {
-                              keys: osConflict || row.display,
-                            })}
-                          </StatusText>
-                        </div>
-                      ) : null}
-                    </td>
-                    <td style={{ whiteSpace: "nowrap" }}>
+                  <td className="rf-sc-action">
+                    {row.def.label}
+                    {rowNotice ? (
+                      <StatusText tone={rowNotice.tone}>
+                        <span aria-hidden="true">⚠ </span>
+                        {rowNotice.text}
+                      </StatusText>
+                    ) : null}
+                    {osConflict !== undefined && !rowNotice ? (
+                      <StatusText tone="warning">
+                        <span aria-hidden="true">⚠ </span>
+                        {t("settings.shortcuts.osConflict", {
+                          keys: osConflict || row.display,
+                        })}
+                      </StatusText>
+                    ) : null}
+                  </td>
+                  <td className="rf-sc-keys">
+                    {row.source === "invalid-override" ? (
+                      <Tag variant="outline" title={t("settings.shortcuts.invalid.title")}>
+                        {t("settings.shortcuts.invalid")}
+                      </Tag>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="rf-sc-key"
+                      aria-label={t("settings.shortcuts.buttonLabel", {
+                        label: row.def.label,
+                        state: recording
+                          ? t("settings.shortcuts.state.recording")
+                          : row.display || t("settings.shortcuts.state.unassigned"),
+                      })}
+                      aria-pressed={recording}
+                      onClick={() => {
+                        setNotice(null);
+                        setRecordingId(recording ? null : row.id);
+                      }}
+                      onKeyDown={recording ? (e) => onRecordKey(row, e) : undefined}
+                      onBlur={recording ? stop : undefined}
+                    >
+                      {recording ? (
+                        <span className="rf-kbd rf-kbd-live">
+                          {t("settings.shortcuts.pressKeys")}
+                        </span>
+                      ) : row.display ? (
+                        <kbd className="rf-kbd">{row.display}</kbd>
+                      ) : (
+                        <span className="rf-sc-muted">{t("settings.shortcuts.unassigned")}</span>
+                      )}
+                    </button>
+                  </td>
+                  <td className="rf-sc-reset">
+                    {recording ? (
                       <button
                         type="button"
-                        aria-label={t("settings.shortcuts.buttonLabel", {
-                          label: row.def.label,
-                          state: recording
-                            ? t("settings.shortcuts.state.recording")
-                            : row.display || t("settings.shortcuts.state.unassigned"),
-                        })}
-                        aria-pressed={recording}
+                        className="rf-sc-link"
+                        // Keep focus on the recorder until the click lands.
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => {
-                          setNotice(null);
-                          setRecordingId(recording ? null : row.id);
-                        }}
-                        onKeyDown={recording ? (e) => onRecordKey(row, e) : undefined}
-                        onBlur={recording ? stop : undefined}
-                        style={{
-                          background: "transparent",
-                          border: recording ? "1px solid var(--accent)" : "1px solid transparent",
-                          borderRadius: "var(--radius-sm)",
-                          padding: "var(--space-1)",
-                          cursor: "pointer",
-                          color: "var(--text-1)",
-                          font: "inherit",
+                          onChange({
+                            shortcuts: setShortcutOverride(
+                              settings.shortcuts,
+                              row.def,
+                              null,
+                              platform,
+                            ),
+                          });
+                          stop();
                         }}
                       >
-                        {recording ? (
-                          <span style={{ color: "var(--accent)" }}>
-                            {t("settings.shortcuts.pressKeys")}
-                          </span>
-                        ) : row.display ? (
-                          <kbd style={kbdStyle}>{row.display}</kbd>
-                        ) : (
-                          <span style={{ color: "var(--text-3)" }}>
-                            {t("settings.shortcuts.unassigned")}
-                          </span>
-                        )}
+                        {t("settings.shortcuts.unassign")}
                       </button>
-                      {row.source === "invalid-override" ? (
-                        <Tag variant="outline" title={t("settings.shortcuts.invalid.title")}>
-                          {t("settings.shortcuts.invalid")}
-                        </Tag>
-                      ) : null}
-                      {recording ? (
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          // Keep focus on the recorder until the click lands.
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => {
-                            onChange({
-                              shortcuts: setShortcutOverride(
-                                settings.shortcuts,
-                                row.def,
-                                null,
-                                platform,
-                              ),
-                            });
-                            stop();
-                          }}
-                        >
-                          {t("settings.shortcuts.unassign")}
-                        </button>
-                      ) : null}
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <Button
-                        variant="ghost"
+                    ) : (
+                      <button
+                        type="button"
+                        className="rf-sc-link"
                         aria-label={t("settings.shortcuts.resetRow", { label: row.def.label })}
                         disabled={row.source === "default"}
                         onClick={() => {
@@ -274,15 +283,15 @@ export function ShortcutsPage({ settings, onChange, services }: SettingsProps) {
                         }}
                       >
                         {t("settings.shortcuts.reset")}
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </Fragment>
-          ))}
-        </tbody>
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        ))}
       </table>
-    </div>
+    </Page>
   );
 }

@@ -12,7 +12,7 @@ import type { SettingsState } from "../../settings/types";
 
 export const DENSITY_ATTRIBUTE = "data-density";
 export const REDUCE_MOTION_ATTRIBUTE = "data-reduce-motion";
-/** The theme's own accent, captured before overriding (the "Indigo" swatch shows it). */
+/** The theme's own accent, captured before overriding (the "Terracotta" swatch shows it). */
 export const THEME_ACCENT_PROP = "--accent-theme";
 const ACCENT_PROPS = [
   "--accent",

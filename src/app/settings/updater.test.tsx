@@ -15,6 +15,8 @@ import {
   UpdateBanner,
   UpdateReadyDialog,
   type UpdaterPort,
+  updateReadyNotice,
+  useLauncherUpdateNotices,
   useUpdater,
 } from "./updater";
 
@@ -174,13 +176,75 @@ describe("useUpdater", () => {
   });
 });
 
+describe("updateReadyNotice", () => {
+  it("downloaded → info notice whose action restarts", () => {
+    const restart = vi.fn();
+    const notice = updateReadyNotice(downloaded, { restart });
+    expect(notice).toMatchObject({
+      id: "update",
+      tone: "info",
+      message: "Reelform 1.2.0 is available",
+      action: { label: "Restart to update" },
+    });
+    notice?.action?.onClick();
+    expect(restart).toHaveBeenCalledTimes(1);
+  });
+
+  it("no notice when idle, checking, downloading or unknown", () => {
+    const restart = vi.fn();
+    expect(updateReadyNotice(null, { restart })).toBeNull();
+    expect(updateReadyNotice(base, { restart })).toBeNull();
+    expect(updateReadyNotice({ ...base, phase: "downloading", info }, { restart })).toBeNull();
+    expect(updateReadyNotice({ ...downloaded, info: null }, { restart })).toBeNull();
+  });
+});
+
+describe("useLauncherUpdateNotices", () => {
+  const controls = (state: UpdaterState | null, restart = vi.fn(async () => {})) => ({
+    state,
+    check: async () => {},
+    restart,
+  });
+
+  it("idle → no notices", () => {
+    const { result } = renderHook(() => useLauncherUpdateNotices(controls(base)));
+    expect(result.current).toEqual([]);
+  });
+
+  it("ready → Restart calls the updater; dismiss hides it until a newer version", () => {
+    const restart = vi.fn(async () => {});
+    const { result, rerender } = renderHook(({ c }) => useLauncherUpdateNotices(c), {
+      initialProps: { c: controls(downloaded, restart) },
+    });
+    expect(result.current).toHaveLength(1);
+    act(() => result.current[0]?.action?.onClick());
+    expect(restart).toHaveBeenCalledTimes(1);
+
+    act(() => result.current[0]?.onDismiss?.());
+    expect(result.current).toEqual([]);
+    rerender({ c: controls({ ...downloaded, info: { ...info, version: "1.3.0" } }, restart) });
+    expect(result.current[0]?.message).toBe("Reelform 1.3.0 is available");
+  });
+
+  it("a failed restart adds a danger notice", async () => {
+    const restart = vi.fn(async () => {
+      throw new Error("nope");
+    });
+    const { result } = renderHook(() => useLauncherUpdateNotices(controls(downloaded, restart)));
+    await act(async () => result.current[0]?.action?.onClick());
+    await waitFor(() =>
+      expect(result.current[1]).toMatchObject({ id: "update-error", tone: "danger" }),
+    );
+  });
+});
+
 describe("LauncherUpdateNotice", () => {
   it("opens notes, restarts, and dismisses per version", async () => {
     const restart = vi.fn(async () => {});
     const controls = { state: downloaded, check: async () => {}, restart };
     const { rerender } = render(<LauncherUpdateNotice updater={controls} />);
     fireEvent.click(screen.getByRole("button", { name: "What's new" }));
-    expect(screen.getByRole("dialog")).toHaveTextContent("Update ready");
+    expect(screen.getByRole("dialog")).toHaveTextContent("Reelform 1.2.0 is ready");
     fireEvent.click(screen.getByRole("button", { name: "Restart now" }));
     expect(restart).toHaveBeenCalledTimes(1);
 

@@ -8,6 +8,7 @@ import {
   AppShortcutsProvider,
   OnboardingGate,
   SettingsWindow,
+  hasInsetTitleBar,
   settingsErrorMessage,
 } from "./SettingsWindow";
 import { APPEARANCE_STYLE_ID, applyAppearance, clearAppearance, useAppearance } from "./appearance";
@@ -73,6 +74,28 @@ function renderWindow(
   return { store, ...utils };
 }
 
+describe("SettingsWindow — macOS inset title bar", () => {
+  it("reads the ?titleBar=inset flag", () => {
+    expect(hasInsetTitleBar("?window=settings&titleBar=inset")).toBe(true);
+    expect(hasInsetTitleBar("?window=settings")).toBe(false);
+  });
+
+  it("draws a 40px draggable title bar leaving room for the traffic lights, only when inset", async () => {
+    const inset = renderWindow(transport(), { insetTitleBar: true });
+    const bar = screen.getByTestId("settings-title-bar");
+    expect(bar).toHaveTextContent("Settings");
+    expect(bar.style.height).toBe("40px");
+    expect(bar.style.paddingLeft).toBe("80px");
+    expect(bar.style.borderBottom).toContain("var(--border)");
+    await screen.findByRole("navigation", { name: /settings sections/i });
+    inset.unmount();
+
+    renderWindow(transport(), { insetTitleBar: false });
+    await screen.findByRole("navigation", { name: /settings sections/i });
+    expect(screen.queryByTestId("settings-title-bar")).toBeNull();
+  });
+});
+
 describe("SettingsWindow", () => {
   it("shows loading, then the pages; writes go through settings:set", async () => {
     const t = transport();
@@ -95,12 +118,13 @@ describe("SettingsWindow", () => {
     });
     renderWindow(t, { initialSection: "appearance" });
     await screen.findByRole("navigation", { name: /settings sections/i });
-    fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
-    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    // Dark is the default theme, so switch to Light and expect the rollback to Dark.
+    fireEvent.click(screen.getByRole("radio", { name: "Light" }));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("already in use");
-    expect(screen.getByRole("radio", { name: "System" })).toBeChecked();
-    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+    expect(screen.getByRole("radio", { name: "Dark" })).toBeChecked();
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     fireEvent.click(within(alert).getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });

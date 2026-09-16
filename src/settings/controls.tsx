@@ -2,77 +2,203 @@ import { type CSSProperties, type ReactNode, useEffect, useId, useRef, useState 
 import { useT } from "../i18n";
 import type { SystemPort } from "./services";
 
-/** Shared building blocks for Settings pages (semantic tokens only). */
+/**
+ * Shared building blocks for Settings pages (classes in `./styles.ts`,
+ * semantic tokens only). Row grammar: label + helper line, control on the right.
+ */
 
 export const headingStyle: CSSProperties = {
   fontFamily: "var(--font-heading)",
-  fontSize: "1.4rem",
-  margin: "0 0 var(--space-5)",
+  fontWeight: "var(--font-heading-weight)" as CSSProperties["fontWeight"],
+  fontSize: "20px",
+  margin: 0,
 };
 
 export const labelStyle: CSSProperties = {
-  fontSize: "0.85rem",
+  fontSize: "12px",
   fontWeight: 600,
-  color: "var(--text-2)",
+  color: "var(--text-1)",
 };
 
 export const helpStyle: CSSProperties = {
-  fontSize: "0.8rem",
+  fontSize: "11px",
   color: "var(--text-3)",
   margin: 0,
 };
 
-const rowStyle: CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-2)",
-  marginBottom: "var(--space-5)",
-};
-
 export function PageHeading({ children }: { children: ReactNode }) {
-  return <h2 style={headingStyle}>{children}</h2>;
+  return <h2 className="rf-set-title">{children}</h2>;
 }
 
-export function Group({ title, children }: { title: string; children: ReactNode }) {
+/** A settings page: Caprasimo title (optional actions on the right) over stacked cards. */
+export function Page({
+  title,
+  actions,
+  children,
+}: {
+  title: string;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <section aria-label={title} style={{ marginBottom: "var(--space-6)" }}>
-      <h3
-        style={{
-          ...labelStyle,
-          textTransform: "uppercase",
-          letterSpacing: "0.06em",
-          fontSize: "0.72rem",
-          color: "var(--text-3)",
-          margin: "0 0 var(--space-3)",
-        }}
-      >
-        {title}
-      </h3>
+    <div className="rf-set-stack">
+      <div className="rf-set-head">
+        <PageHeading>{title}</PageHeading>
+        {actions}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** A 16px-radius panel card of rows; `title` names the region for assistive tech. */
+export function Group({
+  title,
+  dense,
+  children,
+}: {
+  title: string;
+  /** Toggle-list cards use 9px row padding after the first row. */
+  dense?: boolean | undefined;
+  children: ReactNode;
+}) {
+  return (
+    <section aria-label={title} className={dense ? "rf-set-card rf-set-card-dense" : "rf-set-card"}>
       {children}
     </section>
   );
 }
 
-/** Label + control stacked. `label` is a plain caption; wire a11y on the control. */
-export function Row({
+/** The bare switch control (checkbox with role="switch"); label it via `id`. */
+export function Toggle({
+  id,
+  checked,
+  onChange,
+  disabled,
+  describedBy,
+  size = "md",
+}: {
+  id: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  disabled?: boolean | undefined;
+  describedBy?: string | undefined;
+  size?: "md" | "sm";
+}) {
+  return (
+    <span className={size === "sm" ? "rf-set-switch rf-set-switch-sm" : "rf-set-switch"}>
+      <input
+        id={id}
+        type="checkbox"
+        role="switch"
+        aria-checked={checked}
+        aria-describedby={describedBy}
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span className="rf-set-switch-track" aria-hidden="true" />
+      <span className="rf-set-switch-thumb" aria-hidden="true" />
+    </span>
+  );
+}
+
+/** Compact-panel line: muted 11px caption left, control right. */
+export function Line({
   label,
-  help,
+  htmlFor,
   children,
 }: {
-  label?: ReactNode;
-  help?: ReactNode;
+  label: ReactNode;
+  htmlFor?: string | undefined;
   children: ReactNode;
 }) {
   return (
-    <div style={rowStyle}>
-      {label ? <span style={labelStyle}>{label}</span> : null}
+    <div className="rf-set-line">
+      {htmlFor ? (
+        <label htmlFor={htmlFor} className="rf-set-line-label">
+          {label}
+        </label>
+      ) : (
+        <span className="rf-set-line-label">{label}</span>
+      )}
       {children}
-      {help ? <p style={helpStyle}>{help}</p> : null}
     </div>
   );
 }
 
-/** Checkbox-backed switch; the visible label is the accessible name. */
+/** Inline "Value ⌄" select for compact panels. */
+export function MiniSelect<T extends string>({
+  id,
+  value,
+  options,
+  onChange,
+}: {
+  id: string;
+  value: T;
+  options: ReadonlyArray<SelectOption<T>>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <span className="rf-set-mini-select">
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value as T)}>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <span className="rf-set-chevron" aria-hidden="true">
+        ⌄
+      </span>
+    </span>
+  );
+}
+
+/**
+ * One settings row. `htmlFor` renders the caption as a `<label>` for that
+ * control; without it the caption is plain text (wire a11y on the control).
+ */
+export function Row({
+  label,
+  help,
+  htmlFor,
+  notice,
+  disabled,
+  children,
+}: {
+  label?: ReactNode;
+  help?: ReactNode;
+  htmlFor?: string | undefined;
+  /** Extra lines under the caption (validation, status). */
+  notice?: ReactNode;
+  disabled?: boolean | undefined;
+  children?: ReactNode;
+}) {
+  const hasText = Boolean(label || help || notice);
+  return (
+    <div className="rf-set-row" data-disabled={disabled ? "true" : undefined}>
+      {hasText ? (
+        <div className="rf-set-row-text">
+          {label ? (
+            htmlFor ? (
+              <label htmlFor={htmlFor} className="rf-set-label">
+                {label}
+              </label>
+            ) : (
+              <span className="rf-set-label">{label}</span>
+            )
+          ) : null}
+          {help ? <p className="rf-set-help">{help}</p> : null}
+          {notice}
+        </div>
+      ) : null}
+      {children ? <div className="rf-set-control">{children}</div> : null}
+    </div>
+  );
+}
+
+/** Checkbox-backed 34×19 switch on the right; the caption is the accessible name. */
 export function Switch({
   checked,
   onChange,
@@ -86,29 +212,27 @@ export function Switch({
   disabled?: boolean | undefined;
   help?: ReactNode;
 }) {
+  const id = useId();
+  const helpId = useId();
   return (
-    <div style={rowStyle}>
-      <label
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-2)",
-          cursor: disabled ? "default" : "pointer",
-          color: disabled ? "var(--text-3)" : "var(--text-1)",
-        }}
-      >
-        <input
-          type="checkbox"
-          role="switch"
-          aria-checked={checked}
-          checked={checked}
-          disabled={disabled}
-          onChange={(e) => onChange(e.target.checked)}
-          style={{ accentColor: "var(--accent)" }}
-        />
-        <span>{label}</span>
-      </label>
-      {help ? <p style={helpStyle}>{help}</p> : null}
+    <div className="rf-set-row" data-disabled={disabled ? "true" : undefined}>
+      <div className="rf-set-row-text">
+        <label htmlFor={id} className="rf-set-label">
+          {label}
+        </label>
+        {help ? (
+          <p id={helpId} className="rf-set-help">
+            {help}
+          </p>
+        ) : null}
+      </div>
+      <Toggle
+        id={id}
+        checked={checked}
+        onChange={onChange}
+        disabled={disabled}
+        describedBy={help ? helpId : undefined}
+      />
     </div>
   );
 }
@@ -118,6 +242,7 @@ export interface SelectOption<T extends string> {
   label: string;
 }
 
+/** Native select dressed as the 250px sunken pill. */
 export function Select<T extends string>({
   label,
   value,
@@ -135,26 +260,25 @@ export function Select<T extends string>({
 }) {
   const id = useId();
   return (
-    <div style={rowStyle}>
-      <label htmlFor={id} style={labelStyle}>
-        {label}
-      </label>
-      <select
-        id={id}
-        className="input"
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value as T)}
-        style={{ maxWidth: "320px" }}
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      {help ? <p style={helpStyle}>{help}</p> : null}
-    </div>
+    <Row label={label} htmlFor={id} help={help} disabled={disabled}>
+      <span className="rf-set-select">
+        <select
+          id={id}
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value as T)}
+        >
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <span className="rf-set-chevron" aria-hidden="true">
+          ⌄
+        </span>
+      </span>
+    </Row>
   );
 }
 
@@ -194,46 +318,46 @@ export function NumberField({
   }, [value]);
   const parsed = parseSettingNumber(text, { min, max, integer });
   return (
-    <div style={rowStyle}>
-      <label htmlFor={id} style={labelStyle}>
-        {label}
-      </label>
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-        <input
-          id={id}
-          className="input"
-          type="number"
-          min={min}
-          max={max}
-          step={step ?? (integer ? 1 : "any")}
-          value={text}
-          aria-invalid={parsed === null}
-          disabled={disabled}
-          style={{ maxWidth: "140px" }}
-          onFocus={() => {
-            focused.current = true;
-          }}
-          onBlur={() => {
-            focused.current = false;
-            if (parseSettingNumber(text, { min, max, integer }) === null) setText(String(value));
-          }}
-          onChange={(e) => {
-            setText(e.target.value);
-            const n = parseSettingNumber(e.target.value, { min, max, integer });
-            if (n !== null && n !== value) onChange(n);
-          }}
-        />
-        {suffix ? <span style={helpStyle}>{suffix}</span> : null}
-      </div>
-      {parsed === null ? (
-        <p role="alert" style={{ ...helpStyle, color: "var(--danger)" }}>
-          {t(integer ? "settings.number.invalidInteger" : "settings.number.invalid", {
-            min: String(min),
-            max: String(max),
-          })}
-        </p>
-      ) : null}
-    </div>
+    <Row
+      label={label}
+      htmlFor={id}
+      disabled={disabled}
+      notice={
+        parsed === null ? (
+          <p role="alert" className="rf-set-status" style={{ color: "var(--danger)" }}>
+            {t(integer ? "settings.number.invalidInteger" : "settings.number.invalid", {
+              min: String(min),
+              max: String(max),
+            })}
+          </p>
+        ) : null
+      }
+    >
+      <input
+        id={id}
+        className="rf-set-number"
+        type="number"
+        min={min}
+        max={max}
+        step={step ?? (integer ? 1 : "any")}
+        value={text}
+        aria-invalid={parsed === null}
+        disabled={disabled}
+        onFocus={() => {
+          focused.current = true;
+        }}
+        onBlur={() => {
+          focused.current = false;
+          if (parseSettingNumber(text, { min, max, integer }) === null) setText(String(value));
+        }}
+        onChange={(e) => {
+          setText(e.target.value);
+          const n = parseSettingNumber(e.target.value, { min, max, integer });
+          if (n !== null && n !== value) onChange(n);
+        }}
+      />
+      {suffix ? <span className="rf-set-suffix">{suffix}</span> : null}
+    </Row>
   );
 }
 
@@ -260,7 +384,7 @@ export function formatBytes(bytes: number): string {
   return `${v >= 10 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
 }
 
-/** Inline text-style button that opens a URL in the browser (disabled without `system`). */
+/** Inline accent text button that opens a URL in the browser (disabled without `system`). */
 export function ExternalLink({
   url,
   system,
@@ -273,8 +397,7 @@ export function ExternalLink({
   return (
     <button
       type="button"
-      className="btn btn-ghost"
-      style={{ padding: 0, minHeight: 0, fontSize: "inherit" }}
+      className="rf-set-link"
       onClick={() => void system?.openExternal(url)}
       disabled={!system}
     >
@@ -283,7 +406,7 @@ export function ExternalLink({
   );
 }
 
-/** Inline status line (loading / error / success). */
+/** Inline status line (loading / error / success); padded as a row when directly in a card. */
 export function StatusText({
   tone = "muted",
   children,
@@ -300,7 +423,7 @@ export function StatusText({
           ? "var(--warning)"
           : "var(--text-3)";
   return (
-    <p role={tone === "danger" ? "alert" : "status"} style={{ ...helpStyle, color }}>
+    <p role={tone === "danger" ? "alert" : "status"} className="rf-set-status" style={{ color }}>
       {children}
     </p>
   );

@@ -1,7 +1,7 @@
 import { Button, Dialog, Segmented } from "@design/components";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { type MessageKey, useT } from "../../i18n";
-import { Group, PageHeading, Row, Select, StatusText, formatBytes, helpStyle } from "../controls";
+import { Line, MiniSelect, Page, StatusText, formatBytes } from "../controls";
 import type { CaptureBackend, GpuExport, LogLevel, SettingsProps } from "../types";
 
 const BACKEND_OPTIONS: ReadonlyArray<{ value: CaptureBackend; labelKey: MessageKey }> = [
@@ -31,8 +31,10 @@ type CacheState =
   | { status: "loading" }
   | { status: "ready"; bytes: number | null };
 
+/** S24/08 — compact panel: backend/GPU tracks, encoder chips, cache + maintenance links. */
 export function AdvancedPage({ settings, onChange, services }: SettingsProps) {
   const t = useT();
+  const logId = useId();
   const system = services?.system;
   const [cache, setCache] = useState<CacheState>(
     system ? { status: "loading" } : { status: "unavailable" },
@@ -67,67 +69,97 @@ export function AdvancedPage({ settings, onChange, services }: SettingsProps) {
   };
 
   return (
-    <div>
-      <PageHeading>{t("settings.section.advanced")}</PageHeading>
-
-      <Row label={t("settings.advanced.backend")} help={t("settings.advanced.backend.help")}>
-        <Segmented<CaptureBackend>
-          name="settings-backend"
-          value={settings.captureBackend}
-          options={BACKEND_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
-          onChange={(captureBackend) => onChange({ captureBackend })}
-        />
-      </Row>
-
-      <Row label={t("settings.advanced.gpuExport")}>
-        <Segmented<GpuExport>
-          name="settings-gpu-export"
-          value={settings.gpuExport}
-          options={GPU_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
-          onChange={(gpuExport) => onChange({ gpuExport })}
-        />
-      </Row>
-
-      <Group title={t("settings.advanced.encoders")}>
-        <ul
-          aria-label={t("settings.advanced.encoders")}
-          style={{ listStyle: "none", margin: 0, padding: 0 }}
+    <Page title={t("settings.section.advanced")}>
+      <section aria-label={t("settings.section.advanced")} className="rf-set-panel">
+        <Line
+          label={
+            <>
+              {t("settings.advanced.backend")}
+              <span className="rf-sr-only"> — {t("settings.advanced.backend.help")}</span>
+            </>
+          }
         >
-          {ENCODERS.map((name) => (
-            <li
-              key={name}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                padding: "var(--space-1) 0",
-                borderBottom: "1px solid var(--border)",
-                maxWidth: "420px",
-              }}
-            >
-              <span>{name}</span>
-              <span style={helpStyle}>{t("settings.advanced.encoders.checkedOnExport")}</span>
-            </li>
-          ))}
-        </ul>
-      </Group>
+          <Segmented<CaptureBackend>
+            name="settings-backend"
+            className="rf-seg-compact"
+            value={settings.captureBackend}
+            options={BACKEND_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
+            onChange={(captureBackend) => onChange({ captureBackend })}
+          />
+        </Line>
 
-      <Select
-        label={t("settings.advanced.logLevel")}
-        value={settings.logLevel}
-        options={LOG_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
-        onChange={(logLevel) => onChange({ logLevel })}
-      />
+        <Line label={t("settings.advanced.gpuExport")}>
+          <Segmented<GpuExport>
+            name="settings-gpu-export"
+            className="rf-seg-compact"
+            value={settings.gpuExport}
+            options={GPU_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
+            onChange={(gpuExport) => onChange({ gpuExport })}
+          />
+        </Line>
 
-      <Group title={t("settings.advanced.maintenance")}>
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "var(--space-2)",
-            marginBottom: "var(--space-3)",
-          }}
+        <Line label={t("settings.advanced.encoders")}>
+          <ul aria-label={t("settings.advanced.encoders")} className="rf-set-chips">
+            {ENCODERS.map((name) => (
+              <li
+                key={name}
+                className="rf-set-chip"
+                title={t("settings.advanced.encoders.checkedOnExport")}
+              >
+                {name}
+                <span className="rf-sr-only">
+                  {" "}
+                  — {t("settings.advanced.encoders.checkedOnExport")}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Line>
+
+        <Line label={t("settings.advanced.logLevel")} htmlFor={logId}>
+          <MiniSelect<LogLevel>
+            id={logId}
+            value={settings.logLevel}
+            options={LOG_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
+            onChange={(logLevel) => onChange({ logLevel })}
+          />
+        </Line>
+
+        <Line
+          label={
+            <>
+              {t("settings.advanced.cache")} ·{" "}
+              <span className="rf-set-value" data-testid="cache-size">
+                {cache.status === "unavailable"
+                  ? t("settings.advanced.cache.unavailable")
+                  : cache.status === "loading"
+                    ? t("settings.advanced.cache.calculating")
+                    : cache.bytes === null
+                      ? t("common.unknown")
+                      : formatBytes(cache.bytes)}
+              </span>
+            </>
+          }
         >
-          <Button
+          <button
+            type="button"
+            className="rf-set-link"
+            disabled={!system || busy || cache.status === "loading"}
+            onClick={async () => {
+              if (!system) return;
+              const ok = await act(
+                system.clearCache,
+                "settings.advanced.clearCache.ok",
+                "settings.advanced.clearCache.fail",
+              );
+              if (ok) await refreshCache();
+            }}
+          >
+            {t("settings.advanced.clearCache")}
+          </button>
+          <button
+            type="button"
+            className="rf-set-link"
             disabled={!system || busy}
             onClick={() =>
               system &&
@@ -139,48 +171,22 @@ export function AdvancedPage({ settings, onChange, services }: SettingsProps) {
             }
           >
             {t("settings.advanced.openLogs")}
-          </Button>
-          <Button
-            variant="danger"
+          </button>
+          <button
+            type="button"
+            className="rf-set-link rf-set-link-danger"
             disabled={!services?.resetAll || busy}
             onClick={() => setConfirmReset(true)}
           >
             {t("settings.advanced.resetAll")}
-          </Button>
-        </div>
-
-        <Row label={t("settings.advanced.cache")}>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
-            <span style={{ fontFamily: "var(--font-mono)" }} data-testid="cache-size">
-              {cache.status === "unavailable"
-                ? t("settings.advanced.cache.unavailable")
-                : cache.status === "loading"
-                  ? t("settings.advanced.cache.calculating")
-                  : cache.bytes === null
-                    ? t("common.unknown")
-                    : formatBytes(cache.bytes)}
-            </span>
-            <Button
-              disabled={!system || busy || cache.status === "loading"}
-              onClick={async () => {
-                if (!system) return;
-                const ok = await act(
-                  system.clearCache,
-                  "settings.advanced.clearCache.ok",
-                  "settings.advanced.clearCache.fail",
-                );
-                if (ok) await refreshCache();
-              }}
-            >
-              {t("settings.advanced.clearCache")}
-            </Button>
-          </div>
-        </Row>
+          </button>
+        </Line>
         {message ? <StatusText tone={message.tone}>{message.text}</StatusText> : null}
-      </Group>
+      </section>
 
       <Dialog
         open={confirmReset}
+        tone="danger"
         onClose={() => setConfirmReset(false)}
         title={t("settings.advanced.reset.title")}
         actions={
@@ -189,7 +195,7 @@ export function AdvancedPage({ settings, onChange, services }: SettingsProps) {
               {t("common.cancel")}
             </Button>
             <Button
-              variant="danger"
+              variant="danger-solid"
               onClick={() => {
                 setConfirmReset(false);
                 const reset = services?.resetAll;
@@ -204,6 +210,6 @@ export function AdvancedPage({ settings, onChange, services }: SettingsProps) {
       >
         {t("settings.advanced.reset.body")}
       </Dialog>
-    </div>
+    </Page>
   );
 }

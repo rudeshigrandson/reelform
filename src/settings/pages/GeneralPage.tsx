@@ -1,10 +1,11 @@
-import { Button, Input } from "@design/components";
+import { Button } from "@design/components";
+import { useId } from "react";
 import { type MessageKey, useT } from "../../i18n";
 import {
   ExternalLink,
   Group,
   NumberField,
-  PageHeading,
+  Page,
   Row,
   Select,
   type SelectOption,
@@ -25,6 +26,7 @@ export function GeneralPage({
   services,
 }: SettingsProps) {
   const t = useT();
+  const folderId = useId();
   const isMac = (services?.platform ?? "mac") === "mac";
   const known: SelectOption<string>[] = LANGUAGES.map((l) => ({
     value: l.value,
@@ -34,65 +36,63 @@ export function GeneralPage({
     ? known
     : [...known, { value: settings.language, label: settings.language }];
   return (
-    <div>
-      <PageHeading>{t("settings.section.general")}</PageHeading>
-
-      <Select
-        label={t("settings.general.language")}
-        value={settings.language}
-        options={languageOptions}
-        onChange={(language) => onChange({ language })}
-      />
-
-      <Row>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: "var(--space-2)" }}>
-          <div style={{ flex: 1 }}>
-            <Input
-              label={t("settings.general.recordingsFolder")}
-              value={settings.recordingsFolder}
-              readOnly
-              style={{ fontFamily: "var(--font-mono)" }}
-            />
-          </div>
+    <Page title={t("settings.section.general")}>
+      <Group title={t("settings.section.general")}>
+        <Select
+          label={t("settings.general.language")}
+          value={settings.language}
+          options={languageOptions}
+          onChange={(language) => onChange({ language })}
+        />
+        <Row label={t("settings.general.recordingsFolder")} htmlFor={folderId}>
+          <input
+            id={folderId}
+            className="rf-set-path"
+            value={settings.recordingsFolder}
+            title={settings.recordingsFolder}
+            readOnly
+          />
           <Button onClick={onChangeRecordingsFolder} disabled={!onChangeRecordingsFolder}>
             {t("settings.general.changeFolder")}
           </Button>
-        </div>
-      </Row>
+        </Row>
+      </Group>
 
-      <Switch
-        checked={settings.openEditorAfterRecording}
-        onChange={(openEditorAfterRecording) => onChange({ openEditorAfterRecording })}
-        label={t("settings.general.openEditorAfterRecording")}
-      />
-      <Switch
-        checked={settings.launchAtLogin}
-        onChange={(launchAtLogin) => onChange({ launchAtLogin })}
-        label={t("settings.general.launchAtLogin")}
-      />
-      <Switch
-        checked={settings.showInTray}
-        onChange={(showInTray) => onChange({ showInTray })}
-        label={t(isMac ? "settings.general.showInMenuBar" : "settings.general.showInTray")}
-      />
-      <Switch
-        checked={settings.sendUsageStats}
-        onChange={(sendUsageStats) => onChange({ sendUsageStats })}
-        label={t("settings.general.usageStats")}
-        help={
-          <>
-            {t("settings.general.usageStats.help")}{" "}
-            <ExternalLink url={PRIVACY_URL} system={services?.system}>
-              {t("common.privacyPolicy")}
-            </ExternalLink>
-          </>
-        }
-      />
-      <Switch
-        checked={settings.checkUpdates}
-        onChange={(checkUpdates) => onChange({ checkUpdates })}
-        label={t("settings.general.checkUpdates")}
-      />
+      <Group title={t("settings.general.behavior")}>
+        <Switch
+          checked={settings.openEditorAfterRecording}
+          onChange={(openEditorAfterRecording) => onChange({ openEditorAfterRecording })}
+          label={t("settings.general.openEditorAfterRecording")}
+        />
+        <Switch
+          checked={settings.launchAtLogin}
+          onChange={(launchAtLogin) => onChange({ launchAtLogin })}
+          label={t("settings.general.launchAtLogin")}
+        />
+        <Switch
+          checked={settings.showInTray}
+          onChange={(showInTray) => onChange({ showInTray })}
+          label={t(isMac ? "settings.general.showInMenuBar" : "settings.general.showInTray")}
+        />
+        <Switch
+          checked={settings.sendUsageStats}
+          onChange={(sendUsageStats) => onChange({ sendUsageStats })}
+          label={t("settings.general.usageStats")}
+          help={
+            <>
+              {t("settings.general.usageStats.help")}{" "}
+              <ExternalLink url={PRIVACY_URL} system={services?.system}>
+                {t("common.privacyPolicy")}
+              </ExternalLink>
+            </>
+          }
+        />
+        <Switch
+          checked={settings.checkUpdates}
+          onChange={(checkUpdates) => onChange({ checkUpdates })}
+          label={t("settings.general.checkUpdates")}
+        />
+      </Group>
 
       <Group title={t("settings.general.storage")}>
         <Switch
@@ -113,9 +113,11 @@ export function GeneralPage({
 
       {services?.runOnboarding ? (
         <Group title={t("settings.general.setup")}>
-          <Button onClick={services.runOnboarding}>{t("settings.general.runSetupAgain")}</Button>
+          <Row label={t("settings.general.setup")} help={t("settings.general.setup.help")}>
+            <Button onClick={services.runOnboarding}>{t("settings.general.runSetupAgain")}</Button>
+          </Row>
         </Group>
       ) : null}
-    </div>
+    </Page>
   );
 }

@@ -74,7 +74,7 @@ describe("settings type mapping", () => {
   it("round-trips main → renderer → patch → main", () => {
     const main = {
       ...mainDefaults,
-      theme: "dark" as const,
+      theme: "light" as const,
       shortcuts: { "editor.save": "Meta+S" },
     };
     const state = fromMainSettings(main);
@@ -109,13 +109,13 @@ describe("settings type mapping", () => {
 describe("createAppSettingsStore", () => {
   it("loads from settings:get and becomes ready", async () => {
     const { transport } = fakeTransport();
-    vi.mocked(transport.get).mockResolvedValueOnce({ ...mainDefaults, theme: "dark" });
+    vi.mocked(transport.get).mockResolvedValueOnce({ ...mainDefaults, theme: "light" });
     const store = createAppSettingsStore(transport);
     const p = store.getState().init();
     expect(store.getState().status).toBe("loading");
     await p;
     expect(store.getState().status).toBe("ready");
-    expect(store.getState().settings.theme).toBe("dark");
+    expect(store.getState().settings.theme).toBe("light");
     expect(store.getState().settings).not.toHaveProperty("schemaVersion");
     // Idempotent.
     await store.getState().init();
@@ -150,13 +150,13 @@ describe("createAppSettingsStore", () => {
     const { transport, sets } = fakeTransport();
     const store = createAppSettingsStore(transport);
     await store.getState().init();
-    const p = store.getState().patch({ theme: "dark" });
-    expect(store.getState().settings.theme).toBe("dark");
-    expect(store.getState().confirmed.theme).toBe("system");
-    expect(transport.set).toHaveBeenCalledWith({ theme: "dark" });
-    sets[0]?.resolve(okWith({ theme: "dark" }));
-    expect(await p).toEqual({ ok: true });
+    const p = store.getState().patch({ theme: "light" });
+    expect(store.getState().settings.theme).toBe("light");
     expect(store.getState().confirmed.theme).toBe("dark");
+    expect(transport.set).toHaveBeenCalledWith({ theme: "light" });
+    sets[0]?.resolve(okWith({ theme: "light" }));
+    expect(await p).toEqual({ ok: true });
+    expect(store.getState().confirmed.theme).toBe("light");
     expect(store.getState().pending).toHaveLength(0);
   });
 
@@ -192,15 +192,15 @@ describe("createAppSettingsStore", () => {
     const { transport, sets } = fakeTransport();
     const store = createAppSettingsStore(transport);
     await store.getState().init();
-    const first = store.getState().patch({ theme: "dark" });
+    const first = store.getState().patch({ theme: "light" });
     const second = store.getState().patch({ density: "compact" });
-    expect(store.getState().settings).toMatchObject({ theme: "dark", density: "compact" });
+    expect(store.getState().settings).toMatchObject({ theme: "light", density: "compact" });
     sets[0]?.resolve({ ok: false, error: { code: "INVALID_PATCH", message: "x" } });
     await first;
-    expect(store.getState().settings).toMatchObject({ theme: "system", density: "compact" });
+    expect(store.getState().settings).toMatchObject({ theme: "dark", density: "compact" });
     sets[1]?.resolve(okWith({ density: "compact" }));
     await second;
-    expect(store.getState().settings).toMatchObject({ theme: "system", density: "compact" });
+    expect(store.getState().settings).toMatchObject({ theme: "dark", density: "compact" });
   });
 
   it("follows settings:changed from other windows without losing pending edits", async () => {
@@ -224,11 +224,11 @@ describe("createAppSettingsStore", () => {
 
   it("reset adopts main's defaults; dispose unsubscribes", async () => {
     const { transport, emit, listeners } = fakeTransport();
-    const store = createAppSettingsStore(transport, { ...sampleSettings, theme: "dark" });
+    const store = createAppSettingsStore(transport, { ...sampleSettings, theme: "light" });
     await store.getState().init();
-    emit({ ...mainDefaults, theme: "dark" });
+    emit({ ...mainDefaults, theme: "light" });
     expect(await store.getState().reset()).toEqual({ ok: true });
-    expect(store.getState().settings.theme).toBe("system");
+    expect(store.getState().settings.theme).toBe("dark");
     store.getState().dispose();
     expect(listeners.size).toBe(0);
   });

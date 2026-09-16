@@ -368,17 +368,18 @@ describe("Shortcuts page", () => {
 describe("Appearance page", () => {
   it("patches theme, accent, density and reduce motion", () => {
     const { onChange } = setup({ section: "appearance" });
-    fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
-    expect(onChange).toHaveBeenCalledWith({ theme: "dark" });
+    // Dark is the default (the canonical theme), so pick Light to see a patch.
+    fireEvent.click(screen.getByRole("radio", { name: "Light" }));
+    expect(onChange).toHaveBeenCalledWith({ theme: "light" });
     const swatches = screen.getByRole("radiogroup", { name: "Accent color" });
     expect(within(swatches).getAllByRole("radio")).toHaveLength(6);
-    expect(within(swatches).getByRole("radio", { name: "Indigo" })).toHaveAttribute(
+    expect(within(swatches).getByRole("radio", { name: "Terracotta" })).toHaveAttribute(
       "aria-checked",
       "true",
     );
     fireEvent.click(within(swatches).getByRole("radio", { name: "Pink" }));
     expect(onChange).toHaveBeenCalledWith({ accentColor: "pink" });
-    fireEvent.click(screen.getByRole("radio", { name: "Compact" }));
+    fireEvent.change(screen.getByLabelText("UI density"), { target: { value: "compact" } });
     expect(onChange).toHaveBeenCalledWith({ density: "compact" });
     fireEvent.click(screen.getByRole("switch", { name: "Reduce motion" }));
     expect(onChange).toHaveBeenCalledWith({ reduceMotion: true });

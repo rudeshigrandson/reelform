@@ -6,7 +6,7 @@ import {
   ExternalLink,
   Group,
   NumberField,
-  PageHeading,
+  Page,
   Row,
   Select,
   type SelectOption,
@@ -97,6 +97,7 @@ function deviceOptions(
   return { options, hiddenLabels };
 }
 
+/** S24/01 — capture card (source, rate, devices, countdown) + toggle/limits card. */
 export function RecordingPage({ settings, onChange, services }: SettingsProps) {
   const t = useT();
   const devices = useDeviceList(services?.enumerateDevices);
@@ -115,28 +116,29 @@ export function RecordingPage({ settings, onChange, services }: SettingsProps) {
   const notYet = t("common.notAvailableYet");
 
   return (
-    <div>
-      <PageHeading>{t("settings.section.recording")}</PageHeading>
+    <Page title={t("settings.section.recording")}>
+      <Group title={t("settings.recording.capture")}>
+        <Row
+          label={t("settings.recording.defaultSource")}
+          help={t("settings.recording.defaultSource.help")}
+        >
+          <Segmented<DefaultSource>
+            name="settings-source"
+            value={settings.defaultSource}
+            options={sourceOptions}
+            onChange={(defaultSource) => onChange({ defaultSource })}
+          />
+        </Row>
+        <Row label={t("settings.recording.defaultFps")}>
+          <Segmented<`${Fps}`>
+            name="settings-fps"
+            className="rf-seg-wide"
+            value={`${settings.defaultFps}`}
+            options={FPS_OPTIONS}
+            onChange={(v) => onChange({ defaultFps: Number(v) as Fps })}
+          />
+        </Row>
 
-      <Row label={t("settings.recording.defaultSource")}>
-        <Segmented<DefaultSource>
-          name="settings-source"
-          value={settings.defaultSource}
-          options={sourceOptions}
-          onChange={(defaultSource) => onChange({ defaultSource })}
-        />
-      </Row>
-
-      <Row label={t("settings.recording.defaultFps")}>
-        <Segmented<`${Fps}`>
-          name="settings-fps"
-          value={`${settings.defaultFps}`}
-          options={FPS_OPTIONS}
-          onChange={(v) => onChange({ defaultFps: Number(v) as Fps })}
-        />
-      </Row>
-
-      <Group title={t("settings.recording.devices")}>
         {devices.status === "loading" ? (
           <StatusText>{t("settings.recording.devices.loading")}</StatusText>
         ) : null}
@@ -170,18 +172,17 @@ export function RecordingPage({ settings, onChange, services }: SettingsProps) {
           onChange={(defaultSystemAudio) => onChange({ defaultSystemAudio })}
           label={t("settings.recording.systemAudio")}
         />
+        <Row label={t("settings.recording.defaultCountdown")}>
+          <Segmented<`${Countdown}`>
+            name="settings-countdown"
+            value={`${settings.defaultCountdown}`}
+            options={countdownOptions}
+            onChange={(v) => onChange({ defaultCountdown: Number(v) as Countdown })}
+          />
+        </Row>
       </Group>
 
-      <Row label={t("settings.recording.defaultCountdown")}>
-        <Segmented<`${Countdown}`>
-          name="settings-countdown"
-          value={`${settings.defaultCountdown}`}
-          options={countdownOptions}
-          onChange={(v) => onChange({ defaultCountdown: Number(v) as Countdown })}
-        />
-      </Row>
-
-      <Group title={t("settings.recording.whileRecording")}>
+      <Group title={t("settings.recording.whileRecording")} dense>
         <Switch
           checked={settings.hideHudWhileRecording}
           onChange={(hideHudWhileRecording) => onChange({ hideHudWhileRecording })}
@@ -226,13 +227,10 @@ export function RecordingPage({ settings, onChange, services }: SettingsProps) {
             </>
           }
         />
-      </Group>
-
-      <Group title={t("settings.recording.files")}>
         <Switch
           checked={settings.autoDeleteRawAfterExport}
           onChange={(autoDeleteRawAfterExport) => onChange({ autoDeleteRawAfterExport })}
-          label="Auto-delete raw recordings after export (keep project)"
+          label={t("settings.recording.autoDeleteRaw")}
         />
         <NumberField
           label={t("settings.recording.maxLength")}
@@ -253,6 +251,6 @@ export function RecordingPage({ settings, onChange, services }: SettingsProps) {
           onChange={(diskWarningThresholdGb) => onChange({ diskWarningThresholdGb })}
         />
       </Group>
-    </div>
+    </Page>
   );
 }

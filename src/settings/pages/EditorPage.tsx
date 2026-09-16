@@ -2,15 +2,7 @@ import { Segmented } from "@design/components";
 import type { SegmentedOption } from "@design/components";
 import { useId } from "react";
 import { type MessageKey, useT } from "../../i18n";
-import {
-  NumberField,
-  PageHeading,
-  Row,
-  Select,
-  type SelectOption,
-  Switch,
-  labelStyle,
-} from "../controls";
+import { Group, NumberField, Page, Row, Select, type SelectOption, Switch } from "../controls";
 import type { DefaultAspect, PreviewQuality, SettingsProps } from "../types";
 
 /** Built-in frame preset ids (src/editor/inspector/frame BUILT_IN_FRAME_PRESETS). */
@@ -67,91 +59,90 @@ export function EditorPage({ settings, onChange }: SettingsProps) {
     ...ASPECTS.map((a) => ({ value: a, label: a })),
   ];
   const qualityOptions = QUALITY_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }));
+  const sensitivity = Math.round(settings.autoZoomSensitivity * 100);
 
   return (
-    <div>
-      <PageHeading>{t("settings.section.editor")}</PageHeading>
-
-      <Select
-        label={t("settings.editor.framePreset")}
-        value={settings.defaultFramePreset}
-        options={presets}
-        onChange={(defaultFramePreset) => onChange({ defaultFramePreset })}
-      />
-
-      <Row label={t("settings.editor.aspect")}>
-        <Segmented<DefaultAspect>
-          name="settings-aspect"
-          value={settings.defaultAspect}
-          options={aspectOptions}
-          onChange={(defaultAspect) => onChange({ defaultAspect })}
+    <Page title={t("settings.section.editor")}>
+      <Group title={t("settings.editor.defaults")}>
+        <Select
+          label={t("settings.editor.framePreset")}
+          value={settings.defaultFramePreset}
+          options={presets}
+          onChange={(defaultFramePreset) => onChange({ defaultFramePreset })}
         />
-      </Row>
-
-      <Select
-        label={t("settings.editor.autosave")}
-        value={String(settings.autosaveIntervalSec)}
-        options={autosave}
-        onChange={(v) => onChange({ autosaveIntervalSec: Number(v) })}
-      />
-
-      <Row label={t("settings.editor.previewQuality")}>
-        <Segmented<PreviewQuality>
-          name="settings-preview-quality"
-          value={settings.previewQuality}
-          options={qualityOptions}
-          onChange={(previewQuality) => onChange({ previewQuality })}
+        <Row label={t("settings.editor.aspect")}>
+          <Segmented<DefaultAspect>
+            name="settings-aspect"
+            value={settings.defaultAspect}
+            options={aspectOptions}
+            onChange={(defaultAspect) => onChange({ defaultAspect })}
+          />
+        </Row>
+        <Select
+          label={t("settings.editor.autosave")}
+          value={String(settings.autosaveIntervalSec)}
+          options={autosave}
+          onChange={(v) => onChange({ autosaveIntervalSec: Number(v) })}
         />
-      </Row>
+        <Row label={t("settings.editor.previewQuality")}>
+          <Segmented<PreviewQuality>
+            name="settings-preview-quality"
+            value={settings.previewQuality}
+            options={qualityOptions}
+            onChange={(previewQuality) => onChange({ previewQuality })}
+          />
+        </Row>
+      </Group>
 
-      <Switch
-        checked={settings.autoZoomOnNewRecording}
-        onChange={(autoZoomOnNewRecording) => onChange({ autoZoomOnNewRecording })}
-        label={t("settings.editor.autoZoom")}
-      />
-      <Row>
-        <label htmlFor={sliderId} style={labelStyle}>
-          {t("settings.editor.autoZoomSensitivity")}
-        </label>
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+      <Group title={t("settings.editor.editing")}>
+        <Switch
+          checked={settings.autoZoomOnNewRecording}
+          onChange={(autoZoomOnNewRecording) => onChange({ autoZoomOnNewRecording })}
+          label={t("settings.editor.autoZoom")}
+        />
+        <Row
+          label={t("settings.editor.autoZoomSensitivity")}
+          htmlFor={sliderId}
+          disabled={!settings.autoZoomOnNewRecording}
+        >
           <input
             id={sliderId}
             type="range"
+            className="rf-set-range"
             min={0}
             max={1}
             step={0.05}
             value={settings.autoZoomSensitivity}
             disabled={!settings.autoZoomOnNewRecording}
             onChange={(e) => onChange({ autoZoomSensitivity: Number(e.target.value) })}
-            style={{ maxWidth: "240px", flex: 1, accentColor: "var(--accent)" }}
+            style={{
+              background: `linear-gradient(to right, var(--accent) ${sensitivity}%, var(--bg-panel-raised) ${sensitivity}%)`,
+            }}
           />
-          <span
-            style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem", color: "var(--text-2)" }}
-          >
-            {Math.round(settings.autoZoomSensitivity * 100)}%
+          <span className="rf-set-value" style={{ minWidth: "36px", textAlign: "right" }}>
+            {sensitivity}%
           </span>
-        </div>
-      </Row>
-
-      <Switch
-        checked={settings.snapByDefault}
-        onChange={(snapByDefault) => onChange({ snapByDefault })}
-        label={t("settings.editor.snap")}
-      />
-      <Switch
-        checked={settings.inspectorAutoSwitch}
-        onChange={(inspectorAutoSwitch) => onChange({ inspectorAutoSwitch })}
-        label={t("settings.editor.inspectorAutoSwitch")}
-      />
-      <NumberField
-        label={t("settings.editor.undoHistory")}
-        value={settings.undoHistorySize}
-        min={10}
-        max={1000}
-        integer
-        suffix={t("settings.editor.steps")}
-        onChange={(undoHistorySize) => onChange({ undoHistorySize })}
-      />
-    </div>
+        </Row>
+        <Switch
+          checked={settings.snapByDefault}
+          onChange={(snapByDefault) => onChange({ snapByDefault })}
+          label={t("settings.editor.snap")}
+        />
+        <Switch
+          checked={settings.inspectorAutoSwitch}
+          onChange={(inspectorAutoSwitch) => onChange({ inspectorAutoSwitch })}
+          label={t("settings.editor.inspectorAutoSwitch")}
+        />
+        <NumberField
+          label={t("settings.editor.undoHistory")}
+          value={settings.undoHistorySize}
+          min={10}
+          max={1000}
+          integer
+          suffix={t("settings.editor.steps")}
+          onChange={(undoHistorySize) => onChange({ undoHistorySize })}
+        />
+      </Group>
+    </Page>
   );
 }

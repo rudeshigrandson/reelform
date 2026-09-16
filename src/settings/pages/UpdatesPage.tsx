@@ -1,7 +1,7 @@
 import { Button, Segmented } from "@design/components";
 import { useState } from "react";
 import { type MessageKey, type Translate, createTranslator, useT } from "../../i18n";
-import { PageHeading, Row, StatusText } from "../controls";
+import { Page, StatusText } from "../controls";
 import { releaseNotesToText } from "../releaseNotes";
 import type { SettingsProps, UpdateChannel, UpdaterState } from "../types";
 
@@ -46,31 +46,19 @@ export function ReleaseNotes({ html, version }: { html: string | null; version: 
   const lines = releaseNotesToText(html);
   if (lines.length === 0) return null;
   return (
-    <details style={{ marginBottom: "var(--space-5)" }}>
-      <summary style={{ cursor: "pointer", color: "var(--text-2)" }}>
-        {t("settings.updates.releaseNotes", { version })}
-      </summary>
-      <div
-        style={{
-          marginTop: "var(--space-2)",
-          padding: "var(--space-3)",
-          background: "var(--bg-sunken)",
-          borderRadius: "var(--radius-md)",
-          maxHeight: "220px",
-          overflowY: "auto",
-        }}
-      >
+    <details className="rf-set-card rf-set-details">
+      <summary className="rf-set-row">{t("settings.updates.releaseNotes", { version })}</summary>
+      <div className="rf-set-notes">
         {lines.map((line, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: static text lines, never reordered
-          <p key={i} style={{ margin: "0 0 var(--space-1)", fontSize: "0.85rem" }}>
-            {line}
-          </p>
+          <p key={i}>· {line}</p>
         ))}
       </div>
     </details>
   );
 }
 
+/** S24/06 — compact panel: version + status line, channel track, restart pill. */
 export function UpdatesPage({
   settings,
   onChange,
@@ -99,29 +87,19 @@ export function UpdatesPage({
   const inFlight = state?.phase === "checking" || state?.phase === "downloading";
 
   return (
-    <div>
-      <PageHeading>{t("settings.section.updates")}</PageHeading>
+    <Page title={t("settings.section.updates")}>
+      <section aria-label={t("settings.section.updates")} className="rf-set-panel">
+        <div className="rf-set-panel-title">
+          <span>{t("settings.updates.currentVersion")}</span>
+          <span className="rf-set-value">{version ?? t("common.unknown")}</span>
+        </div>
 
-      <Row label={t("settings.updates.currentVersion")}>
-        <span style={{ fontFamily: "var(--font-mono)" }}>{version ?? t("common.unknown")}</span>
-      </Row>
-
-      <Row label={t("settings.updates.channel")} help={t("settings.updates.channel.help")}>
-        <Segmented<UpdateChannel>
-          name="settings-update-channel"
-          value={settings.updateChannel}
-          options={CHANNEL_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
-          onChange={(updateChannel) => onChange({ updateChannel })}
-        />
-      </Row>
-
-      {!updater ? (
-        <StatusText>{t("settings.updates.unavailable")}</StatusText>
-      ) : state === null ? (
-        <StatusText>{t("settings.updates.loading")}</StatusText>
-      ) : (
-        <>
-          <Row>
+        {!updater ? (
+          <StatusText>{t("settings.updates.unavailable")}</StatusText>
+        ) : state === null ? (
+          <StatusText>{t("settings.updates.loading")}</StatusText>
+        ) : (
+          <>
             <StatusText
               tone={
                 state.phase === "error"
@@ -135,15 +113,32 @@ export function UpdatesPage({
             </StatusText>
             {state.phase === "downloading" ? (
               <progress
+                className="rf-set-progress"
                 max={100}
                 value={state.progress?.percent ?? 0}
                 aria-label={t("settings.updates.downloadProgress")}
-                style={{ width: "100%", maxWidth: "320px", accentColor: "var(--accent)" }}
               />
             ) : null}
-          </Row>
-          <div style={{ display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-5)" }}>
+          </>
+        )}
+
+        <div className="rf-set-fit">
+          <Segmented<UpdateChannel>
+            name="settings-update-channel"
+            className="rf-seg-fit"
+            value={settings.updateChannel}
+            options={CHANNEL_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
+            onChange={(updateChannel) => onChange({ updateChannel })}
+          />
+        </div>
+        <p className="rf-set-help">
+          {t("settings.updates.channel")} · {t("settings.updates.channel.help")}
+        </p>
+
+        {updater && state !== null ? (
+          <>
             <Button
+              className="rf-set-btn-sm rf-set-fit"
               disabled={busy !== null || inFlight}
               onClick={() => void run("check", updater.check)}
             >
@@ -153,20 +148,21 @@ export function UpdatesPage({
             </Button>
             {state.phase === "downloaded" ? (
               <Button
-                variant="primary"
+                className="rf-set-restart"
                 disabled={busy !== null}
                 onClick={() => void run("restart", updater.restart)}
               >
                 {t("settings.updates.restart")}
               </Button>
             ) : null}
-          </div>
-          {actionError ? <StatusText tone="danger">{actionError}</StatusText> : null}
-          {state.info ? (
-            <ReleaseNotes html={state.info.releaseNotes} version={state.info.version} />
-          ) : null}
-        </>
-      )}
-    </div>
+            {actionError ? <StatusText tone="danger">{actionError}</StatusText> : null}
+          </>
+        ) : null}
+      </section>
+
+      {state?.info ? (
+        <ReleaseNotes html={state.info.releaseNotes} version={state.info.version} />
+      ) : null}
+    </Page>
   );
 }
