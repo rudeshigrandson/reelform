@@ -16,7 +16,7 @@ describe("Launcher", () => {
 
   it("highlights a source when selected", () => {
     render(<Launcher {...sampleLauncherProps} />);
-    const listbox = screen.getByRole("listbox", { name: /capturable sources/i });
+    const listbox = screen.getByRole("group", { name: /capturable sources/i });
     const cards = within(listbox).getAllByRole("button");
     // First source is selected by default.
     expect(cards[0]).toHaveAttribute("aria-pressed", "true");
@@ -44,7 +44,7 @@ describe("Launcher", () => {
     render(<Launcher {...sampleLauncherProps} onStart={onStart} />);
 
     // Select the second source, then record.
-    const listbox = screen.getByRole("listbox", { name: /capturable sources/i });
+    const listbox = screen.getByRole("group", { name: /capturable sources/i });
     const cards = within(listbox).getAllByRole("button");
     fireEvent.click(cards[1] as HTMLElement);
 
@@ -63,7 +63,7 @@ describe("Launcher", () => {
   it("keeps the selection across a source refresh and falls back when it disappears", () => {
     const onStart = vi.fn();
     const { rerender } = render(<Launcher {...sampleLauncherProps} onStart={onStart} />);
-    const cards = within(screen.getByRole("listbox")).getAllByRole("button");
+    const cards = within(screen.getByRole("group")).getAllByRole("button");
     fireEvent.click(cards[1] as HTMLElement);
     rerender(
       <Launcher
@@ -211,7 +211,7 @@ describe("Launcher — reduce motion", () => {
 
   it("source cards animate the selection outline unless motion is reduced", () => {
     const { unmount } = render(<Launcher {...sampleLauncherProps} />);
-    const listbox = () => screen.getByRole("listbox", { name: /capturable sources/i });
+    const listbox = () => screen.getByRole("group", { name: /capturable sources/i });
     const card = () => within(listbox()).getAllByRole("button")[0] as HTMLElement;
     expect(card().style.transition).toContain("outline-color");
     unmount();

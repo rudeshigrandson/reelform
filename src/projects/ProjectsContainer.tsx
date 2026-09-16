@@ -1,6 +1,5 @@
 import type { ResponseOf } from "@contracts";
-import { Button, Dialog, Input, Segmented } from "@design/components";
-import type { SegmentedOption } from "@design/components";
+import { Button } from "@design/components";
 import {
   type CSSProperties,
   type ReactElement,
@@ -13,9 +12,10 @@ import { type ProjectInvoke, toIpcErrorShape } from "../app/project/openProject"
 import { ProjectBrowser } from "./ProjectBrowser";
 import { type ProjectsKey, useProjectsT } from "./i18n";
 import type { CardAction, ProjectSummary } from "./types";
+import { useProjectActions } from "./useProjectActions";
 
 /**
- * Launcher right pane (guide S04) and project browser body (S23), bound to the
+ * Launcher right pane (guide S04) and project browser (S23), bound to the
  * `project:*` channels: Recent / All / Trash, open in an editor window, rename,
  * duplicate (save as), move to trash, restore and delete forever.
  */
@@ -45,53 +45,78 @@ type Load<T> =
   | { kind: "ready"; items: T[] }
   | { kind: "error"; message: string };
 
-type NameDialog = { kind: "rename" | "duplicate"; entry: ListEntry; value: string };
-
 const paneStyle: CSSProperties = {
   display: "flex",
-  flexDirection: "column",
-  gap: "var(--space-3)",
   minHeight: "100%",
   background: "var(--bg-app)",
   color: "var(--text-1)",
   fontFamily: "var(--font-body)",
 };
 
+const mainStyle: CSSProperties = {
+  flex: "1 1 auto",
+  minWidth: 0,
+  display: "flex",
+  flexDirection: "column",
+};
+
 const bannerStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: "var(--space-3)",
-  margin: "0 var(--space-6)",
-  padding: "var(--space-2) var(--space-3)",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--danger)",
-  color: "var(--text-1)",
+  gap: "12px",
+  margin: "12px 20px 0",
+  padding: "8px 8px 8px 14px",
+  borderRadius: "12px",
+  border: "1px solid color-mix(in srgb, var(--record) 50%, transparent)",
+  color: "color-mix(in srgb, var(--record) 35%, var(--text-1))",
   background: "var(--bg-panel)",
-  fontSize: "13px",
+  fontSize: "12px",
 };
 
 const centerStyle: CSSProperties = {
   display: "block",
-  padding: "var(--space-8) var(--space-4)",
+  padding: "48px 20px",
   textAlign: "center",
-  color: "var(--text-2)",
+  fontSize: "13px",
+  color: "var(--text-3)",
+};
+
+const headingStyle: CSSProperties = {
+  fontFamily: "var(--font-heading)",
+  fontWeight: "var(--font-heading-weight)",
+  fontSize: "19px",
+  lineHeight: 1.2,
+  margin: 0,
+  color: "var(--text-1)",
 };
 
 const rowStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: "var(--space-3)",
-  padding: "var(--space-2) var(--space-3)",
-  borderBottom: "1px solid var(--border)",
+  gap: "14px",
+  padding: "10px 20px",
+  fontSize: "12px",
+  borderBottom: "1px solid color-mix(in srgb, var(--text-1) 5%, transparent)",
 };
 
-function toSummary(entry: ListEntry): ProjectSummary {
+const trashThumb: CSSProperties = {
+  width: "56px",
+  height: "32px",
+  flex: "none",
+  borderRadius: "6px",
+  background:
+    "repeating-linear-gradient(45deg, var(--bg-panel-raised) 0 6px, var(--bg-panel) 6px 12px)",
+};
+
+export function toSummary(entry: ListEntry): ProjectSummary {
   const summary: ProjectSummary = {
     id: entry.path,
     name: entry.name,
     modifiedAt: entry.modifiedAt ?? "",
     durationMs: entry.durationMs ?? 0,
   };
+  if (entry.thumbnailUrl) summary.thumbnailUrl = entry.thumbnailUrl;
+  if (typeof entry.sizeBytes === "number") summary.sizeBytes = entry.sizeBytes;
   if (entry.missing) summary.state = "missing";
   else if (entry.corrupt) summary.state = "corrupt";
   return summary;
@@ -112,10 +137,6 @@ export function ProjectsContainer({
 }: ProjectsContainerProps): ReactElement {
   const t = useProjectsT();
   const unavailable = t("projects.unavailable");
-  const viewOptions = useMemo<ReadonlyArray<SegmentedOption<ProjectsView>>>(
-    () => VIEW_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
-    [t],
-  );
   const [ownView, setOwnView] = useState<ProjectsView>("recent");
   const view = controlledView ?? ownView;
   const setView = (next: ProjectsView) => {
@@ -126,12 +147,10 @@ export function ProjectsContainer({
   const [projects, setProjects] = useState<Load<ListEntry>>({ kind: "loading" });
   const [trash, setTrash] = useState<Load<TrashEntry>>({ kind: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [nameDialog, setNameDialog] = useState<NameDialog | null>(null);
-  const [purge, setPurge] = useState<TrashEntry | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+  const actions = useProjectActions({ invoke, onChanged: reload });
+  const { busy, error: actionError, setError: setActionError } = actions;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `reloadKey` is the Retry / post-action refresh trigger.
   useEffect(() => {
@@ -173,23 +192,6 @@ export function ProjectsContainer({
   );
   const byPath = useMemo(() => new Map(entries.map((e) => [e.path, e])), [entries]);
 
-  /** Run an action; failures land in the banner, success reloads the list. */
-  const act = async (fn: () => Promise<unknown>): Promise<boolean> => {
-    setBusy(true);
-    setActionError(null);
-    try {
-      const res = await fn();
-      if (res === null) throw { code: "IPC_UNAVAILABLE", message: unavailable };
-      reload();
-      return true;
-    } catch (err) {
-      setActionError(toIpcErrorShape(err).message);
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const onOpen = (path: string) => {
     const entry = byPath.get(path);
     if (!entry) return;
@@ -211,37 +213,60 @@ export function ProjectsContainer({
   const onCardAction = (path: string, action: CardAction) => {
     const entry = byPath.get(path);
     if (!entry) return;
-    if (action === "delete") {
-      void act(() => invoke("project:moveToTrash", { path }));
-      return;
-    }
-    setNameDialog({
-      kind: action,
-      entry,
-      value:
-        action === "rename" ? entry.name : t("projects.nameDialog.copyName", { name: entry.name }),
-    });
+    if (action === "delete") void actions.moveToTrash(entry);
+    else if (action === "rename") actions.rename(entry);
+    else actions.duplicate(entry);
   };
 
-  const submitName = async () => {
-    if (!nameDialog) return;
-    const name = nameDialog.value.trim();
-    if (name === "") return;
-    const { entry, kind } = nameDialog;
-    const ok = await act(async () => {
-      if (kind === "rename") return invoke("project:rename", { path: entry.path, name });
-      const opened = await invoke("project:open", { path: entry.path });
-      if (!opened) return null;
-      return invoke("project:saveAs", { path: entry.path, document: opened.document, name });
-    });
-    if (ok) setNameDialog(null);
-  };
-
-  const header =
+  const trashCount = trash.kind === "ready" ? trash.items.length : null;
+  const sidebar =
     controlledView === undefined ? (
-      <div style={{ padding: "var(--space-4) var(--space-6) 0" }}>
-        <Segmented name="projects-view" value={view} options={viewOptions} onChange={setView} />
-      </div>
+      <nav
+        aria-label={t("projects.nav.label")}
+        style={{
+          width: "190px",
+          flex: "none",
+          display: "flex",
+          flexDirection: "column",
+          gap: "3px",
+          padding: "14px 12px",
+          borderRight: "1px solid var(--border)",
+          fontSize: "13px",
+        }}
+      >
+        {VIEW_OPTIONS.map((o) => {
+          const active = o.value === view;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setView(o.value)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "8px 12px",
+                border: 0,
+                borderRadius: "999px",
+                textAlign: "left",
+                font: "inherit",
+                cursor: "pointer",
+                background: active ? "var(--accent-soft)" : "transparent",
+                color: active ? "var(--accent-hover)" : "var(--text-2)",
+                fontWeight: active ? 600 : 400,
+              }}
+            >
+              {t(o.labelKey)}
+              {o.value === "trash" && trashCount ? (
+                <span aria-hidden="true" style={{ fontSize: "11px", color: "var(--text-3)" }}>
+                  {trashCount}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+      </nav>
     ) : null;
 
   const banner = actionError ? (
@@ -255,7 +280,7 @@ export function ProjectsContainer({
 
   const loadError = (message: string) => (
     <div role="alert" style={centerStyle}>
-      <p style={{ margin: "0 0 var(--space-3)" }}>{t("projects.loadError", { message })}</p>
+      <p style={{ margin: "0 0 12px" }}>{t("projects.loadError", { message })}</p>
       <Button variant="secondary" onClick={reload}>
         {t("projects.retry")}
       </Button>
@@ -264,56 +289,99 @@ export function ProjectsContainer({
 
   let body: ReactElement;
   if (view === "trash") {
+    let trashBody: ReactElement;
     if (trash.kind === "loading") {
-      body = <output style={centerStyle}>{t("projects.trash.loading")}</output>;
+      trashBody = <output style={centerStyle}>{t("projects.trash.loading")}</output>;
     } else if (trash.kind === "error") {
-      body = loadError(trash.message);
+      trashBody = loadError(trash.message);
     } else if (trash.items.length === 0) {
-      body = (
+      trashBody = (
         <div style={centerStyle}>
-          <h2
-            style={{ fontFamily: "var(--font-heading)", fontWeight: 400, color: "var(--text-1)" }}
-          >
+          <h2 style={{ ...headingStyle, fontSize: "20px", marginBottom: "8px" }}>
             {t("projects.trash.emptyTitle")}
           </h2>
           <p style={{ margin: 0 }}>{t("projects.trash.emptyBody")}</p>
         </div>
       );
     } else {
-      body = (
+      trashBody = (
         <ul
           aria-label={t("projects.trash.listLabel")}
-          style={{ listStyle: "none", margin: 0, padding: "0 var(--space-6)" }}
+          style={{ listStyle: "none", margin: 0, padding: 0 }}
         >
-          {trash.items.map((item) => (
-            <li key={item.path} style={rowStyle}>
-              <span style={{ flex: "1 1 auto" }}>{item.name}</span>
-              <span style={{ color: "var(--text-3)", fontSize: "12px" }}>
-                {formatDate(item.trashedAt)}
-              </span>
-              <Button
-                variant="secondary"
-                disabled={busy}
-                aria-label={t("projects.trash.restoreLabel", { name: item.name })}
-                onClick={() =>
-                  void act(() => invoke("project:restoreFromTrash", { path: item.path }))
-                }
-              >
-                {t("projects.trash.restore")}
-              </Button>
-              <Button
-                variant="ghost"
-                disabled={busy}
-                aria-label={t("projects.trash.deleteForeverLabel", { name: item.name })}
-                onClick={() => setPurge(item)}
-              >
-                {t("projects.trash.deleteForever")}
-              </Button>
-            </li>
-          ))}
+          {trash.items.map((item) => {
+            const date = formatDate(item.trashedAt);
+            return (
+              <li key={item.path} style={rowStyle}>
+                <div
+                  aria-hidden="true"
+                  style={
+                    item.thumbnailUrl
+                      ? {
+                          ...trashThumb,
+                          background: `center / cover no-repeat url("${item.thumbnailUrl}")`,
+                        }
+                      : trashThumb
+                  }
+                />
+                <span
+                  style={{
+                    flex: "1 1 auto",
+                    minWidth: 0,
+                    color: "color-mix(in srgb, var(--text-1) 70%, transparent)",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {item.name}
+                </span>
+                {date ? (
+                  <span style={{ color: "var(--text-3)", fontSize: "11px", flex: "none" }}>
+                    {t("projects.trash.trashed", { date })}
+                  </span>
+                ) : null}
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  aria-label={t("projects.trash.restoreLabel", { name: item.name })}
+                  onClick={() => void actions.restore(item)}
+                  style={{ fontSize: "11px", fontWeight: 600 }}
+                >
+                  {t("projects.trash.restore")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  aria-label={t("projects.trash.deleteForeverLabel", { name: item.name })}
+                  onClick={() => actions.deleteForever(item)}
+                  style={{ fontSize: "11px", color: "var(--text-3)" }}
+                >
+                  {t("projects.trash.deleteForever")}
+                </Button>
+              </li>
+            );
+          })}
         </ul>
       );
     }
+    body = (
+      <div style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}>
+        <div
+          style={{
+            height: "56px",
+            flex: "none",
+            display: "flex",
+            alignItems: "center",
+            padding: "0 20px",
+            borderBottom: "1px solid var(--border)",
+          }}
+        >
+          <h1 style={headingStyle}>{t("projects.view.trash")}</h1>
+        </div>
+        {trashBody}
+      </div>
+    );
   } else if (projects.kind === "loading") {
     body = <output style={centerStyle}>{t("projects.loading")}</output>;
   } else if (projects.kind === "error") {
@@ -332,80 +400,12 @@ export function ProjectsContainer({
 
   return (
     <div style={paneStyle}>
-      {header}
-      {banner}
-      {body}
-
-      <Dialog
-        open={nameDialog !== null}
-        onClose={() => setNameDialog(null)}
-        title={t(
-          nameDialog?.kind === "duplicate"
-            ? "projects.nameDialog.duplicateTitle"
-            : "projects.nameDialog.renameTitle",
-        )}
-        actions={
-          <>
-            <Button variant="ghost" onClick={() => setNameDialog(null)}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              variant="primary"
-              disabled={busy || (nameDialog?.value.trim() ?? "") === ""}
-              onClick={() => void submitName()}
-            >
-              {t(
-                nameDialog?.kind === "duplicate"
-                  ? "projects.nameDialog.duplicate"
-                  : "projects.nameDialog.rename",
-              )}
-            </Button>
-          </>
-        }
-      >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submitName();
-          }}
-        >
-          <Input
-            aria-label={t("projects.nameDialog.inputLabel")}
-            autoFocus
-            value={nameDialog?.value ?? ""}
-            onChange={(e) => {
-              const value = e.currentTarget.value;
-              setNameDialog((d) => (d ? { ...d, value } : d));
-            }}
-          />
-        </form>
-      </Dialog>
-
-      <Dialog
-        open={purge !== null}
-        onClose={() => setPurge(null)}
-        title={t("projects.purge.title")}
-        actions={
-          <>
-            <Button variant="ghost" onClick={() => setPurge(null)}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              variant="primary"
-              disabled={busy}
-              onClick={() => {
-                const target = purge;
-                setPurge(null);
-                if (target) void act(() => invoke("project:trash", { path: target.path }));
-              }}
-            >
-              {t("projects.trash.deleteForever")}
-            </Button>
-          </>
-        }
-      >
-        {purge && <p style={{ margin: 0 }}>{t("projects.purge.body", { name: purge.name })}</p>}
-      </Dialog>
+      {sidebar}
+      <div style={mainStyle}>
+        {banner}
+        <div style={{ flex: "1 1 auto", minHeight: 0 }}>{body}</div>
+      </div>
+      {actions.dialogs}
     </div>
   );
 }

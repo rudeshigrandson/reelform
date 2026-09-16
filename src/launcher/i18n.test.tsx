@@ -49,7 +49,14 @@ describe("launcher extraction", () => {
   const sources = readdirSync(__dirname)
     .filter((name) => /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name))
     .map((name) => readFileSync(join(__dirname, name), "utf8"));
-  const used = new Set(sources.flatMap((text) => [...text.matchAll(KEY_LITERAL)].map((m) => m[1])));
+  // The launcher's update strip is built by the updater (src/app/settings), so its keys count as used.
+  const keySources = [
+    ...sources,
+    readFileSync(join(__dirname, "../app/settings/updater.tsx"), "utf8"),
+  ];
+  const used = new Set(
+    keySources.flatMap((text) => [...text.matchAll(KEY_LITERAL)].map((m) => m[1])),
+  );
 
   it("every launcher key used exists in the catalog", () => {
     expect([...used].filter((k) => !((k as string) in LAUNCHER_MESSAGES))).toEqual([]);
