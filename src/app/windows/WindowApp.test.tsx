@@ -41,6 +41,7 @@ vi.mock("../settings", () => ({
     { getState: () => ({ settings: { openEditorAfterRecording: true } }) },
   ),
   useUpdater: () => ({ state: null }),
+  useLauncherUpdateNotices: () => [{ id: "update", tone: "info", message: "update ready" }],
   LauncherUpdateNotice: () => <div data-testid="update-notice" />,
   OnboardingGate: ({ children }: { children: ReactNode }) => (
     <div data-testid="onboarding-gate">{children}</div>
@@ -56,6 +57,7 @@ vi.mock("../settings", () => ({
 vi.mock("../project/ProjectEditor", () => ({
   ProjectEditor: (props: Record<string, unknown>) => {
     projectEditorProps(props);
+    if (props.projectId === "p-crash") throw new Error("editor exploded");
     return <div data-testid="project-editor">editor {String(props.projectId)}</div>;
   },
 }));
@@ -70,10 +72,6 @@ vi.mock("../export", () => ({
 
 vi.mock("../../shortcuts/ShortcutsOverlay", () => ({
   ShortcutsOverlayHost: () => <div data-testid="shortcuts-overlay" />,
-}));
-
-vi.mock("../../projects/ProjectsContainer", () => ({
-  ProjectsContainer: () => <div data-testid="projects" />,
 }));
 
 const flowDispose = vi.fn();
@@ -115,7 +113,7 @@ vi.mock("../inspector/createInspectorHost", () => ({
   createInspectorHost: vi.fn((deps: unknown) => ({ deps })),
 }));
 
-const { WindowApp, detectPlatform } = await import("./WindowApp");
+const { WindowApp, detectPlatform, hasInsetTitleBarQuery } = await import("./WindowApp");
 
 beforeEach(() => {
   projectEditorProps.mockClear();
@@ -123,12 +121,26 @@ beforeEach(() => {
 });
 
 describe("WindowApp routing", () => {
-  it("launcher: onboarding gate wraps the update notice, recorder and projects", async () => {
+  it("launcher: onboarding gate wraps the full-window launcher, which hosts the update notice", async () => {
     render(<WindowApp search="?window=launcher" />);
     const gate = await screen.findByTestId("onboarding-gate");
     expect(gate).toContainElement(screen.getByTestId("launcher"));
-    expect(gate).toContainElement(screen.getByTestId("projects"));
-    expect(gate).toContainElement(screen.getByTestId("update-notice"));
+    // The update strip goes through the launcher's notices, not a banner above it.
+    expect(screen.queryByTestId("update-notice")).toBeNull();
+    expect(launcherProps.mock.lastCall?.[0]).toMatchObject({
+      extraNotices: [{ id: "update", tone: "info" }],
+    });
+    // S04: the project shelf lives inside the launcher, not a second pane.
+    expect(screen.queryByTestId("projects")).toBeNull();
+    // No `titleBar=inset` query (Windows / Linux) → no inset strip.
+    expect(launcherProps.mock.lastCall?.[0]).toMatchObject({ insetTitleBar: false });
+  });
+
+  it("launcher: main's titleBar=inset query turns on the inset strip", async () => {
+    render(<WindowApp search="?window=launcher&titleBar=inset" />);
+    await screen.findByTestId("launcher");
+    expect(launcherProps.mock.lastCall?.[0]).toMatchObject({ insetTitleBar: true });
+    expect(hasInsetTitleBarQuery("?window=launcher&titleBar=hidden")).toBe(false);
   });
 
   it("unknown or missing window kinds fall back to the launcher", async () => {
@@ -154,6 +166,17 @@ describe("WindowApp routing", () => {
       ["documentUpdate", "metaUpdate", "platform", "system"].sort(),
     );
     expect(exportControllerProps.mock.lastCall?.[0]).toMatchObject({ open: false });
+  });
+
+  it("editor: a render crash shows a visible error screen, not a blank window", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<WindowApp search="?window=editor&projectId=p-crash" />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Something went wrong in the editor");
+    expect(alert).toHaveTextContent("editor exploded");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back to projects" })).toBeInTheDocument();
+    error.mockRestore();
   });
 
   it("editor inspector host factory is stable across re-renders", async () => {

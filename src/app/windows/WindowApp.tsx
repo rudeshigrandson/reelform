@@ -11,7 +11,6 @@ import { type History, createDocumentUpdate } from "../../editor/state";
 import type { EditorState } from "../../editor/store";
 import { I18nProvider } from "../../i18n";
 import type { LauncherDefaults } from "../../launcher/types";
-import { ProjectsContainer } from "../../projects/ProjectsContainer";
 import { browserCaptureDeps, startCapture } from "../../recording";
 import type { Platform } from "../../recording/constraints";
 import { WindowRoot } from "../../router";
@@ -20,6 +19,7 @@ import { ExportController, createIpcSystemPort as createExportSystemPort } from 
 import { createInspectorHost } from "../inspector/createInspectorHost";
 import { createMetaUpdate } from "../inspector/historyAdapters";
 import { getAppVersion, invoke } from "../ipc";
+import { EditorErrorBoundary } from "../project/EditorErrorBoundary";
 import { ProjectEditor } from "../project/ProjectEditor";
 import {
   CountdownContainer,
@@ -29,8 +29,8 @@ import {
   SourceOutlineContainer,
   type SourcesResult,
   WebcamBubbleContainer,
-  createBrowserPreRecordDeps,
   createBroadcastRecordingBus,
+  createBrowserPreRecordDeps,
   createIpcProjectPort,
   createIpcRecordingPort,
   createIpcWindowsPort,
@@ -41,10 +41,10 @@ import {
 } from "../recording";
 import {
   AppShortcutsProvider,
-  LauncherUpdateNotice,
   OnboardingGate,
   SettingsWindow,
   useAppSettings,
+  useLauncherUpdateNotices,
   useSyncedSettings,
   useUpdater,
 } from "../settings";
@@ -100,22 +100,28 @@ function useAppVersion(): string | null {
   return version;
 }
 
-const launcherLayout: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-  gap: "var(--space-4)",
-  height: "100%",
+const launcherPane: CSSProperties = {
+  flex: "1 1 auto",
   minHeight: 0,
-  padding: "var(--space-4)",
-  boxSizing: "border-box",
+  overflow: "auto",
   background: "var(--bg-app)",
   color: "var(--text-1)",
 };
 
-const paneStyle: CSSProperties = { minHeight: 0, overflow: "auto" };
+/** Main adds `titleBar=inset` to a macOS `hiddenInset` window's URL (never on Windows/Linux). */
+export function hasInsetTitleBarQuery(search: string): boolean {
+  return new URLSearchParams(search).get("titleBar") === "inset";
+}
 
-function LauncherWindow({ appVersion }: { appVersion: string }): ReactElement {
+function LauncherWindow({
+  appVersion,
+  insetTitleBar,
+}: {
+  appVersion: string;
+  insetTitleBar: boolean;
+}): ReactElement {
   const updater = useUpdater();
+  const updateNotices = useLauncherUpdateNotices(updater);
   const defaults = useRecordingDefaults();
   const deps = useMemo(() => {
     const port = createIpcRecordingPort();
@@ -163,27 +169,34 @@ function LauncherWindow({ appVersion }: { appVersion: string }): ReactElement {
   return (
     <OnboardingGate appVersion={appVersion}>
       <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-        <LauncherUpdateNotice updater={updater} />
-        <div style={launcherLayout}>
-          <div style={paneStyle}>
-            <LauncherContainer
-              flow={deps.flow}
-              port={deps.port}
-              enumerateDevices={() => navigator.mediaDevices.enumerateDevices()}
-              platform={PLATFORM}
-              system={deps.system}
-              defaults={defaults}
-              onSources={deps.setSources}
-              onOpenSettings={() => void invoke("windows:openSettings", undefined)}
-            />
-          </div>
-          <div style={paneStyle}>
-            <ProjectsContainer invoke={invoke} onNewRecording={() => {}} />
-          </div>
+        {/* S04: the launcher owns the whole window — sidebar + project shelf. The
+            update strip is one of its notices, so it sits inside the inset title bar. */}
+        <div style={launcherPane}>
+          <LauncherContainer
+            flow={deps.flow}
+            port={deps.port}
+            enumerateDevices={() => navigator.mediaDevices.enumerateDevices()}
+            platform={PLATFORM}
+            system={deps.system}
+            defaults={defaults}
+            onSources={deps.setSources}
+            onOpenSettings={() => void invoke("windows:openSettings", undefined)}
+            projectInvoke={invoke}
+            version={appVersion}
+            insetTitleBar={insetTitleBar}
+            extraNotices={updateNotices}
+          />
         </div>
       </div>
     </OnboardingGate>
   );
+}
+
+/** Error screen "Back to projects": bring up the launcher, then close this editor. */
+function editorBackToProjects(): void {
+  void invoke("windows:openLauncher", undefined)
+    .catch(() => null)
+    .finally(() => window.close());
 }
 
 function EditorRoute({ projectId }: { projectId: string }): ReactElement {
@@ -297,12 +310,24 @@ export function WindowApp({ search }: WindowAppProps): ReactElement {
       renderers={{
         launcher: () => (
           <WithSettings>
-            {appVersion === null ? <div /> : <LauncherWindow appVersion={appVersion} />}
+            {appVersion === null ? (
+              <div />
+            ) : (
+              <LauncherWindow
+                appVersion={appVersion}
+                insetTitleBar={hasInsetTitleBarQuery(
+                  search ?? (typeof window === "undefined" ? "" : window.location.search),
+                )}
+              />
+            )}
           </WithSettings>
         ),
         editor: (route) => (
           <WithSettings>
-            <EditorRoute projectId={route.projectId} />
+            {/* A render error must never leave the editor window blank. */}
+            <EditorErrorBoundary onBack={editorBackToProjects}>
+              <EditorRoute projectId={route.projectId} />
+            </EditorErrorBoundary>
           </WithSettings>
         ),
         settings: () => (
